@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { achievements, coinTransactions, examAttempts, goalMilestones, goals, habitCompletions, lessonProgress, lessons, notes, pomodoroSessions, rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, subjects, tasks, userAchievements, users, chapters, exams, notebooks } from "../drizzle/schema";
-import { completeExamAttempt, completeLesson, completeTask, createChapter, createExam, createLesson, createSubject, createTask, getActiveCycle, getDb, listAchievements, listExams, listStudyPlan, listTasks, purchaseReward } from "./db";
+import { achievements, coinTransactions, examAttempts, goalMilestones, goals, habitCompletions, lessonProgress, lessons, notes, pomodoroSessions, rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks, userAchievements, users, chapters, exams, notebooks } from "../drizzle/schema";
+import { completeExamAttempt, completeLesson, completeTask, createChapter, createExam, createLesson, createSubject, createTask, createVideoNote, endVideoSession, getActiveCycle, getDb, listAchievements, listExams, listStudyPlan, listTasks, listVideoSessions, purchaseReward, startVideoSession, updateVideoNote, deleteVideoNote } from "./db";
 
 const enabled = Boolean(process.env.DATABASE_URL);
 const suite = enabled ? describe : describe.skip;
@@ -40,6 +40,24 @@ suite("database-backed Seif Study OS business flows", () => {
     const duplicateCompletion = await completeTask(userId, task!.id);
     expect(firstCompletion.awarded).toBe(true);
     expect(duplicateCompletion).toMatchObject({ alreadyCompleted: true, awarded: false });
+  }, 30_000);
+
+  it("persists watched-video history and per-video note CRUD through real persistence", async () => {
+    const video = await startVideoSession(userId, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    expect(video).toBeTruthy();
+    await createVideoNote(userId, { sessionId: video!.id, title: "First insight", content: "مفهوم مهم من المحاضرة", timestampSeconds: 42 });
+    const history = await listVideoSessions(userId);
+    const stored = history.find(item => item.id === video!.id);
+    expect(stored?.notes).toHaveLength(1);
+    expect(stored?.notes[0]).toMatchObject({ title: "First insight", timestampSeconds: 42 });
+    const noteId = stored!.notes[0]!.id;
+    await updateVideoNote(userId, noteId, { title: "Updated insight", content: "تم تحديث الملاحظة", timestampSeconds: 55 });
+    const updated = (await listVideoSessions(userId)).find(item => item.id === video!.id);
+    expect(updated?.notes[0]).toMatchObject({ title: "Updated insight", content: "تم تحديث الملاحظة", timestampSeconds: 55 });
+    await deleteVideoNote(userId, noteId);
+    expect((await listVideoSessions(userId)).find(item => item.id === video!.id)?.notes).toHaveLength(0);
+    await endVideoSession(userId, video!.id);
+    expect((await listVideoSessions(userId)).find(item => item.id === video!.id)?.phase).toBe("completed");
   }, 30_000);
 
   it("persists achievement unlocks and a bounded exam-comprehension result through real business functions", async () => {

@@ -149,6 +149,17 @@ export const studyVideoSessions = mysqlTable("studyVideoSessions", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => [index("studyVideoSessions_user_cycle_idx").on(table.userId, table.cycleId)]);
 
+export const videoNotes = mysqlTable("videoNotes", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  sessionId: int("sessionId").notNull().references(() => studyVideoSessions.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 220 }).notNull(),
+  content: text("content").notNull(),
+  timestampSeconds: int("timestampSeconds"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [index("videoNotes_user_session_idx").on(table.userId, table.sessionId), index("videoNotes_session_timestamp_idx").on(table.sessionId, table.timestampSeconds)]);
+
 export const exams = mysqlTable("exams", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),

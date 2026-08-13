@@ -31,3 +31,7 @@
 - [x] Add server-side owner-only access enforcement and a secure password-verification flow without storing plaintext credentials.
 - [x] Verify successful owner sign-in and rejection of unauthorized access.
 - [x] Fix study-video playback for supported sources and show clear handling for unsupported video links, including YouTube embeds and direct-media validation.
+- [x] Add persistent watched-video history with per-video notes, note editing, and history retrieval.
+- [x] Test video history and notes persistence and publish the update.
+- [x] Add a usable note editor for notes attached to completed videos from the history view.
+- [ ] Save and deliver a checkpoint after the history note editor is verified.
