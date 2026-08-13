@@ -1,5 +1,34 @@
 {
   "version": "7",
   "dialect": "mysql",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1786577154158,
+      "tag": "0000_yielding_proteus",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1786577376640,
+      "tag": "0001_fluffy_mathemanic",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1786577873566,
+      "tag": "0002_confused_miek",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1786578555354,
+      "tag": "0003_curvy_king_cobra",
+      "breakpoints": true
+    }
+  ]
 }

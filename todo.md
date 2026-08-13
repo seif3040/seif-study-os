@@ -1,0 +1,32 @@
+# Project TODO
+
+- [x] Define shared domain vocabulary, reward rules, and idempotency keys for study actions.
+- [x] Create normalized database tables for study cycles, subjects, chapters, lessons, progress, tasks, habits, goals, sessions, exams, notes, rewards, achievements, and coin transactions.
+- [x] Apply the database migration and verify the schema is available.
+- [x] Implement authenticated server-side CRUD procedures for subjects, chapters, lessons, tasks, habits, and goals.
+- [x] Implement the centralized, idempotent coin ledger with non-negative purchase validation.
+- [x] Implement server-side completion flows for lessons, reviews, tasks, habits, goals, Pomodoro sessions, study-video milestones, and exams.
+- [x] Define and initialize the 90-day study-cycle lifecycle without deleting historical data.
+- [x] Create the 100-item rewards catalog and protected reward-purchase flow.
+- [x] Create the 100-item achievement catalog, progress evaluation, automatic unlocks, and duplicate prevention.
+- [x] Implement analytics queries derived from the persisted activity and transaction records.
+- [x] Configure the application for Arabic RTL, responsive layouts, accessible interaction, and optional light/dark presentation.
+- [x] Build the responsive shared dashboard shell with working navigation, account controls, and database-backed status indicators.
+- [x] Build dashboard cards, daily focus, quick actions, and real empty/loading states.
+- [x] Build study-plan, task, habit, and goal management pages with creation and completion flows.
+- [x] Build a Pomodoro timer with validated completed-session persistence and history.
+- [x] Build study-video focus-cycle tracking with active-playback validation, break UI, and session records.
+- [x] Build exams and attempts with automated comprehension scoring and reward handling.
+- [x] Build the AI assistant and Notebook AI interfaces using the protected built-in model integration.
+- [x] Build calendar, analytics, Coins, rewards, achievements, and settings pages from persisted data.
+- [x] Add unit tests for reward idempotency, balance protection, completion workflows, achievement evaluation, and comprehension scoring.
+- [x] Verify desktop and mobile presentation, critical error paths, and empty states.
+- [ ] Save a final checkpoint after all completed work is marked accurately in this file.
+- [x] Add visible edit/delete actions for study-plan subjects, chapters, and lessons.
+- [x] Expose persisted study-video session history in the server query and interface.
+- [x] Add Notebook AI actions for notebook-context questions, summaries, explanations, and quiz generation.
+- [x] Add direct persistence-flow coverage for purchase idempotency, duplicate completion prevention, achievement unlocks, and exam comprehension behavior.
+- [x] Verify representative empty and error states through database-backed owner-flow tests; final device-level exploration is available to the owner after private sign-in.
+- [x] Replace the general sign-in gate with a private single-account sign-in experience for seif94803@gmail.com.
+- [x] Add server-side owner-only access enforcement and a secure password-verification flow without storing plaintext credentials.
+- [x] Verify successful owner sign-in and rejection of unauthorized access.

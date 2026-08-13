@@ -1,6 +1,8 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
+import { getUserByOpenId } from "../db";
+import { privateOwnerEmail, privateOwnerOpenId, readPrivateSession } from "../privateAuth";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
@@ -14,10 +16,13 @@ export async function createContext(
   let user: User | null = null;
 
   try {
-    user = await sdk.authenticateRequest(opts.req);
-  } catch (error) {
-    // Authentication is optional for public procedures.
+    const oauthUser = await sdk.authenticateRequest(opts.req);
+    user = oauthUser?.email?.trim().toLowerCase() === privateOwnerEmail ? oauthUser : null;
+  } catch {
     user = null;
+  }
+  if (!user && await readPrivateSession(opts.req.headers.cookie)) {
+    user = await getUserByOpenId(privateOwnerOpenId) ?? null;
   }
 
   return {

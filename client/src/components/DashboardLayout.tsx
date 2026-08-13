@@ -1,262 +1,30 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
-  useSidebar,
-} from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
+import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { Award, BarChart3, Bot, BookOpen, CalendarDays, CheckSquare, CircleDollarSign, Clock3, Flame, Gift, GraduationCap, LayoutDashboard, LogOut, Menu, NotebookPen, Settings, Sparkles, Timer, Trophy, Video } from "lucide-react";
 import { useLocation } from "wouter";
-import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
-import { Button } from "./ui/button";
+import { useTheme } from "@/contexts/ThemeContext";
+import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
+import { useState } from "react";
 
-const menuItems = [
-  { icon: LayoutDashboard, label: "Page 1", path: "/" },
-  { icon: Users, label: "Page 2", path: "/some-path" },
-];
+const menu = [
+  ["لوحة التحكم", "/", LayoutDashboard], ["خطة المذاكرة", "/study-plan", BookOpen], ["الامتحانات", "/exams", GraduationCap], ["الجدول اليومي", "/daily", CalendarDays], ["Pomodoro", "/pomodoro", Timer], ["فيديو المذاكرة", "/study-video", Video], ["الأهداف", "/goals", Trophy], ["العادات", "/habits", Flame], ["التحليلات", "/analytics", BarChart3], ["المساعد الذكي", "/assistant", Bot], ["Notebook AI", "/notebooks", NotebookPen], ["التقويم", "/calendar", CalendarDays], ["الإنجازات", "/achievements", Award], ["الهدايا", "/rewards", Gift], ["Coins", "/coins", CircleDollarSign], ["الإعدادات", "/settings", Settings],
+] as const;
 
-const SIDEBAR_WIDTH_KEY = "sidebar-width";
-const DEFAULT_WIDTH = 280;
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 480;
-
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
-  });
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { loading, user } = useAuth();
-
-  useEffect(() => {
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
-  }, [sidebarWidth]);
-
-  if (loading) {
-    return <DashboardLayoutSkeleton />
-  }
-
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="flex flex-col items-center gap-8 p-8 max-w-md w-full">
-          <div className="flex flex-col items-center gap-6">
-            <h1 className="text-2xl font-semibold tracking-tight text-center">
-              Sign in to continue
-            </h1>
-            <p className="text-sm text-muted-foreground text-center max-w-sm">
-              Access to this dashboard requires authentication. Continue to launch the login flow.
-            </p>
-          </div>
-          <Button
-            onClick={() => startLogin()}
-            size="lg"
-            className="w-full shadow-lg hover:shadow-xl transition-all"
-          >
-            Sign in
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <SidebarProvider
-      style={
-        {
-          "--sidebar-width": `${sidebarWidth}px`,
-        } as CSSProperties
-      }
-    >
-      <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
-        {children}
-      </DashboardLayoutContent>
-    </SidebarProvider>
-  );
+  if (loading || !user) return <SignInGate />;
+  return <StudyNavigation>{children}</StudyNavigation>;
 }
 
-type DashboardLayoutContentProps = {
-  children: React.ReactNode;
-  setSidebarWidth: (width: number) => void;
-};
+function SignInGate() { const [password, setPassword] = useState(""); const [busy, setBusy] = useState(false); const signIn = async () => { setBusy(true); try { const response = await fetch("/api/private-auth/sign-in", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ email: "seif94803@gmail.com", password }) }); const result = await response.json() as { success?: boolean; message?: string }; if (!response.ok || !result.success) { toast.error(result.message ?? "تعذّر تسجيل الدخول."); return; } window.location.reload(); } catch { toast.error("تعذّر الاتصال بخدمة تسجيل الدخول."); } finally { setBusy(false); } }; return <div className="app-shell flex min-h-screen items-center justify-center p-5"><div className="surface w-full max-w-md p-8 text-center"><div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground"><Sparkles /></div><h1 className="text-2xl font-bold">Seif Study OS</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">حساب شخصي خاص لحفظ خطة مذاكرتك، إنجازاتك، وCoins بأمان.</p><div className="mt-6 space-y-3 text-right"><label className="block text-sm font-semibold">البريد</label><Input dir="ltr" value="seif94803@gmail.com" readOnly aria-label="البريد المسموح له" /><label className="block text-sm font-semibold">كلمة المرور</label><Input dir="ltr" type="password" value={password} onChange={event => setPassword(event.target.value)} onKeyDown={event => event.key === "Enter" && signIn()} placeholder="أدخل كلمة المرور" autoComplete="current-password" /></div><Button disabled={!password || busy} onClick={signIn} className="mt-6 w-full">{busy ? "جارٍ التحقق…" : "تسجيل الدخول"}</Button></div></div>; }
 
-function DashboardLayoutContent({
-  children,
-  setSidebarWidth,
-}: DashboardLayoutContentProps) {
-  const { user, logout } = useAuth();
-  const [location, setLocation] = useLocation();
-  const { state, toggleSidebar } = useSidebar();
-  const isCollapsed = state === "collapsed";
-  const [isResizing, setIsResizing] = useState(false);
-  const sidebarRef = useRef<HTMLDivElement>(null);
-  const activeMenuItem = menuItems.find(item => item.path === location);
-  const isMobile = useIsMobile();
-
-  useEffect(() => {
-    if (isCollapsed) {
-      setIsResizing(false);
-    }
-  }, [isCollapsed]);
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing) return;
-
-      const sidebarLeft = sidebarRef.current?.getBoundingClientRect().left ?? 0;
-      const newWidth = e.clientX - sidebarLeft;
-      if (newWidth >= MIN_WIDTH && newWidth <= MAX_WIDTH) {
-        setSidebarWidth(newWidth);
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-    };
-
-    if (isResizing) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-    }
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-  }, [isResizing, setSidebarWidth]);
-
-  return (
-    <>
-      <div className="relative" ref={sidebarRef}>
-        <Sidebar
-          collapsible="icon"
-          className="border-r-0"
-          disableTransition={isResizing}
-        >
-          <SidebarHeader className="h-16 justify-center">
-            <div className="flex items-center gap-3 px-2 transition-all w-full">
-              <button
-                onClick={toggleSidebar}
-                className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0"
-                aria-label="Toggle navigation"
-              >
-                <PanelLeft className="h-4 w-4 text-muted-foreground" />
-              </button>
-              {!isCollapsed ? (
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-semibold tracking-tight truncate">
-                    Navigation
-                  </span>
-                </div>
-              ) : null}
-            </div>
-          </SidebarHeader>
-
-          <SidebarContent className="gap-0">
-            <SidebarMenu className="px-2 py-1">
-              {menuItems.map(item => {
-                const isActive = location === item.path;
-                return (
-                  <SidebarMenuItem key={item.path}>
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      onClick={() => setLocation(item.path)}
-                      tooltip={item.label}
-                      className={`h-10 transition-all font-normal`}
-                    >
-                      <item.icon
-                        className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
-                      />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarContent>
-
-          <SidebarFooter className="p-3">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Avatar className="h-9 w-9 border shrink-0">
-                    <AvatarFallback className="text-xs font-medium">
-                      {user?.name?.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-medium truncate leading-none">
-                      {user?.name || "-"}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate mt-1.5">
-                      {user?.email || "-"}
-                    </p>
-                  </div>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem
-                  onClick={logout}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Sign out</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarFooter>
-        </Sidebar>
-        <div
-          className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 transition-colors ${isCollapsed ? "hidden" : ""}`}
-          onMouseDown={() => {
-            if (isCollapsed) return;
-            setIsResizing(true);
-          }}
-          style={{ zIndex: 50 }}
-        />
-      </div>
-
-      <SidebarInset>
-        {isMobile && (
-          <div className="flex border-b h-14 items-center justify-between bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col gap-1">
-                  <span className="tracking-tight text-foreground">
-                    {activeMenuItem?.label ?? "Menu"}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        <main className="flex-1 p-4">{children}</main>
-      </SidebarInset>
-    </>
-  );
+function StudyNavigation({ children }: { children: React.ReactNode }) {
+  const { user, logout } = useAuth(); const [location, navigate] = useLocation(); const mobile = useIsMobile(); const { theme, toggleTheme } = useTheme();
+  const current = menu.find(([_, path]) => path === location)?.[0] ?? "Seif Study OS";
+  return <SidebarProvider defaultOpen><Sidebar side="right" collapsible="offcanvas" className="border-l border-sidebar-border"><SidebarHeader className="h-[76px] border-b border-sidebar-border px-4"><button onClick={() => navigate("/")} className="flex w-full items-center gap-3 text-right"><div className="flex size-10 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground shadow-lg shadow-black/10"><GraduationCap className="size-5" /></div><div><p className="font-[Manrope] text-base font-extrabold tracking-tight">SEIF STUDY OS</p><p className="text-[10px] text-sidebar-foreground/65">PERSONAL STUDY SYSTEM</p></div></button></SidebarHeader><SidebarContent className="px-3 py-4"><p className="mb-2 px-3 text-[10px] font-bold tracking-[0.13em] text-sidebar-foreground/50">مساحة العمل</p><SidebarMenu>{menu.map(([label, path, Icon]) => <SidebarMenuItem key={path}><SidebarMenuButton isActive={location === path} onClick={() => navigate(path)} className="h-10 rounded-xl text-sidebar-foreground/80 data-[active=true]:bg-sidebar-primary data-[active=true]:font-bold data-[active=true]:text-sidebar-primary-foreground"><Icon className="size-4" /><span>{label}</span></SidebarMenuButton></SidebarMenuItem>)}</SidebarMenu></SidebarContent><SidebarFooter className="border-t border-sidebar-border p-3"><button onClick={toggleTheme} className="mb-2 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-sidebar-foreground/75 hover:bg-sidebar-accent"><Clock3 className="size-4" />المظهر: {theme === "dark" ? "داكن" : "فاتح"}</button><div className="flex items-center gap-3 rounded-xl bg-sidebar-accent/70 p-2.5"><Avatar className="size-9"><AvatarFallback className="bg-sidebar-primary text-sidebar-primary-foreground">{user?.name?.slice(0, 1) ?? "S"}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{user?.name ?? "Seif"}</p><p className="truncate text-xs text-sidebar-foreground/60">طالب في طور النمو</p></div><button onClick={logout} aria-label="تسجيل الخروج" className="rounded-lg p-2 text-sidebar-foreground/65 hover:bg-black/10"><LogOut className="size-4" /></button></div></SidebarFooter></Sidebar><SidebarInset className="app-shell min-h-screen"><div className="flex h-[76px] items-center justify-between border-b border-border/70 bg-background/65 px-4 backdrop-blur-xl md:px-8"><div className="flex items-center gap-3">{mobile && <SidebarTrigger className="rounded-xl"><Menu /></SidebarTrigger>}<div><p className="text-xs text-muted-foreground">مساحة الدراسة الشخصية</p><p className="font-bold">{current}</p></div></div><div className="flex items-center gap-2"><div className="hidden items-center gap-2 rounded-xl bg-card px-3 py-2 text-sm shadow-sm sm:flex"><CheckSquare className="size-4 text-primary" /><span>ركّز على خطوة واحدة اليوم</span></div><Button variant="ghost" size="icon" onClick={() => navigate("/assistant")} className="rounded-xl"><Bot className="size-5" /></Button></div></div><main className="page-enter min-h-[calc(100vh-76px)] p-4 md:p-8">{children}</main></SidebarInset></SidebarProvider>;
 }
