@@ -30,3 +30,4 @@
 - [x] Replace the general sign-in gate with a private single-account sign-in experience for seif94803@gmail.com.
 - [x] Add server-side owner-only access enforcement and a secure password-verification flow without storing plaintext credentials.
 - [x] Verify successful owner sign-in and rejection of unauthorized access.
+- [x] Fix study-video playback for supported sources and show clear handling for unsupported video links, including YouTube embeds and direct-media validation.

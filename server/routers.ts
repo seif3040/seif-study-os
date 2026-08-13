@@ -63,6 +63,7 @@ export const appRouter = router({
     current: protectedProcedure.query(({ ctx }) => db.currentVideoSession(ctx.user.id)),
     history: protectedProcedure.query(({ ctx }) => db.listVideoSessions(ctx.user.id)),
     start: protectedProcedure.input(z.object({ videoUrl: z.string().url().max(2000) })).mutation(({ ctx, input }) => db.startVideoSession(ctx.user.id, input.videoUrl)),
+    end: protectedProcedure.input(z.object({ sessionId: id })).mutation(({ ctx, input }) => db.endVideoSession(ctx.user.id, input.sessionId)),
     heartbeat: protectedProcedure.input(z.object({ sessionId: id, active: z.boolean(), playbackPosition: z.number().min(0).max(172800).optional() })).mutation(({ ctx, input }) => db.trackVideoPlayback(ctx.user.id, input.sessionId, input)),
     resume: protectedProcedure.input(z.object({ sessionId: id })).mutation(({ ctx, input }) => db.resumeVideoSession(ctx.user.id, input.sessionId)),
   }),
