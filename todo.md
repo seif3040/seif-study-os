@@ -21,7 +21,7 @@
 - [x] Build calendar, analytics, Coins, rewards, achievements, and settings pages from persisted data.
 - [x] Add unit tests for reward idempotency, balance protection, completion workflows, achievement evaluation, and comprehension scoring.
 - [x] Verify desktop and mobile presentation, critical error paths, and empty states.
-- [ ] Save a final checkpoint after all completed work is marked accurately in this file.
+- [x] Save a final checkpoint after all completed work is marked accurately in this file.
 - [x] Add visible edit/delete actions for study-plan subjects, chapters, and lessons.
 - [x] Expose persisted study-video session history in the server query and interface.
 - [x] Add Notebook AI actions for notebook-context questions, summaries, explanations, and quiz generation.
