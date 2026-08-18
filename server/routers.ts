@@ -91,6 +91,8 @@ export const appRouter = router({
     create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(180) })).mutation(({ ctx, input }) => db.createNotebook(ctx.user.id, input.title)),
     notes: protectedProcedure.input(z.object({ notebookId: id })).query(({ ctx, input }) => db.listNotes(ctx.user.id, input.notebookId)),
     createNote: protectedProcedure.input(z.object({ notebookId: id, title: z.string().trim().min(1).max(220), content: z.string().max(30000) })).mutation(({ ctx, input }) => db.createNote(ctx.user.id, input)),
+    sources: protectedProcedure.input(z.object({ notebookId: id })).query(({ ctx, input }) => db.listNotebookSources(ctx.user.id, input.notebookId)),
+    uploadSource: protectedProcedure.input(z.object({ notebookId: id, fileName: z.string().trim().min(1).max(320), mimeType: z.enum(["text/plain", "text/markdown", "application/pdf"]), contentBase64: z.string().min(1).max(7_000_000) })).mutation(({ ctx, input }) => db.uploadNotebookSource(ctx.user.id, input)),
     ai: protectedProcedure.input(z.object({ notebookId: id, mode: z.enum(["question", "summary", "quiz", "explain"]), prompt: z.string().trim().max(2000).optional() })).mutation(({ ctx, input }) => db.notebookAI(ctx.user.id, input)),
   }),
   calendar: router({

@@ -213,6 +213,19 @@ export const notes = mysqlTable("notes", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => [index("notes_notebook_idx").on(table.notebookId)]);
 
+export const notebookSources = mysqlTable("notebookSources", {
+  id: int("id").autoincrement().primaryKey(),
+  notebookId: int("notebookId").notNull().references(() => notebooks.id, { onDelete: "cascade" }),
+  fileName: varchar("fileName", { length: 320 }).notNull(),
+  mimeType: varchar("mimeType", { length: 128 }).notNull(),
+  storageKey: varchar("storageKey", { length: 512 }).notNull(),
+  storageUrl: varchar("storageUrl", { length: 768 }).notNull(),
+  extractedText: text("extractedText"),
+  characterCount: int("characterCount").default(0).notNull(),
+  isTruncated: boolean("isTruncated").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => [index("notebookSources_notebook_idx").on(table.notebookId)]);
+
 export const flashcardDecks = mysqlTable("flashcardDecks", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),

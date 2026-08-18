@@ -48,3 +48,7 @@
 - [x] Test the study hub, timed resource flow, and responsive user experience, then publish the update.
 - [x] Replace the service-integration direction with native implementations of structured notes, document-grounded learning, study chat, flashcards, quizzes, planner, and focus features.
 - [x] Keep only timed external launchers for DW, Chess.com, and social media.
+- [x] Add source-file upload and persistent notebook document storage for supported study documents.
+- [x] Extract and store trusted source text from uploaded files for each Notebook AI workspace.
+- [x] Make summaries, question answering, and generated exams strictly grounded in uploaded source material.
+- [x] Test source-only responses, unsupported files, and source-grounded exam generation, then publish the upgrade.
