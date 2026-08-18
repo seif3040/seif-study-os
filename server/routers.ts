@@ -59,6 +59,14 @@ export const appRouter = router({
     setPaused: protectedProcedure.input(z.object({ sessionId: id, paused: z.boolean() })).mutation(({ ctx, input }) => db.pausePomodoro(ctx.user.id, input.sessionId, input.paused)),
     complete: protectedProcedure.input(z.object({ sessionId: id })).mutation(({ ctx, input }) => db.completePomodoro(ctx.user.id, input.sessionId)),
   }),
+  studySearch: router({ query: protectedProcedure.input(z.object({ query: z.string().trim().min(1).max(120) })).query(({ ctx, input }) => db.searchStudyWorkspace(ctx.user.id, input.query)) }),
+  flashcards: router({
+    list: protectedProcedure.query(({ ctx }) => db.listFlashcardDecks(ctx.user.id)),
+    createDeck: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(180), description: z.string().max(4000).optional(), color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional() })).mutation(({ ctx, input }) => db.createFlashcardDeck(ctx.user.id, input)),
+    create: protectedProcedure.input(z.object({ deckId: id, prompt: z.string().trim().min(1).max(10000), answer: z.string().trim().min(1).max(10000) })).mutation(({ ctx, input }) => db.createFlashcard(ctx.user.id, input)),
+    review: protectedProcedure.input(z.object({ cardId: id, result: z.enum(["again", "good", "mastered"]) })).mutation(({ ctx, input }) => db.reviewFlashcard(ctx.user.id, input.cardId, input.result)),
+    delete: protectedProcedure.input(z.object({ cardId: id })).mutation(({ ctx, input }) => db.deleteFlashcard(ctx.user.id, input.cardId)),
+  }),
   video: router({
     current: protectedProcedure.query(({ ctx }) => db.currentVideoSession(ctx.user.id)),
     history: protectedProcedure.query(({ ctx }) => db.listVideoSessions(ctx.user.id)),
@@ -72,7 +80,7 @@ export const appRouter = router({
   }),
   exams: router({
     list: protectedProcedure.query(({ ctx }) => db.listExams(ctx.user.id)),
-    create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), subjectId: id.optional(), chapterId: id.optional(), lessonId: id.optional(), scheduledAt: date.optional() })).mutation(({ ctx, input }) => db.createExam(ctx.user.id, input)),
+    create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), subjectId: id.optional(), chapterId: id.optional(), lessonId: id.optional(), lessonIds: z.array(id).max(250).optional(), scheduledAt: date.optional() })).mutation(({ ctx, input }) => db.createExam(ctx.user.id, input)),
     completeAttempt: protectedProcedure.input(z.object({ examId: id, totalQuestions: z.number().int().min(1).max(500), correctAnswers: z.number().int().min(0).max(500), difficulty, missedTopics: z.array(z.string().trim().min(1).max(120)).max(40) })).mutation(({ ctx, input }) => db.completeExamAttempt(ctx.user.id, input)),
   }),
   ai: router({

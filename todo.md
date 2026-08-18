@@ -34,4 +34,17 @@
 - [x] Add persistent watched-video history with per-video notes, note editing, and history retrieval.
 - [x] Test video history and notes persistence and publish the update.
 - [x] Add a usable note editor for notes attached to completed videos from the history view.
-- [ ] Save and deliver a checkpoint after the history note editor is verified.
+- [x] Save and deliver a checkpoint after the history note editor is verified.
+- [x] Add TXT and PDF export buttons for notes belonging to each watched video.
+- [x] Test downloaded export content and publish the export update.
+- [x] Diagnose and repair analytics data loading, query behavior, and chart rendering.
+- [x] Add persistent multiple-lesson coverage selection for each exam.
+- [x] Calculate and display exam readiness from completion and review of the selected lessons.
+- [x] Test the analytics repair and exam readiness workflow, then publish the update.
+- [x] Build native study workspace tools for rich notes, flashcards, quizzes, planner, and study search.
+- [x] Build a timed resource launcher for DW, Chess.com, and selected social platforms with an end-of-session reminder.
+- [x] Add an in-app AI workspace that routes existing study-assistant capabilities instead of embedding third-party chat products.
+- [x] Redesign the app using Egyptian-Arabic youthful copy, focus cues, and motivational phrases.
+- [x] Test the study hub, timed resource flow, and responsive user experience, then publish the update.
+- [x] Replace the service-integration direction with native implementations of structured notes, document-grounded learning, study chat, flashcards, quizzes, planner, and focus features.
+- [x] Keep only timed external launchers for DW, Chess.com, and social media.

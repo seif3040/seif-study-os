@@ -1,8 +1,8 @@
-import { and, count, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
-  achievements, calendarEvents, chapters, coinTransactions, examAttempts, exams, goalMilestones,
-  goals, habitCompletions, habits, lessonProgress, lessons, notebooks, notes, pomodoroSessions,
+  achievements, calendarEvents, chapters, coinTransactions, examAttempts, examLessons, exams, goalMilestones,
+  goals, habitCompletions, habits, lessonProgress, lessons, flashcardDecks, flashcards, notebooks, notes, pomodoroSessions,
   rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks,
   userAchievements, users, type InsertUser,
 } from "../drizzle/schema";
@@ -326,8 +326,8 @@ export async function resumeVideoSession(userId: number, sessionId: number) { co
 export function fallbackComprehension(score: number, difficulty: "easy" | "medium" | "hard", priorAverage: number) { return deriveFallbackComprehension(score, difficulty, priorAverage); }
 async function estimateComprehension(input: { score: number; correctAnswers: number; incorrectAnswers: number; difficulty: "easy" | "medium" | "hard"; missedTopics: string[]; priorAverage: number }) { const fallback = fallbackComprehension(input.score, input.difficulty, input.priorAverage); try { const { data } = await listLLMModels(); const model = data[0]?.id; const response = await invokeLLM({ model, messages: [{ role: "system", content: "You are a careful study analyst. Return only a JSON object with a whole-number comprehensionScore from 0 to 100. Use exam score, errors, difficulty, missed topics, and previous average. Never award coins." }, { role: "user", content: JSON.stringify(input) }], response_format: { type: "json_schema", json_schema: { name: "comprehension", strict: true, schema: { type: "object", properties: { comprehensionScore: { type: "integer", minimum: 0, maximum: 100 } }, required: ["comprehensionScore"], additionalProperties: false } } } }); const content = response.choices[0]?.message?.content; const parsed = typeof content === "string" ? JSON.parse(content) : null; return Math.max(0, Math.min(100, Number(parsed?.comprehensionScore ?? fallback))); } catch { return fallback; }
 }
-export async function listExams(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); return db.select({ exam: exams, subject: subjects.title }).from(exams).leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(and(eq(exams.userId, userId), eq(exams.cycleId, cycle.id))).orderBy(exams.scheduledAt); }
-export async function createExam(userId: number, input: { title: string; subjectId?: number; chapterId?: number; lessonId?: number; scheduledAt?: Date }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(exams).values({ userId, cycleId: cycle.id, ...input, subjectId: input.subjectId ?? null, chapterId: input.chapterId ?? null, lessonId: input.lessonId ?? null, scheduledAt: input.scheduledAt ?? null }); }
+export async function listExamsLegacy(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); return db.select({ exam: exams, subject: subjects.title }).from(exams).leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(and(eq(exams.userId, userId), eq(exams.cycleId, cycle.id))).orderBy(exams.scheduledAt); }
+export async function createExamLegacy(userId: number, input: { title: string; subjectId?: number; chapterId?: number; lessonId?: number; scheduledAt?: Date }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(exams).values({ userId, cycleId: cycle.id, ...input, subjectId: input.subjectId ?? null, chapterId: input.chapterId ?? null, lessonId: input.lessonId ?? null, scheduledAt: input.scheduledAt ?? null }); }
 export async function completeExamAttempt(userId: number, input: { examId: number; totalQuestions: number; correctAnswers: number; difficulty: "easy" | "medium" | "hard"; missedTopics: string[] }) { const db = await database(); const exam = await db.select().from(exams).where(and(eq(exams.id, input.examId), eq(exams.userId, userId))).limit(1); if (!exam[0]) throw new Error("الامتحان غير موجود."); if (input.correctAnswers > input.totalQuestions) throw new Error("عدد الإجابات الصحيحة غير صحيح."); const incorrectAnswers = input.totalQuestions - input.correctAnswers; const score = Math.round((input.correctAnswers / input.totalQuestions) * 100); const [prior] = await db.select({ average: sql<number>`coalesce(avg(${examAttempts.score}), 0)` }).from(examAttempts).where(and(eq(examAttempts.userId, userId), eq(examAttempts.cycleId, exam[0].cycleId))); const comprehensionScore = await estimateComprehension({ score, correctAnswers: input.correctAnswers, incorrectAnswers, difficulty: input.difficulty, missedTopics: input.missedTopics, priorAverage: Number(prior?.average ?? 0) }); await db.insert(examAttempts).values({ userId, cycleId: exam[0].cycleId, examId: input.examId, totalQuestions: input.totalQuestions, correctAnswers: input.correctAnswers, incorrectAnswers, score, difficulty: input.difficulty, missedTopics: input.missedTopics, comprehensionScore, completionRewarded: true }); const attempt = await db.select().from(examAttempts).where(and(eq(examAttempts.examId, input.examId), eq(examAttempts.userId, userId))).orderBy(desc(examAttempts.id)).limit(1); const ref = `examAttempt:${attempt[0].id}`; await recordStudyEvent({ userId, cycleId: exam[0].cycleId, eventType: "exam_complete", referenceId: ref }); const completion = await awardCoins({ userId, cycleId: exam[0].cycleId, amount: 15, reason: `إكمال امتحان: ${exam[0].title}`, referenceKey: `${ref}:completion` }); const bonusAmount = examBonusForComprehension(comprehensionScore); const bonus = bonusAmount ? await awardCoins({ userId, cycleId: exam[0].cycleId, amount: bonusAmount, reason: `مكافأة الاستيعاب: ${comprehensionScore}%`, referenceKey: `${ref}:comprehension` }) : { awarded: false }; return { attempt: attempt[0], score, comprehensionScore, completion, bonus, bonusAmount, unlocks: await evaluateAchievements(userId, exam[0].cycleId) }; }
 
 export async function chatWithAssistant(userId: number, messages: Array<{ role: "user" | "assistant"; content: string }>) { await getActiveCycle(userId); const response = await invokeLLM({ messages: [{ role: "system", content: "You are Seif Study OS, a focused Arabic study coach. Reply primarily in clear Modern Standard Arabic, preserving natural English technical terms. Help explain concepts, create questions, summarize, diagnose mistakes, and plan revisions. Do not offer coin rewards for chat." }, ...messages] }); return response.choices[0]?.message?.content ?? "تعذر توليد إجابة الآن."; }
@@ -347,4 +347,109 @@ export async function listAchievements(userId: number) { const db = await databa
 
 export async function coinLedger(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); const [summary, entries] = await Promise.all([getCoinSummary(db, userId, cycle.id), db.select().from(coinTransactions).where(and(eq(coinTransactions.userId, userId), eq(coinTransactions.cycleId, cycle.id))).orderBy(desc(coinTransactions.createdAt)).limit(100)]); return { cycle, summary, entries }; }
 
-export async function analytics(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); const metrics = await metricSnapshot(db, userId, cycle.id); const coins = await getCoinSummary(db, userId, cycle.id); const [daily, bySubject, completion, comprehension, purchases] = await Promise.all([db.select({ day: sql<string>`date(${studyEvents.occurredAt})`, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)`, events: count() }).from(studyEvents).where(and(eq(studyEvents.userId, userId), eq(studyEvents.cycleId, cycle.id))).groupBy(sql`date(${studyEvents.occurredAt})`).orderBy(sql`date(${studyEvents.occurredAt})`), db.select({ subject: subjects.title, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)` }).from(studyEvents).leftJoin(subjects, eq(studyEvents.subjectId, subjects.id)).where(and(eq(studyEvents.userId, userId), eq(studyEvents.cycleId, cycle.id))).groupBy(subjects.title), db.select({ open: sql<number>`coalesce(sum(case when ${tasks.status} = 'open' then 1 else 0 end), 0)`, completed: sql<number>`coalesce(sum(case when ${tasks.status} = 'completed' then 1 else 0 end), 0)` }).from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.cycleId, cycle.id))), db.select({ date: sql<string>`date(${examAttempts.createdAt})`, score: examAttempts.score, comprehension: examAttempts.comprehensionScore }).from(examAttempts).where(and(eq(examAttempts.userId, userId), eq(examAttempts.cycleId, cycle.id))).orderBy(examAttempts.createdAt), db.select({ value: count() }).from(rewardPurchases).where(and(eq(rewardPurchases.userId, userId), eq(rewardPurchases.cycleId, cycle.id)))]); return { cycle, metrics, coins, daily, bySubject, completion: completion[0] ?? { open: 0, completed: 0 }, comprehension, rewardsPurchased: Number(purchases[0]?.value ?? 0) }; }
+
+type ExamLessonInput = { title: string; chapterTitle: string; subjectTitle: string; progress: number; status: "not_started" | "in_progress" | "completed"; lastReviewedAt: Date | null };
+
+function readinessForLessons(items: ExamLessonInput[]) {
+  const total = items.length;
+  if (!total) return { score: 0, level: "أضف الدروس أولًا", completed: 0, reviewed: 0, weakLessons: [] as ExamLessonInput[] };
+  const completed = items.filter(item => item.status === "completed").length;
+  const reviewed = items.filter(item => Boolean(item.lastReviewedAt)).length;
+  const score = Math.round((completed / total) * 70 + (reviewed / total) * 30);
+  const level = score >= 85 ? "جاهز بدرجة ممتازة" : score >= 70 ? "جاهز غالبًا" : score >= 45 ? "تحتاج مراجعة مركزة" : "ابدأ بخطة مراجعة";
+  return { score, level, completed, reviewed, weakLessons: items.filter(item => item.status !== "completed" || !item.lastReviewedAt) };
+}
+
+async function scopedExamLessons(db: any, userId: number, examId: number): Promise<ExamLessonInput[]> {
+  const rows = await db.select({
+    title: lessons.title,
+    chapterTitle: chapters.title,
+    subjectTitle: subjects.title,
+    progress: lessonProgress.progress,
+    status: lessonProgress.status,
+    lastReviewedAt: lessonProgress.lastReviewedAt,
+  }).from(examLessons)
+    .innerJoin(lessons, eq(examLessons.lessonId, lessons.id))
+    .innerJoin(chapters, eq(lessons.chapterId, chapters.id))
+    .innerJoin(subjects, eq(chapters.subjectId, subjects.id))
+    .leftJoin(lessonProgress, and(eq(lessonProgress.lessonId, lessons.id), eq(lessonProgress.userId, userId)))
+    .where(and(eq(examLessons.examId, examId), eq(subjects.userId, userId)));
+  return rows.map((row: any) => ({ title: row.title, chapterTitle: row.chapterTitle, subjectTitle: row.subjectTitle, progress: Number(row.progress ?? 0), status: row.status ?? "not_started", lastReviewedAt: row.lastReviewedAt ?? null }));
+}
+
+export async function createExam(userId: number, input: { title: string; subjectId?: number; chapterId?: number; lessonId?: number; scheduledAt?: Date; lessonIds?: number[] }) {
+  const db = await database(); const cycle = await getActiveCycle(userId); const lessonIds = Array.from(new Set([...(input.lessonIds ?? []), ...(input.lessonId ? [input.lessonId] : [])]));
+  if (lessonIds.length) {
+    const owned = await db.select({ id: lessons.id }).from(lessons).innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id)).where(and(inArray(lessons.id, lessonIds), eq(subjects.userId, userId)));
+    if (owned.length !== lessonIds.length) throw new Error("اختر دروسًا موجودة ضمن خطتك فقط.");
+  }
+  await db.insert(exams).values({ userId, cycleId: cycle.id, title: input.title, subjectId: input.subjectId ?? null, chapterId: input.chapterId ?? null, lessonId: input.lessonId ?? null, scheduledAt: input.scheduledAt ?? null });
+  const created = await db.select().from(exams).where(and(eq(exams.userId, userId), eq(exams.cycleId, cycle.id), eq(exams.title, input.title))).orderBy(desc(exams.id)).limit(1);
+  if (created[0] && lessonIds.length) await db.insert(examLessons).values(lessonIds.map(lessonId => ({ examId: created[0].id, lessonId })));
+  return created[0];
+}
+
+export async function listExams(userId: number) {
+  const db = await database(); const cycle = await getActiveCycle(userId);
+  const rows = await db.select({ exam: exams, subject: subjects.title }).from(exams).leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(and(eq(exams.userId, userId), eq(exams.cycleId, cycle.id))).orderBy(exams.scheduledAt);
+  return Promise.all(rows.map(async (row: any) => { const scoped = await scopedExamLessons(db, userId, row.exam.id); return { ...row, lessons: scoped, readiness: readinessForLessons(scoped) }; }));
+}
+
+export async function analytics(userId: number) {
+  const db = await database(); const cycle = await getActiveCycle(userId); const metrics = await metricSnapshot(db, userId, cycle.id); const coins = await getCoinSummary(db, userId, cycle.id);
+  const eventDay = sql<string>`date(\`studyEvents\`.\`occurredAt\`)`;
+  const subjectName = sql<string>`coalesce(${subjects.title}, 'بدون مادة')`;
+  const [daily, bySubject, completion, comprehension, purchases] = await Promise.all([
+    db.select({ day: eventDay, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)`, events: count() }).from(studyEvents).where(and(eq(studyEvents.userId, userId), eq(studyEvents.cycleId, cycle.id))).groupBy(eventDay).orderBy(eventDay),
+    db.select({ subject: subjectName, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)` }).from(studyEvents).leftJoin(subjects, eq(studyEvents.subjectId, subjects.id)).where(and(eq(studyEvents.userId, userId), eq(studyEvents.cycleId, cycle.id))).groupBy(studyEvents.subjectId, subjectName),
+    db.select({ open: sql<number>`coalesce(sum(case when ${tasks.status} = 'open' then 1 else 0 end), 0)`, completed: sql<number>`coalesce(sum(case when ${tasks.status} = 'completed' then 1 else 0 end), 0)` }).from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.cycleId, cycle.id))),
+    db.select({ date: sql<string>`date(${examAttempts.createdAt})`, score: examAttempts.score, comprehension: examAttempts.comprehensionScore }).from(examAttempts).where(and(eq(examAttempts.userId, userId), eq(examAttempts.cycleId, cycle.id))).orderBy(examAttempts.createdAt),
+    db.select({ value: count() }).from(rewardPurchases).where(and(eq(rewardPurchases.userId, userId), eq(rewardPurchases.cycleId, cycle.id))),
+  ]);
+  return { cycle, metrics, coins, daily, bySubject, completion: completion[0] ?? { open: 0, completed: 0 }, comprehension, rewardsPurchased: Number(purchases[0]?.value ?? 0) };
+}
+
+export async function listFlashcardDecks(userId: number) {
+  const db = await database(); const cycle = await getActiveCycle(userId);
+  const decks = await db.select().from(flashcardDecks).where(and(eq(flashcardDecks.userId, userId), eq(flashcardDecks.cycleId, cycle.id))).orderBy(desc(flashcardDecks.updatedAt));
+  return Promise.all(decks.map(async deck => {
+    const cards = await db.select().from(flashcards).where(eq(flashcards.deckId, deck.id)).orderBy(desc(flashcards.updatedAt));
+    return { ...deck, cards, stats: { total: cards.length, new: cards.filter(card => card.state === "new").length, learning: cards.filter(card => card.state === "learning").length, mastered: cards.filter(card => card.state === "mastered").length } };
+  }));
+}
+
+export async function createFlashcardDeck(userId: number, input: { title: string; description?: string; color?: string }) {
+  const db = await database(); const cycle = await getActiveCycle(userId);
+  await db.insert(flashcardDecks).values({ userId, cycleId: cycle.id, title: input.title, description: input.description ?? null, color: input.color ?? "#8B5CF6" });
+}
+
+async function ownedFlashcardDeck(db: any, userId: number, deckId: number) {
+  const rows = await db.select({ id: flashcardDecks.id }).from(flashcardDecks).where(and(eq(flashcardDecks.id, deckId), eq(flashcardDecks.userId, userId))).limit(1);
+  if (!rows[0]) throw new Error("مجموعة الفلاش كارد غير موجودة."); return rows[0];
+}
+
+export async function createFlashcard(userId: number, input: { deckId: number; prompt: string; answer: string }) {
+  const db = await database(); await ownedFlashcardDeck(db, userId, input.deckId);
+  await db.insert(flashcards).values({ deckId: input.deckId, prompt: input.prompt, answer: input.answer });
+}
+
+export async function reviewFlashcard(userId: number, cardId: number, result: "again" | "good" | "mastered") {
+  const db = await database(); const card = await db.select({ id: flashcards.id }).from(flashcards).innerJoin(flashcardDecks, eq(flashcards.deckId, flashcardDecks.id)).where(and(eq(flashcards.id, cardId), eq(flashcardDecks.userId, userId))).limit(1);
+  if (!card[0]) throw new Error("الفلاش كارد غير موجود.");
+  const now = new Date(); const state = result === "mastered" ? "mastered" : result === "good" ? "learning" : "new"; const days = result === "mastered" ? 7 : result === "good" ? 2 : 1;
+  await db.update(flashcards).set({ state, lastReviewedAt: now, nextReviewAt: new Date(now.getTime() + days * DAY_MS) }).where(eq(flashcards.id, cardId));
+}
+
+export async function deleteFlashcard(userId: number, cardId: number) {
+  const db = await database(); const card = await db.select({ id: flashcards.id }).from(flashcards).innerJoin(flashcardDecks, eq(flashcards.deckId, flashcardDecks.id)).where(and(eq(flashcards.id, cardId), eq(flashcardDecks.userId, userId))).limit(1); if (!card[0]) throw new Error("الفلاش كارد غير موجود."); return db.delete(flashcards).where(eq(flashcards.id, cardId));
+}
+
+export async function searchStudyWorkspace(userId: number, query: string) {
+  const db = await database(); const cycle = await getActiveCycle(userId); const pattern = `%${query.trim()}%`;
+  const [noteRows, lessonRows, cardRows] = await Promise.all([
+    db.select({ id: notes.id, title: notes.title, excerpt: notes.content, notebook: notebooks.title }).from(notes).innerJoin(notebooks, eq(notes.notebookId, notebooks.id)).where(and(eq(notebooks.userId, userId), eq(notebooks.cycleId, cycle.id), or(like(notes.title, pattern), like(notes.content, pattern)))).limit(20),
+    db.select({ id: lessons.id, title: lessons.title, excerpt: lessons.description, subject: subjects.title, chapter: chapters.title }).from(lessons).innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id)).where(and(eq(subjects.userId, userId), or(like(lessons.title, pattern), like(lessons.description, pattern), like(lessons.notes, pattern)))).limit(20),
+    db.select({ id: flashcards.id, prompt: flashcards.prompt, answer: flashcards.answer, deck: flashcardDecks.title }).from(flashcards).innerJoin(flashcardDecks, eq(flashcards.deckId, flashcardDecks.id)).where(and(eq(flashcardDecks.userId, userId), eq(flashcardDecks.cycleId, cycle.id), or(like(flashcards.prompt, pattern), like(flashcards.answer, pattern)))).limit(20),
+  ]);
+  return { notes: noteRows, lessons: lessonRows, flashcards: cardRows };
+}

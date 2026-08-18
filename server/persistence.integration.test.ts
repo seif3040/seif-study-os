@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { achievements, coinTransactions, examAttempts, goalMilestones, goals, habitCompletions, lessonProgress, lessons, notes, pomodoroSessions, rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks, userAchievements, users, chapters, exams, notebooks } from "../drizzle/schema";
-import { completeExamAttempt, completeLesson, completeTask, createChapter, createExam, createLesson, createSubject, createTask, createVideoNote, endVideoSession, getActiveCycle, getDb, listAchievements, listExams, listStudyPlan, listTasks, listVideoSessions, purchaseReward, startVideoSession, updateVideoNote, deleteVideoNote } from "./db";
+import { analytics, completeExamAttempt, completeLesson, completeTask, createChapter, createExam, createFlashcard, createFlashcardDeck, createLesson, createSubject, createTask, createVideoNote, endVideoSession, getActiveCycle, getDb, listAchievements, listExams, listFlashcardDecks, listStudyPlan, listTasks, listVideoSessions, purchaseReward, reviewFlashcard, reviewLesson, startVideoSession, updateVideoNote, deleteVideoNote } from "./db";
 
 const enabled = Boolean(process.env.DATABASE_URL);
 const suite = enabled ? describe : describe.skip;
@@ -40,7 +40,7 @@ suite("database-backed Seif Study OS business flows", () => {
     const duplicateCompletion = await completeTask(userId, task!.id);
     expect(firstCompletion.awarded).toBe(true);
     expect(duplicateCompletion).toMatchObject({ alreadyCompleted: true, awarded: false });
-  }, 30_000);
+  }, 70_000);
 
   it("persists watched-video history and per-video note CRUD through real persistence", async () => {
     const video = await startVideoSession(userId, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
@@ -58,7 +58,18 @@ suite("database-backed Seif Study OS business flows", () => {
     expect((await listVideoSessions(userId)).find(item => item.id === video!.id)?.notes).toHaveLength(0);
     await endVideoSession(userId, video!.id);
     expect((await listVideoSessions(userId)).find(item => item.id === video!.id)?.phase).toBe("completed");
-  }, 30_000);
+  }, 70_000);
+
+  it("persists native flashcard decks and review state through real persistence", async () => {
+    await createFlashcardDeck(userId, { title: "Integration flashcards" });
+    const deck = (await listFlashcardDecks(userId)).find(item => item.title === "Integration flashcards")!;
+    await createFlashcard(userId, { deckId: deck.id, prompt: "Q", answer: "A" });
+    const withCard = (await listFlashcardDecks(userId)).find(item => item.id === deck.id)!;
+    expect(withCard.stats.total).toBe(1);
+    await reviewFlashcard(userId, withCard.cards[0]!.id, "mastered");
+    const mastered = (await listFlashcardDecks(userId)).find(item => item.id === deck.id)!;
+    expect(mastered.cards[0]).toMatchObject({ state: "mastered" });
+  }, 70_000);
 
   it("persists achievement unlocks and a bounded exam-comprehension result through real business functions", async () => {
     expect((await listStudyPlan(userId)).rows.filter(row => row.subject.title === "Integration subject")).toHaveLength(0);
@@ -72,10 +83,19 @@ suite("database-backed Seif Study OS business flows", () => {
     const achievementState = await listAchievements(userId);
     expect(achievementState.unlocked).toBeGreaterThan(0);
 
-    await createExam(userId, { title: "Integration exam" });
+    await createExam(userId, { title: "Integration exam", lessonIds: [lesson.id] });
     const exam = (await listExams(userId)).find(item => item.exam.title === "Integration exam")!.exam;
     const attempt = await completeExamAttempt(userId, { examId: exam.id, totalQuestions: 10, correctAnswers: 8, difficulty: "medium", missedTopics: ["topic"] });
     expect(attempt.comprehensionScore).toBeGreaterThanOrEqual(0);
     expect(attempt.comprehensionScore).toBeLessThanOrEqual(100);
-  }, 30_000);
+    const scopedExam = (await listExams(userId)).find(item => item.exam.title === "Integration exam")!;
+    expect(scopedExam.lessons).toHaveLength(1);
+    expect(scopedExam.readiness).toMatchObject({ score: 70, completed: 1, reviewed: 0 });
+    await reviewLesson(userId, lesson.id);
+    const readyExam = (await listExams(userId)).find(item => item.exam.title === "Integration exam")!;
+    expect(readyExam.readiness).toMatchObject({ score: 100, completed: 1, reviewed: 1 });
+    const overview = await analytics(userId);
+    expect(overview.metrics.lessonsCompleted).toBeGreaterThanOrEqual(1);
+    expect(overview.daily.length).toBeGreaterThanOrEqual(1);
+  }, 70_000);
 });

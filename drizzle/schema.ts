@@ -171,6 +171,13 @@ export const exams = mysqlTable("exams", {
   scheduledAt: timestamp("scheduledAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => [index("exams_user_cycle_idx").on(table.userId, table.cycleId)]);
+export const examLessons = mysqlTable("examLessons", {
+  id: int("id").autoincrement().primaryKey(),
+  examId: int("examId").notNull().references(() => exams.id, { onDelete: "cascade" }),
+  lessonId: int("lessonId").notNull().references(() => lessons.id, { onDelete: "cascade" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => [uniqueIndex("examLessons_exam_lesson_unique").on(table.examId, table.lessonId), index("examLessons_lesson_idx").on(table.lessonId)]);
+
 
 export const examAttempts = mysqlTable("examAttempts", {
   id: int("id").autoincrement().primaryKey(),
@@ -205,6 +212,29 @@ export const notes = mysqlTable("notes", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => [index("notes_notebook_idx").on(table.notebookId)]);
+
+export const flashcardDecks = mysqlTable("flashcardDecks", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  cycleId: int("cycleId").notNull().references(() => studyCycles.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 180 }).notNull(),
+  description: text("description"),
+  color: varchar("color", { length: 16 }).default("#8B5CF6").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [index("flashcardDecks_user_cycle_idx").on(table.userId, table.cycleId)]);
+
+export const flashcards = mysqlTable("flashcards", {
+  id: int("id").autoincrement().primaryKey(),
+  deckId: int("deckId").notNull().references(() => flashcardDecks.id, { onDelete: "cascade" }),
+  prompt: text("prompt").notNull(),
+  answer: text("answer").notNull(),
+  state: mysqlEnum("state", ["new", "learning", "mastered"]).default("new").notNull(),
+  nextReviewAt: timestamp("nextReviewAt"),
+  lastReviewedAt: timestamp("lastReviewedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [index("flashcards_deck_state_idx").on(table.deckId, table.state)]);
 
 export const calendarEvents = mysqlTable("calendarEvents", {
   id: int("id").autoincrement().primaryKey(),
