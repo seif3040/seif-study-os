@@ -57,6 +57,20 @@
       "when": 1787043959623,
       "tag": "0007_sticky_whirlwind",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1787045839589,
+      "tag": "0008_salty_hedge_knight",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1787046213648,
+      "tag": "0009_thankful_bedlam",
+      "breakpoints": true
     }
   ]
 }

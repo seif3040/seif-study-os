@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { achievements, coinTransactions, examAttempts, goalMilestones, goals, habitCompletions, lessonProgress, lessons, notes, pomodoroSessions, rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks, userAchievements, users, chapters, exams, notebooks } from "../drizzle/schema";
-import { analytics, completeExamAttempt, completeLesson, completeTask, createChapter, createExam, createFlashcard, createFlashcardDeck, createLesson, createSubject, createTask, createVideoNote, endVideoSession, getActiveCycle, getDb, listAchievements, listExams, listFlashcardDecks, listStudyPlan, listTasks, listVideoSessions, purchaseReward, reviewFlashcard, reviewLesson, startVideoSession, updateVideoNote, deleteVideoNote } from "./db";
+import { analytics, completeExamAttempt, completeLesson, completeTask, createChapter, createExam, createFlashcard, createFlashcardDeck, createLesson, createNotebook, createSubject, createTask, createVideoNote, endVideoSession, getActiveCycle, getDb, listAchievements, listExams, listFlashcardDecks, listStudyPlan, listTasks, listVideoSessions, markNotebookQuizReviewed, purchaseReward, reviewFlashcard, reviewLesson, saveNotebookQuiz, startVideoSession, updateVideoNote, deleteVideoNote } from "./db";
 
 const enabled = Boolean(process.env.DATABASE_URL);
 const suite = enabled ? describe : describe.skip;
@@ -69,6 +69,21 @@ suite("database-backed Seif Study OS business flows", () => {
     await reviewFlashcard(userId, withCard.cards[0]!.id, "mastered");
     const mastered = (await listFlashcardDecks(userId)).find(item => item.id === deck.id)!;
     expect(mastered.cards[0]).toMatchObject({ state: "mastered" });
+  }, 70_000);
+
+  it("saves a file-grounded Notebook AI quiz, returns it in exams, and records review state", async () => {
+    const db = await getDb(); if (!db) throw new Error("Integration database unavailable");
+    await createNotebook(userId, "Integration notebook quiz");
+    const [notebook] = await db.select().from(notebooks).where(and(eq(notebooks.userId, userId), eq(notebooks.title, "Integration notebook quiz"))).orderBy(notebooks.id).limit(1);
+    const questions = Array.from({ length: 8 }, (_, index) => ({ question: `سؤال حفظ ${index + 1}`, answer: `إجابة حفظ ${index + 1}` }));
+    const saved = await saveNotebookQuiz(userId, { notebookId: notebook!.id, quiz: { sourceNames: ["integration-source.txt"], questions } });
+    expect(saved).toMatchObject({ origin: "notebook_ai", notebookId: notebook!.id, quizPayload: { sourceNames: ["integration-source.txt"], questions } });
+    const listed = (await listExams(userId)).find(item => item.exam.id === saved!.id)!.exam;
+    expect(listed.quizPayload).toMatchObject({ sourceNames: ["integration-source.txt"], questions });
+    expect(listed.quizReviewedAt).toBeNull();
+    await markNotebookQuizReviewed(userId, saved!.id);
+    const reviewed = (await listExams(userId)).find(item => item.exam.id === saved!.id)!.exam;
+    expect(reviewed.quizReviewedAt).toBeTruthy();
   }, 70_000);
 
   it("persists achievement unlocks and a bounded exam-comprehension result through real business functions", async () => {

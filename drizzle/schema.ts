@@ -168,6 +168,10 @@ export const exams = mysqlTable("exams", {
   chapterId: int("chapterId").references(() => chapters.id, { onDelete: "set null" }),
   lessonId: int("lessonId").references(() => lessons.id, { onDelete: "set null" }),
   title: varchar("title", { length: 200 }).notNull(),
+  origin: mysqlEnum("origin", ["manual", "notebook_ai"]).default("manual").notNull(),
+  notebookId: int("notebookId"),
+  quizPayload: json("quizPayload").$type<{ sourceNames: string[]; questions: { question: string; answer: string; choices?: string[] }[] }>(),
+  quizReviewedAt: timestamp("quizReviewedAt"),
   scheduledAt: timestamp("scheduledAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => [index("exams_user_cycle_idx").on(table.userId, table.cycleId)]);

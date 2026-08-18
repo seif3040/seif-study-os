@@ -473,6 +473,58 @@ export async function uploadNotebookSource(userId: number, input: { notebookId: 
 
 export function notebookGroundingInstruction() { return "أنت Notebook AI مخصص للمذاكرة. استخدم حصريًا النصوص والملفات المرفقة في هذه المحادثة. لا تستخدم معلومات خارجية أو معرفة عامة. إذا لم تجد الإجابة في المصادر، قل حرفيًا: \"المعلومة دي مش موجودة في الملفات المرفوعة.\" اذكر اسم الملف أو الملاحظة التي استندت إليها في نهاية كل إجابة. اكتب بالعربية المصرية الواضحة."; }
 
+type NotebookQuiz = { sourceNames: string[]; questions: { question: string; answer: string; choices?: string[] }[] };
+
+export function parseNotebookQuiz(content: unknown): Omit<NotebookQuiz, "sourceNames"> {
+  const parsed = typeof content === "string" ? JSON.parse(content) : content;
+  const questions = (parsed as { questions?: unknown })?.questions;
+  if (!Array.isArray(questions) || questions.length !== 8) throw new Error("تعذر إنشاء امتحان صالح من الملفات. جرّب مرة أخرى.");
+  const normalized = questions.map((entry: unknown) => {
+    const item = entry as { question?: unknown; answer?: unknown; choices?: unknown };
+    const question = typeof item.question === "string" ? item.question.trim() : "";
+    const answer = typeof item.answer === "string" ? item.answer.trim() : "";
+    const choices = Array.isArray(item.choices) ? item.choices.filter((choice): choice is string => typeof choice === "string" && choice.trim().length > 0).map(choice => choice.trim()).slice(0, 4) : undefined;
+    if (!question || !answer) throw new Error("تعذر إنشاء امتحان صالح من الملفات. جرّب مرة أخرى.");
+    return { question, answer, ...(choices?.length ? { choices } : {}) };
+  });
+  return { questions: normalized };
+}
+
+export async function saveNotebookQuiz(userId: number, input: { notebookId: number; quiz: NotebookQuiz }) {
+  const db = await database();
+  const [owner, cycle] = await Promise.all([ownedNotebook(db, userId, input.notebookId), getActiveCycle(userId)]);
+  const title = `اختبار Notebook AI — ${owner.title}`.slice(0, 200);
+  await db.insert(exams).values({ userId, cycleId: cycle.id, title, origin: "notebook_ai", notebookId: input.notebookId, quizPayload: input.quiz, subjectId: null, chapterId: null, lessonId: null, scheduledAt: null });
+  const [exam] = await db.select().from(exams).where(and(eq(exams.userId, userId), eq(exams.cycleId, cycle.id), eq(exams.notebookId, input.notebookId), eq(exams.origin, "notebook_ai"))).orderBy(desc(exams.id)).limit(1);
+  return exam;
+}
+
+export async function createNotebookQuiz(userId: number, notebookId: number) {
+  const db = await database();
+  await ownedNotebook(db, userId, notebookId);
+  const sources = await db.select().from(notebookSources).where(eq(notebookSources.notebookId, notebookId)).orderBy(desc(notebookSources.createdAt)).limit(12);
+  if (!sources.length) throw new Error("ارفع ملف PDF أو TXT أو Markdown واحدًا على الأقل قبل إنشاء الامتحان.");
+  const sourceNames = sources.map(source => source.fileName);
+  const textSources = sources.filter(source => source.extractedText).map(source => `[ملف: ${source.fileName}]\n${source.extractedText}`).join("\n\n");
+  const content: any[] = [{ type: "text", text: `أنشئ اختبار مراجعة من 8 أسئلة متدرجة من المصادر التالية فقط. يجب أن تكون الإجابات دقيقة وموجودة في المصادر، ولا تضف معلومات من خارجها.\n\n${textSources || "لا توجد نصوص مستخرجة؛ راجع ملفات PDF المرفقة فقط."}` }];
+  for (const source of sources.filter(source => source.mimeType === "application/pdf")) content.push({ type: "file_url", file_url: { url: await storageGetSignedUrl(source.storageKey), mime_type: "application/pdf" } });
+  const response = await invokeLLM({
+    messages: [{ role: "system", content: notebookGroundingInstruction() }, { role: "user", content }],
+    response_format: { type: "json_schema", json_schema: { name: "notebook_quiz", strict: true, schema: { type: "object", properties: { questions: { type: "array", minItems: 8, maxItems: 8, items: { type: "object", properties: { question: { type: "string" }, answer: { type: "string" }, choices: { type: "array", items: { type: "string" }, maxItems: 4 } }, required: ["question", "answer"], additionalProperties: false } } }, required: ["questions"], additionalProperties: false } } },
+  });
+  const quiz = { sourceNames, ...parseNotebookQuiz(response.choices[0]?.message?.content) };
+  const exam = await saveNotebookQuiz(userId, { notebookId, quiz });
+  return { exam, quiz };
+}
+
+export async function markNotebookQuizReviewed(userId: number, examId: number) {
+  const db = await database();
+  const [exam] = await db.select({ id: exams.id }).from(exams).where(and(eq(exams.id, examId), eq(exams.userId, userId), eq(exams.origin, "notebook_ai"))).limit(1);
+  if (!exam) throw new Error("امتحان Notebook AI غير موجود.");
+  await db.update(exams).set({ quizReviewedAt: new Date() }).where(eq(exams.id, examId));
+  return { reviewedAt: new Date() };
+}
+
 export async function notebookAI(userId: number, input: { notebookId: number; mode: "question" | "summary" | "quiz" | "explain"; prompt?: string }) {
   const db = await database(); const owner = await ownedNotebook(db, userId, input.notebookId);
   const [items, sources] = await Promise.all([db.select({ title: notes.title, content: notes.content }).from(notes).where(eq(notes.notebookId, input.notebookId)).limit(30), db.select().from(notebookSources).where(eq(notebookSources.notebookId, input.notebookId)).orderBy(desc(notebookSources.createdAt)).limit(12)]);

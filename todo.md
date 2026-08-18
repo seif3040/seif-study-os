@@ -52,3 +52,9 @@
 - [x] Extract and store trusted source text from uploaded files for each Notebook AI workspace.
 - [x] Make summaries, question answering, and generated exams strictly grounded in uploaded source material.
 - [x] Test source-only responses, unsupported files, and source-grounded exam generation, then publish the upgrade.
+- [x] Persist source-grounded Notebook AI quizzes with their questions, answers, source details, and review state.
+- [x] Show saved Notebook AI quizzes in the main exams workspace with a reviewable attempt flow.
+- [x] Test automatic quiz saving and reopening from the exams page, then publish the integration.
+- [x] Persist a Notebook AI quiz review timestamp and show that review status in the exams workspace.
+- [x] Add database-backed coverage that saves a Notebook AI quiz and confirms listExams returns its payload.
+- [ ] Save and deliver the verified Notebook AI exam integration checkpoint.
