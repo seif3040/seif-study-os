@@ -74,3 +74,7 @@
 - [x] Persist Seify’s confirmed action outcomes in memory so reopened conversations include what was completed.
 - [x] Add deterministic voice fallback coverage for unavailable or failed browser speech recognition.
 - [x] Add focused mounted Seify voice UI fallback coverage for unavailable recognition and recognition errors.
+- [x] Diagnose the browser Arabic voice selection issue reported for Seify playback.
+- [x] Require available Arabic voice selection, add a visible voice picker, and prevent non-Arabic fallback playback.
+- [x] Test Arabic voice prioritization, user-selected voice playback, and no-Arabic-voice handling before publishing.
+- [x] Test selected Arabic voice playback and saved voice preference persistence through the Seify voice picker path.

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { errorText } from "@/lib/study";
 import { trpc } from "@/lib/trpc";
+import { useArabicVoice } from "@/hooks/useArabicVoice";
 import { Bot, Check, ChevronDown, Compass, Mic, ShieldCheck, Sparkles, Volume2, VolumeX, X } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -12,16 +13,6 @@ import { useLocation } from "wouter";
 const quickPrompts = ["أعمل إيه النهارده؟", "ضيف مهمة مراجعة فيزياء", "خلّي مهمة حل الواجب بكرة", "خلّي أولوية المراجعة مهمة"];
 const routeLabels: Record<string, string> = { "/tasks": "المهام", "/habits": "العادات", "/goals": "الأهداف", "/study-plan": "خطة المذاكرة", "/exams": "الامتحانات", "/pomodoro": "Pomodoro", "/notebooks": "Notebook AI", "/analytics": "التحليلات" };
 type Plan = { reply: string; actionType: string; title: string; targetTitle: string; priority: "urgent" | "medium" | "low"; scheduledFor: string; frequency: "daily" | "weekly"; target: number; route: string; requiresConfirmation: boolean };
-
-function speakArabic(text: string) {
-  if (!("speechSynthesis" in window)) return false;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text.replace(/[«»*_#]/g, " "));
-  utterance.lang = "ar-EG"; utterance.rate = 1; utterance.pitch = 1;
-  const voice = window.speechSynthesis.getVoices().find(item => item.lang.toLowerCase().startsWith("ar-eg")) ?? window.speechSynthesis.getVoices().find(item => item.lang.toLowerCase().startsWith("ar"));
-  if (voice) utterance.voice = voice;
-  window.speechSynthesis.speak(utterance); return true;
-}
 
 function ActionPreview({ plan, onConfirm, onNavigate, loading }: { plan: Plan; onConfirm: () => void; onNavigate: () => void; loading: boolean }) {
   if (plan.actionType === "none") return null;
@@ -33,18 +24,19 @@ function ActionPreview({ plan, onConfirm, onNavigate, loading }: { plan: Plan; o
 
 export function PersonalAssistantConversation({ height = "560px", brief }: { height?: string; brief?: string | null }) {
   const utils = trpc.useUtils(); const [, navigate] = useLocation(); const [messages, setMessages] = useState<Message[]>([]); const [plan, setPlan] = useState<Plan | null>(null); const [voiceEnabled, setVoiceEnabled] = useState(true); const hydrated = useRef(false);
+  const { voices, selectedVoiceURI, chooseVoice, speak } = useArabicVoice();
   const memory = trpc.personalAssistant.memory.useQuery();
   useEffect(() => { if (!hydrated.current && memory.data) { setMessages(memory.data.map(message => ({ role: message.role, content: message.content }))); hydrated.current = true; } }, [memory.data]);
   useEffect(() => () => window.speechSynthesis?.cancel(), []);
-  const say = (content: string) => { if (voiceEnabled) speakArabic(content); };
+  const say = (content: string) => { if (!voiceEnabled) return; const result = speak(content); if (!result.played) toast.error(result.message); };
   const execute = trpc.personalAssistant.execute.useMutation({ onSuccess: async result => { setMessages(previous => [...previous, { role: "assistant", content: result.message }]); say(result.message); setPlan(null); await Promise.all([utils.tasks.list.invalidate(), utils.habits.list.invalidate(), utils.goals.list.invalidate(), utils.dashboard.summary.invalidate(), utils.personalAssistant.memory.invalidate()]); toast.success("تمام يا بطل، اتنفّذت."); }, onError: error => toast.error(errorText(error)) });
   const planRequest = trpc.personalAssistant.plan.useMutation({ onSuccess: result => { setMessages(previous => [...previous, { role: "assistant", content: result.reply }]); setPlan(result as Plan); say(result.reply); utils.personalAssistant.memory.invalidate(); }, onError: error => toast.error(errorText(error)) });
   const send = (content: string) => { setMessages(previous => [...previous, { role: "user", content }]); setPlan(null); planRequest.mutate({ request: content }); };
-  return <div>{brief && <div className="mb-3 flex items-start gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-3"><Sparkles className="mt-0.5 size-4 shrink-0 text-primary" /><div><p className="text-sm font-bold">ملخص سيفي لليوم</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{brief}</p></div></div>}<div className="mb-3 flex justify-end"><Button size="icon" variant="ghost" className="rounded-xl" aria-label={voiceEnabled ? "إيقاف صوت سيفي" : "تشغيل صوت سيفي"} onClick={() => { if (voiceEnabled) window.speechSynthesis?.cancel(); setVoiceEnabled(value => !value); }}>{voiceEnabled ? <Volume2 /> : <VolumeX />}</Button></div><SeifyVoiceControl disabled={planRequest.isPending} onTranscript={send} /><AIChatBox className="overflow-hidden rounded-2xl shadow-none" height={height} messages={messages} onSendMessage={send} isLoading={planRequest.isPending} placeholder="أو اكتب طلبك لو تحب…" emptyStateMessage="أنا سيفي، صاحبك في المذاكرة. أعملك إيه؟" suggestedPrompts={quickPrompts} />{plan && <ActionPreview plan={plan} loading={execute.isPending} onConfirm={() => execute.mutate({ plan: plan as any, confirmed: true })} onNavigate={() => { if (plan.route) navigate(plan.route); setPlan(null); }} />}</div>;
+  return <div>{brief && <div className="mb-3 flex items-start gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-3"><Sparkles className="mt-0.5 size-4 shrink-0 text-primary" /><div><p className="text-sm font-bold">ملخص سيفي لليوم</p><p className="mt-1 text-xs leading-5 text-muted-foreground">{brief}</p></div></div>}<div className="mb-3 rounded-2xl border border-primary/15 bg-primary/5 p-3"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold">صوت سيفي</p><p className="text-xs text-muted-foreground">{voices.length ? "اختار صوت عربي من جهازك" : "مفيش صوت عربي متاح؛ مش هنستخدم صوت بلغة تانية."}</p></div><Button size="icon" variant="ghost" className="rounded-xl" aria-label={voiceEnabled ? "إيقاف صوت سيفي" : "تشغيل صوت سيفي"} onClick={() => { if (voiceEnabled) window.speechSynthesis?.cancel(); setVoiceEnabled(value => !value); }}>{voiceEnabled ? <Volume2 /> : <VolumeX />}</Button></div>{voices.length > 0 && <select aria-label="اختيار صوت سيفي العربي" className="mt-2 w-full rounded-xl border bg-background px-3 py-2 text-sm" value={selectedVoiceURI ?? voices[0]?.voiceURI ?? ""} onChange={event => chooseVoice(event.target.value)}>{voices.map(voice => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.name} — {voice.lang}</option>)}</select>}</div><SeifyVoiceControl disabled={planRequest.isPending} onTranscript={send} /><AIChatBox className="overflow-hidden rounded-2xl shadow-none" height={height} messages={messages} onSendMessage={send} isLoading={planRequest.isPending} placeholder="أو اكتب طلبك لو تحب…" emptyStateMessage="أنا سيفي، صاحبك في المذاكرة. أعملك إيه؟" suggestedPrompts={quickPrompts} />{plan && <ActionPreview plan={plan} loading={execute.isPending} onConfirm={() => execute.mutate({ plan: plan as any, confirmed: true })} onNavigate={() => { if (plan.route) navigate(plan.route); setPlan(null); }} />}</div>;
 }
 
 export function PersonalAssistantPanel() {
-  const [open, setOpen] = useState(false); const [brief, setBrief] = useState<string | null>(null); const daily = trpc.personalAssistant.dailySummary.useMutation({ onSuccess: summary => { setBrief(summary.content); if (summary.isNew) { toast("ملخص سيفي لليوم جاهز", { description: summary.content }); speakArabic(summary.content); } } });
+  const [open, setOpen] = useState(false); const [brief, setBrief] = useState<string | null>(null); const daily = trpc.personalAssistant.dailySummary.useMutation({ onSuccess: summary => { setBrief(summary.content); if (summary.isNew) toast("ملخص سيفي لليوم جاهز", { description: summary.content }); } });
   useEffect(() => { daily.mutate(); }, []);
   return <div className="fixed bottom-4 left-4 z-50 flex flex-col items-start gap-3" dir="rtl">{open && <section className="w-[calc(100vw-2rem)] max-w-[430px] overflow-hidden rounded-3xl border border-primary/20 bg-background shadow-2xl shadow-black/20"><header className="flex items-center justify-between border-b bg-gradient-to-l from-primary/15 via-primary/5 to-transparent p-4"><div className="flex items-center gap-3"><span className="flex size-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground"><Sparkles className="size-5" /></span><div><p className="font-bold">سيفي — مساعدك الصوتي</p><p className="text-xs text-muted-foreground">قولّي عايز تعمل إيه</p></div></div><Button size="icon" variant="ghost" className="rounded-xl" aria-label="إغلاق المساعد" onClick={() => setOpen(false)}><X className="size-4" /></Button></header><div className="p-3"><PersonalAssistantConversation height="min(45vh, 390px)" brief={brief} /></div></section>}<Button aria-label={open ? "تصغير مساعد سيفي" : "فتح مساعد سيفي"} onClick={() => setOpen(value => !value)} className="group h-14 rounded-2xl px-4 shadow-xl shadow-primary/25"><Mic className="size-5 transition-transform group-hover:scale-110" /><span className="font-bold">{open ? "صغّر سيفي" : "كلم سيفي"}</span><ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} /></Button></div>;
 }

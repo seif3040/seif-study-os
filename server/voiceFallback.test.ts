@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { getSpeechRecognitionConstructor, startVoiceRecognition, voiceRecognitionFailedMessage, voiceRecognitionUnavailableMessage, type SpeechRecognitionConstructor } from "../client/src/lib/voice";
+import { arabicVoiceUnavailableMessage, getSpeechRecognitionConstructor, selectArabicVoice, startVoiceRecognition, voiceRecognitionFailedMessage, voiceRecognitionUnavailableMessage, type SpeechRecognitionConstructor } from "../client/src/lib/voice";
 
 describe("Seify voice fallback", () => {
   it("returns no constructor when browser speech recognition is unavailable", () => {
@@ -11,6 +11,18 @@ describe("Seify voice fallback", () => {
     const constructor = class {} as unknown as Parameters<typeof getSpeechRecognitionConstructor>[0]["webkitSpeechRecognition"];
     expect(getSpeechRecognitionConstructor({ webkitSpeechRecognition: constructor })).toBe(constructor);
     expect(voiceRecognitionFailedMessage()).toContain("اكتب طلبك");
+  });
+
+  it("prefers an Egyptian Arabic voice and refuses a non-Arabic fallback", () => {
+    const voices = [
+      { voiceURI: "english", name: "English", lang: "en-US", default: true },
+      { voiceURI: "saudi", name: "Arabic Saudi", lang: "ar-SA", default: false },
+      { voiceURI: "egyptian", name: "Arabic Egypt", lang: "ar-EG", default: false },
+    ];
+    expect(selectArabicVoice(voices)?.voiceURI).toBe("egyptian");
+    expect(selectArabicVoice(voices, "saudi")?.voiceURI).toBe("saudi");
+    expect(selectArabicVoice([{ voiceURI: "english", name: "English", lang: "en-US", default: true }])).toBeNull();
+    expect(arabicVoiceUnavailableMessage()).toContain("مش هشغّل صوت أجنبي");
   });
 
   it("drives the mounted assistant fallback callbacks when recognition is unavailable or errors", () => {
