@@ -2,7 +2,7 @@ import { and, count, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   achievements, calendarEvents, chapters, coinTransactions, examAttempts, examLessons, exams, goalMilestones,
-  goals, habitCompletions, habits, lessonProgress, lessons, flashcardDecks, flashcards, notebooks, notebookSources, notes, pomodoroSessions,
+  assistantMessages, dailyStudySummaries, goals, habitCompletions, habits, lessonProgress, lessons, flashcardDecks, flashcards, notebooks, notebookSources, notes, pomodoroSessions,
   rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks,
   userAchievements, users, type InsertUser,
 } from "../drizzle/schema";
@@ -293,6 +293,32 @@ export async function completeTask(userId: number, taskId: number) {
 }
 export async function updateTask(userId: number, taskId: number, input: { title: string; description?: string; scheduledFor?: string; deadline?: Date; priority: "urgent" | "medium" | "low"; category?: string }) { const db = await database(); return db.update(tasks).set({ title: input.title, description: input.description ?? null, scheduledFor: input.scheduledFor ?? null, deadline: input.deadline ?? null, priority: input.priority, category: input.category ?? "دراسة" }).where(and(eq(tasks.id, taskId), eq(tasks.userId, userId))); }
 export async function deleteTask(userId: number, taskId: number) { const db = await database(); return db.delete(tasks).where(and(eq(tasks.id, taskId), eq(tasks.userId, userId))); }
+
+export async function listAssistantMessages(userId: number, limit = 24) {
+  const db = await database();
+  const rows = await db.select().from(assistantMessages).where(eq(assistantMessages.userId, userId)).orderBy(desc(assistantMessages.createdAt)).limit(limit);
+  return rows.reverse();
+}
+
+export async function saveAssistantMessage(userId: number, role: "user" | "assistant", content: string) {
+  const db = await database();
+  await db.insert(assistantMessages).values({ userId, role, content: content.slice(0, 5000) });
+}
+
+export async function getDailyStudySummary(userId: number) {
+  const db = await database(); const cycle = await getActiveCycle(userId); const today = dateKey();
+  const existing = await db.select().from(dailyStudySummaries).where(and(eq(dailyStudySummaries.userId, userId), eq(dailyStudySummaries.summaryDate, today))).limit(1);
+  if (existing[0]) return { ...existing[0], isNew: false };
+  const openTasks = await db.select().from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.cycleId, cycle.id), eq(tasks.status, "open"), lte(tasks.scheduledFor, today))).orderBy(desc(tasks.priority), tasks.scheduledFor).limit(6);
+  const dueToday = openTasks.filter(task => task.scheduledFor === today);
+  const urgent = openTasks.filter(task => task.priority === "urgent");
+  const upcoming = await db.select({ title: exams.title, scheduledAt: exams.scheduledAt }).from(exams).where(and(eq(exams.userId, userId), eq(exams.cycleId, cycle.id), gte(exams.scheduledAt, new Date()))).orderBy(exams.scheduledAt).limit(1);
+  const names = openTasks.slice(0, 3).map(task => `«${task.title}»`).join("، ");
+  const content = `صباح الفل يا سيف. النهاردة عندك ${dueToday.length} مهمة متخططلها${urgent.length ? `، منهم ${urgent.length} مهم` : ""}. ${openTasks.length ? `ابدأ بـ ${names}.` : "جدولك فاضي حاليًا؛ حط مهمة صغيرة ونكسب اليوم."}${upcoming[0]?.scheduledAt ? ` والامتحان الجاي «${upcoming[0].title}» يوم ${upcoming[0].scheduledAt.toLocaleDateString("ar-EG")}.` : ""}`;
+  await db.insert(dailyStudySummaries).values({ userId, cycleId: cycle.id, summaryDate: today, content }).onDuplicateKeyUpdate({ set: { userId } });
+  const stored = await db.select().from(dailyStudySummaries).where(and(eq(dailyStudySummaries.userId, userId), eq(dailyStudySummaries.summaryDate, today))).limit(1);
+  return { ...stored[0], isNew: true };
+}
 
 export async function listHabits(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); const items = await db.select().from(habits).where(and(eq(habits.userId, userId), eq(habits.cycleId, cycle.id))); const todays = await db.select().from(habitCompletions).where(and(eq(habitCompletions.userId, userId), eq(habitCompletions.cycleId, cycle.id), eq(habitCompletions.completedOn, dateKey()))); return { items, completedIds: todays.map((x: any) => x.habitId) }; }
 export async function createHabit(userId: number, input: { name: string; frequency: "daily" | "weekly"; target: number }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(habits).values({ userId, cycleId: cycle.id, ...input }); }

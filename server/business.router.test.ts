@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   completeExamAttempt: vi.fn(),
   planPersonalAssistantAction: vi.fn(),
   executePersonalAssistantAction: vi.fn(),
+  saveAssistantMessage: vi.fn(),
 }));
 
 vi.mock("./db", async importOriginal => ({
@@ -16,6 +17,7 @@ vi.mock("./db", async importOriginal => ({
   purchaseReward: mocks.purchaseReward,
   listAchievements: mocks.listAchievements,
   completeExamAttempt: mocks.completeExamAttempt,
+  saveAssistantMessage: mocks.saveAssistantMessage,
 }));
 
 vi.mock("./personalAssistant", async importOriginal => ({
@@ -75,10 +77,11 @@ describe("protected study business routes", () => {
   });
 
   it("executes a personal-assistant action only through the explicit confirmation contract", async () => {
-    const plan = { reply: "هضيف المهمة", actionType: "add_task" as const, title: "مراجعة فيزياء", targetTitle: "", priority: "medium" as const, frequency: "daily" as const, target: 1, route: "" as const, requiresConfirmation: true };
+    const plan = { reply: "هضيف المهمة", actionType: "add_task" as const, title: "مراجعة فيزياء", targetTitle: "", priority: "medium" as const, scheduledFor: "", frequency: "daily" as const, target: 1, route: "" as const, requiresConfirmation: true };
     mocks.executePersonalAssistantAction.mockResolvedValue({ message: "اتعملت مهمة «مراجعة فيزياء».", kind: "task" });
     const result = await appRouter.createCaller(context()).personalAssistant.execute({ plan, confirmed: true });
     expect(mocks.executePersonalAssistantAction).toHaveBeenCalledWith(42, plan, true);
+    expect(mocks.saveAssistantMessage).toHaveBeenCalledWith(42, "assistant", "اتعملت مهمة «مراجعة فيزياء».");
     expect(result.message).toContain("اتعملت مهمة");
   });
 });

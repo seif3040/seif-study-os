@@ -66,3 +66,11 @@
 - [x] Verify the globally mounted assistant’s Egyptian-Arabic response, confirmation interaction, and cross-page availability before publishing.
 - [x] Add authenticated integration coverage for opening the floating assistant, receiving an Egyptian-Arabic plan, and confirming an action.
 - [x] Verify the globally mounted assistant from a signed-in non-assistant page before publishing.
+- [x] Add a voice-first Seify interaction that captures spoken Arabic requests and reads assistant replies aloud.
+- [x] Persist Seify conversation history and include recent context in future assistant requests.
+- [x] Generate and present a once-per-day study summary when the owner opens the platform.
+- [x] Add confirmed Seify commands for rescheduling tasks and changing task priorities.
+- [x] Test voice fallback behavior, assistant memory, daily summary idempotency, and task update controls before publishing.
+- [x] Persist Seify’s confirmed action outcomes in memory so reopened conversations include what was completed.
+- [x] Add deterministic voice fallback coverage for unavailable or failed browser speech recognition.
+- [x] Add focused mounted Seify voice UI fallback coverage for unavailable recognition and recognition errors.

@@ -78,6 +78,23 @@ export const tasks = mysqlTable("tasks", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => [index("tasks_user_cycle_date_idx").on(table.userId, table.cycleId, table.scheduledFor)]);
 
+export const assistantMessages = mysqlTable("assistantMessages", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: mysqlEnum("role", ["user", "assistant"]).notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => [index("assistantMessages_user_created_idx").on(table.userId, table.createdAt)]);
+
+export const dailyStudySummaries = mysqlTable("dailyStudySummaries", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  cycleId: int("cycleId").notNull().references(() => studyCycles.id, { onDelete: "cascade" }),
+  summaryDate: date("summaryDate", { mode: "string" }).notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => [uniqueIndex("dailyStudySummaries_user_date_unique").on(table.userId, table.summaryDate), index("dailyStudySummaries_cycle_date_idx").on(table.cycleId, table.summaryDate)]);
+
 export const habits = mysqlTable("habits", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),

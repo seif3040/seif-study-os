@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { achievements, coinTransactions, examAttempts, goalMilestones, goals, habitCompletions, lessonProgress, lessons, notes, pomodoroSessions, rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks, userAchievements, users, chapters, exams, notebooks } from "../drizzle/schema";
-import { analytics, completeExamAttempt, completeLesson, completeTask, createChapter, createExam, createFlashcard, createFlashcardDeck, createLesson, createNotebook, createSubject, createTask, createVideoNote, endVideoSession, getActiveCycle, getDb, listAchievements, listExams, listFlashcardDecks, listStudyPlan, listTasks, listVideoSessions, markNotebookQuizReviewed, purchaseReward, reviewFlashcard, reviewLesson, saveNotebookQuiz, startVideoSession, updateVideoNote, deleteVideoNote } from "./db";
+import { analytics, completeExamAttempt, completeLesson, completeTask, createChapter, createExam, createFlashcard, createFlashcardDeck, createLesson, createNotebook, createSubject, createTask, createVideoNote, endVideoSession, getActiveCycle, getDailyStudySummary, getDb, listAchievements, listAssistantMessages, listExams, listFlashcardDecks, listStudyPlan, listTasks, listVideoSessions, markNotebookQuizReviewed, purchaseReward, reviewFlashcard, reviewLesson, saveAssistantMessage, saveNotebookQuiz, startVideoSession, updateVideoNote, deleteVideoNote } from "./db";
 import { executePersonalAssistantAction } from "./personalAssistant";
 
 const enabled = Boolean(process.env.DATABASE_URL);
@@ -73,16 +73,34 @@ suite("database-backed Seif Study OS business flows", () => {
   }, 70_000);
 
   it("requires confirmation before the personal assistant changes a task and persists the confirmed action", async () => {
-    const addPlan = { reply: "هضيف المهمة", actionType: "add_task" as const, title: "Assistant integration task", targetTitle: "", priority: "medium" as const, frequency: "daily" as const, target: 1, route: "" as const, requiresConfirmation: true };
+    const addPlan = { reply: "هضيف المهمة", actionType: "add_task" as const, title: "Assistant integration task", targetTitle: "", priority: "medium" as const, scheduledFor: "", frequency: "daily" as const, target: 1, route: "" as const, requiresConfirmation: true };
     await expect(executePersonalAssistantAction(userId, addPlan, false)).rejects.toThrow("أكد التعديل الأول");
     await executePersonalAssistantAction(userId, addPlan, true);
     expect((await listTasks(userId)).some(task => task.title === addPlan.title)).toBe(true);
     const updatePlan = { ...addPlan, actionType: "update_task" as const, targetTitle: addPlan.title, title: "Assistant integration task renamed", reply: "هغير اسم المهمة" };
     await executePersonalAssistantAction(userId, updatePlan, true);
     expect((await listTasks(userId)).some(task => task.title === updatePlan.title)).toBe(true);
+    const reschedulePlan = { ...addPlan, actionType: "reschedule_task" as const, title: updatePlan.title, targetTitle: updatePlan.title, scheduledFor: "2030-01-15", reply: "هنقل المهمة" };
+    await executePersonalAssistantAction(userId, reschedulePlan, true);
+    expect((await listTasks(userId)).find(task => task.title === updatePlan.title)?.scheduledFor).toBe("2030-01-15");
+    const priorityPlan = { ...addPlan, actionType: "reprioritize_task" as const, title: updatePlan.title, targetTitle: updatePlan.title, priority: "urgent" as const, reply: "هخليها مهمة" };
+    await executePersonalAssistantAction(userId, priorityPlan, true);
+    expect((await listTasks(userId)).find(task => task.title === updatePlan.title)?.priority).toBe("urgent");
     const deletePlan = { ...addPlan, actionType: "delete_task" as const, title: updatePlan.title, reply: "همسح المهمة" };
     await executePersonalAssistantAction(userId, deletePlan, true);
     expect((await listTasks(userId)).some(task => task.title === addPlan.title)).toBe(false);
+  }, 70_000);
+
+  it("persists Seify memory and creates one daily opening brief for the same day", async () => {
+    await saveAssistantMessage(userId, "user", "فاكر إني كنت براجع فيزياء؟");
+    await saveAssistantMessage(userId, "assistant", "أيوه فاكر، وهنكمّل من حيث وقفنا.");
+    const memory = await listAssistantMessages(userId, 4);
+    expect(memory.slice(-2).map(message => message.content)).toEqual(["فاكر إني كنت براجع فيزياء؟", "أيوه فاكر، وهنكمّل من حيث وقفنا."]);
+    const first = await getDailyStudySummary(userId);
+    const second = await getDailyStudySummary(userId);
+    expect(first.content).toContain("يا سيف");
+    expect(second.content).toBe(first.content);
+    expect(second.isNew).toBe(false);
   }, 70_000);
 
   it("saves a file-grounded Notebook AI quiz, returns it in exams, and records review state", async () => {

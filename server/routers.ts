@@ -89,7 +89,9 @@ export const appRouter = router({
   }),
   personalAssistant: router({
     plan: protectedProcedure.input(z.object({ request: z.string().trim().min(1).max(1200) })).mutation(({ ctx, input }) => personalAssistant.planPersonalAssistantAction(ctx.user.id, input.request)),
-    execute: protectedProcedure.input(z.object({ plan: z.object({ reply: z.string().max(1200), actionType: z.enum(personalAssistant.personalAssistantActionTypes), title: z.string().max(200), targetTitle: z.string().max(200), priority: z.enum(["urgent", "medium", "low"]), frequency: z.enum(["daily", "weekly"]), target: z.number().int().min(1).max(7), route: z.enum(["", "/tasks", "/habits", "/goals", "/study-plan", "/exams", "/pomodoro", "/notebooks", "/analytics"]), requiresConfirmation: z.boolean() }), confirmed: z.literal(true) })).mutation(({ ctx, input }) => personalAssistant.executePersonalAssistantAction(ctx.user.id, input.plan, input.confirmed)),
+    memory: protectedProcedure.query(({ ctx }) => db.listAssistantMessages(ctx.user.id)),
+    dailySummary: protectedProcedure.mutation(({ ctx }) => db.getDailyStudySummary(ctx.user.id)),
+    execute: protectedProcedure.input(z.object({ plan: z.object({ reply: z.string().max(1200), actionType: z.enum(personalAssistant.personalAssistantActionTypes), title: z.string().max(200), targetTitle: z.string().max(200), priority: z.enum(["urgent", "medium", "low"]), scheduledFor: z.string().max(10), frequency: z.enum(["daily", "weekly"]), target: z.number().int().min(1).max(7), route: z.enum(["", "/tasks", "/habits", "/goals", "/study-plan", "/exams", "/pomodoro", "/notebooks", "/analytics"]), requiresConfirmation: z.boolean() }), confirmed: z.literal(true) })).mutation(async ({ ctx, input }) => { const result = await personalAssistant.executePersonalAssistantAction(ctx.user.id, input.plan, input.confirmed); await db.saveAssistantMessage(ctx.user.id, "assistant", result.message); return result; }),
   }),
   notebooks: router({
     list: protectedProcedure.query(({ ctx }) => db.listNotebooks(ctx.user.id)),

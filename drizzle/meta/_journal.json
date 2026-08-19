@@ -71,6 +71,13 @@
       "when": 1787046213648,
       "tag": "0009_thankful_bedlam",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1787172506069,
+      "tag": "0010_elite_mentallo",
+      "breakpoints": true
     }
   ]
 }
