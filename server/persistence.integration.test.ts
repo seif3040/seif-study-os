@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { achievements, coinTransactions, examAttempts, goalMilestones, goals, habitCompletions, lessonProgress, lessons, notes, pomodoroSessions, rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks, userAchievements, users, chapters, exams, notebooks } from "../drizzle/schema";
 import { analytics, completeExamAttempt, completeLesson, completeTask, createChapter, createExam, createFlashcard, createFlashcardDeck, createLesson, createNotebook, createSubject, createTask, createVideoNote, endVideoSession, getActiveCycle, getDb, listAchievements, listExams, listFlashcardDecks, listStudyPlan, listTasks, listVideoSessions, markNotebookQuizReviewed, purchaseReward, reviewFlashcard, reviewLesson, saveNotebookQuiz, startVideoSession, updateVideoNote, deleteVideoNote } from "./db";
+import { executePersonalAssistantAction } from "./personalAssistant";
 
 const enabled = Boolean(process.env.DATABASE_URL);
 const suite = enabled ? describe : describe.skip;
@@ -69,6 +70,19 @@ suite("database-backed Seif Study OS business flows", () => {
     await reviewFlashcard(userId, withCard.cards[0]!.id, "mastered");
     const mastered = (await listFlashcardDecks(userId)).find(item => item.id === deck.id)!;
     expect(mastered.cards[0]).toMatchObject({ state: "mastered" });
+  }, 70_000);
+
+  it("requires confirmation before the personal assistant changes a task and persists the confirmed action", async () => {
+    const addPlan = { reply: "هضيف المهمة", actionType: "add_task" as const, title: "Assistant integration task", targetTitle: "", priority: "medium" as const, frequency: "daily" as const, target: 1, route: "" as const, requiresConfirmation: true };
+    await expect(executePersonalAssistantAction(userId, addPlan, false)).rejects.toThrow("أكد التعديل الأول");
+    await executePersonalAssistantAction(userId, addPlan, true);
+    expect((await listTasks(userId)).some(task => task.title === addPlan.title)).toBe(true);
+    const updatePlan = { ...addPlan, actionType: "update_task" as const, targetTitle: addPlan.title, title: "Assistant integration task renamed", reply: "هغير اسم المهمة" };
+    await executePersonalAssistantAction(userId, updatePlan, true);
+    expect((await listTasks(userId)).some(task => task.title === updatePlan.title)).toBe(true);
+    const deletePlan = { ...addPlan, actionType: "delete_task" as const, title: updatePlan.title, reply: "همسح المهمة" };
+    await executePersonalAssistantAction(userId, deletePlan, true);
+    expect((await listTasks(userId)).some(task => task.title === addPlan.title)).toBe(false);
   }, 70_000);
 
   it("saves a file-grounded Notebook AI quiz, returns it in exams, and records review state", async () => {

@@ -4,6 +4,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import * as db from "./db";
+import * as personalAssistant from "./personalAssistant";
 
 const id = z.number().int().positive();
 const date = z.coerce.date();
@@ -85,6 +86,10 @@ export const appRouter = router({
   }),
   ai: router({
     chat: protectedProcedure.input(z.object({ messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().trim().min(1).max(5000) })).min(1).max(12) })).mutation(({ ctx, input }) => db.chatWithAssistant(ctx.user.id, input.messages)),
+  }),
+  personalAssistant: router({
+    plan: protectedProcedure.input(z.object({ request: z.string().trim().min(1).max(1200) })).mutation(({ ctx, input }) => personalAssistant.planPersonalAssistantAction(ctx.user.id, input.request)),
+    execute: protectedProcedure.input(z.object({ plan: z.object({ reply: z.string().max(1200), actionType: z.enum(personalAssistant.personalAssistantActionTypes), title: z.string().max(200), targetTitle: z.string().max(200), priority: z.enum(["urgent", "medium", "low"]), frequency: z.enum(["daily", "weekly"]), target: z.number().int().min(1).max(7), route: z.enum(["", "/tasks", "/habits", "/goals", "/study-plan", "/exams", "/pomodoro", "/notebooks", "/analytics"]), requiresConfirmation: z.boolean() }), confirmed: z.literal(true) })).mutation(({ ctx, input }) => personalAssistant.executePersonalAssistantAction(ctx.user.id, input.plan, input.confirmed)),
   }),
   notebooks: router({
     list: protectedProcedure.query(({ ctx }) => db.listNotebooks(ctx.user.id)),

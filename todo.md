@@ -57,4 +57,12 @@
 - [x] Test automatic quiz saving and reopening from the exams page, then publish the integration.
 - [x] Persist a Notebook AI quiz review timestamp and show that review status in the exams workspace.
 - [x] Add database-backed coverage that saves a Notebook AI quiz and confirms listExams returns its payload.
-- [ ] Save and deliver the verified Notebook AI exam integration checkpoint.
+- [x] Save and deliver the verified Notebook AI exam integration checkpoint.
+- [x] Review the supplied assistant interaction reference and define the supported study-management commands.
+- [x] Build a persistent Egyptian-Arabic personal assistant that can be opened from every platform page.
+- [x] Implement safe natural-language actions for adding and editing study data, with confirmation required before destructive changes.
+- [x] Test assistant responses, safe command execution, and responsive behavior before publishing.
+- [x] Add confirmed edit commands for existing study tasks, habits, and goals.
+- [x] Verify the globally mounted assistant’s Egyptian-Arabic response, confirmation interaction, and cross-page availability before publishing.
+- [x] Add authenticated integration coverage for opening the floating assistant, receiving an Egyptian-Arabic plan, and confirming an action.
+- [x] Verify the globally mounted assistant from a signed-in non-assistant page before publishing.

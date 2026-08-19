@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   purchaseReward: vi.fn(),
   listAchievements: vi.fn(),
   completeExamAttempt: vi.fn(),
+  planPersonalAssistantAction: vi.fn(),
+  executePersonalAssistantAction: vi.fn(),
 }));
 
 vi.mock("./db", async importOriginal => ({
@@ -14,6 +16,12 @@ vi.mock("./db", async importOriginal => ({
   purchaseReward: mocks.purchaseReward,
   listAchievements: mocks.listAchievements,
   completeExamAttempt: mocks.completeExamAttempt,
+}));
+
+vi.mock("./personalAssistant", async importOriginal => ({
+  ...(await importOriginal<typeof import("./personalAssistant")>()),
+  planPersonalAssistantAction: mocks.planPersonalAssistantAction,
+  executePersonalAssistantAction: mocks.executePersonalAssistantAction,
 }));
 
 import { appRouter } from "./routers";
@@ -56,5 +64,21 @@ describe("protected study business routes", () => {
     const result = await appRouter.createCaller(context()).exams.completeAttempt({ examId: 4, totalQuestions: 20, correctAnswers: 16, difficulty: "medium", missedTopics: ["المعادلات"] });
     expect(mocks.completeExamAttempt).toHaveBeenCalledWith(42, expect.objectContaining({ examId: 4, correctAnswers: 16 }));
     expect(result).toMatchObject({ score: 80, comprehensionScore: 85, bonusAmount: 35 });
+  });
+
+  it("plans an Egyptian-Arabic assistant response for the authenticated owner", async () => {
+    mocks.planPersonalAssistantAction.mockResolvedValue({ reply: "حاضر يا سيف، هضيف المهمة بعد تأكيدك.", actionType: "add_task", title: "مراجعة فيزياء", targetTitle: "", priority: "medium", frequency: "daily", target: 1, route: "", requiresConfirmation: true });
+    const result = await appRouter.createCaller(context()).personalAssistant.plan({ request: "ضيف مهمة مراجعة فيزياء" });
+    expect(mocks.planPersonalAssistantAction).toHaveBeenCalledWith(42, "ضيف مهمة مراجعة فيزياء");
+    expect(result.reply).toContain("حاضر يا سيف");
+    expect(result.requiresConfirmation).toBe(true);
+  });
+
+  it("executes a personal-assistant action only through the explicit confirmation contract", async () => {
+    const plan = { reply: "هضيف المهمة", actionType: "add_task" as const, title: "مراجعة فيزياء", targetTitle: "", priority: "medium" as const, frequency: "daily" as const, target: 1, route: "" as const, requiresConfirmation: true };
+    mocks.executePersonalAssistantAction.mockResolvedValue({ message: "اتعملت مهمة «مراجعة فيزياء».", kind: "task" });
+    const result = await appRouter.createCaller(context()).personalAssistant.execute({ plan, confirmed: true });
+    expect(mocks.executePersonalAssistantAction).toHaveBeenCalledWith(42, plan, true);
+    expect(result.message).toContain("اتعملت مهمة");
   });
 });
