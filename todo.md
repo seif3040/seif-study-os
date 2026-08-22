@@ -97,3 +97,6 @@
 - [x] Audit Seify’s microphone flow for laptop browser permission, missing-device, and unsupported-recognition failures.
 - [x] Add microphone permission checks, clearer laptop recovery guidance, and a retry control to Seify.
 - [x] Test microphone permission denial, no-device, and browser-recognition failure states before publishing.
+- [x] Diagnose and prevent duplicate microphone failure notifications reported on the laptop.
+- [x] Avoid blocking browser-native speech recognition with an unnecessary audio-capture preflight failure.
+- [x] Test one-time microphone recovery feedback and successful recognition startup after recoverable capture failures.

@@ -37,7 +37,11 @@ export async function prepareMicrophone(runtime: MicrophoneRuntime) {
   const getUserMedia = runtime.navigator?.mediaDevices?.getUserMedia;
   if (!getUserMedia) return { allowed: true as const };
   try { const stream = await getUserMedia({ audio: true }); stream.getTracks().forEach(track => track.stop()); return { allowed: true as const }; }
-  catch (error) { return { allowed: false as const, message: microphoneAccessErrorMessage(error as { name?: string }) }; }
+  catch (error) {
+    const name = (error as { name?: string })?.name ?? "";
+    if (["NotAllowedError", "SecurityError", "NotFoundError", "DevicesNotFoundError", "OverconstrainedError"].includes(name)) return { allowed: false as const, message: microphoneAccessErrorMessage(error as { name?: string }) };
+    return { allowed: true as const, warning: microphoneAccessErrorMessage(error as { name?: string }) };
+  }
 }
 export function arabicVoiceUnavailableMessage() { return "مش لاقي صوت عربي على الجهاز، فمش هشغّل صوت أجنبي. فعّل أو نزّل صوت عربي من إعدادات الجهاز أو المتصفح."; }
 

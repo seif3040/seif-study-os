@@ -54,4 +54,9 @@ describe("Seify voice fallback", () => {
     const stopped = vi.fn(); const allowed = await prepareMicrophone({ navigator: { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop: stopped }] }) } } });
     expect(allowed).toMatchObject({ allowed: true }); expect(stopped).toHaveBeenCalledOnce();
   });
+
+  it("does not block browser-native recognition after a transient microphone capture failure", async () => {
+    const transient = await prepareMicrophone({ navigator: { mediaDevices: { getUserMedia: async () => { throw { name: "NotReadableError" }; } } } });
+    expect(transient).toMatchObject({ allowed: true, warning: expect.stringContaining("مش قادر أجهز") });
+  });
 });
