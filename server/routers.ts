@@ -5,6 +5,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import * as db from "./db";
 import * as personalAssistant from "./personalAssistant";
+import { safeStudyUrl } from "../client/src/lib/videoSources";
 
 const id = z.number().int().positive();
 const date = z.coerce.date();
@@ -74,10 +75,12 @@ export const appRouter = router({
     createNote: protectedProcedure.input(z.object({ sessionId: id, title: z.string().trim().min(1).max(220), content: z.string().trim().min(1).max(30000), timestampSeconds: z.number().int().min(0).max(172800).optional() })).mutation(({ ctx, input }) => db.createVideoNote(ctx.user.id, input)),
     updateNote: protectedProcedure.input(z.object({ noteId: id, title: z.string().trim().min(1).max(220), content: z.string().trim().min(1).max(30000), timestampSeconds: z.number().int().min(0).max(172800).optional() })).mutation(({ ctx, input }) => db.updateVideoNote(ctx.user.id, input.noteId, input)),
     deleteNote: protectedProcedure.input(z.object({ noteId: id })).mutation(({ ctx, input }) => db.deleteVideoNote(ctx.user.id, input.noteId)),
-    start: protectedProcedure.input(z.object({ videoUrl: z.string().url().max(2000) })).mutation(({ ctx, input }) => db.startVideoSession(ctx.user.id, input.videoUrl)),
+    start: protectedProcedure.input(z.object({ videoUrl: z.string().trim().min(1).max(2000), lessonTitle: z.string().trim().max(220).optional(), subject: z.enum(["arabic", "history", "english", "programming_ai", "german", "other"]).default("other"), requestedMode: z.enum(["auto", "embedded", "external"]).default("auto") })).mutation(({ ctx, input }) => { const videoUrl = safeStudyUrl(input.videoUrl); if (!videoUrl) throw new Error("استخدم رابطًا صالحًا يبدأ بـ http:// أو https:// فقط."); return db.startVideoSession(ctx.user.id, { ...input, videoUrl }); }),
     end: protectedProcedure.input(z.object({ sessionId: id })).mutation(({ ctx, input }) => db.endVideoSession(ctx.user.id, input.sessionId)),
     heartbeat: protectedProcedure.input(z.object({ sessionId: id, active: z.boolean(), playbackPosition: z.number().min(0).max(172800).optional() })).mutation(({ ctx, input }) => db.trackVideoPlayback(ctx.user.id, input.sessionId, input)),
     resume: protectedProcedure.input(z.object({ sessionId: id })).mutation(({ ctx, input }) => db.resumeVideoSession(ctx.user.id, input.sessionId)),
+    setExternalTimer: protectedProcedure.input(z.object({ sessionId: id, running: z.boolean() })).mutation(({ ctx, input }) => db.setExternalVideoTimer(ctx.user.id, input.sessionId, input.running)),
+    setProgress: protectedProcedure.input(z.object({ sessionId: id, progress: z.enum(["started", "middle", "finished", "reviewed"]) })).mutation(({ ctx, input }) => db.setVideoManualProgress(ctx.user.id, input.sessionId, input.progress)),
   }),
   exams: router({
     list: protectedProcedure.query(({ ctx }) => db.listExams(ctx.user.id)),
