@@ -10,6 +10,17 @@ const id = z.number().int().positive();
 const date = z.coerce.date();
 const priority = z.enum(["urgent", "medium", "low"]);
 const difficulty = z.enum(["easy", "medium", "hard"]);
+const lessonSourceInput = z.object({
+  subject: z.string().trim().min(1).max(80),
+  platform: z.string().trim().min(1).max(180),
+  teacherName: z.string().trim().min(1).max(180),
+  delivery: z.enum(["online", "in_person", "hybrid"]),
+  role: z.enum(["primary", "review", "support"]),
+  url: z.string().url().max(768).optional(),
+  location: z.string().trim().max(255).optional(),
+  weeklyPlan: z.string().trim().max(255).optional(),
+  notes: z.string().trim().max(5000).optional(),
+});
 
 export const appRouter = router({
   system: systemRouter,
@@ -39,6 +50,13 @@ export const appRouter = router({
     update: protectedProcedure.input(z.object({ taskId: id, title: z.string().trim().min(1).max(200), description: z.string().max(2000).optional(), scheduledFor: z.string().date().optional(), deadline: date.optional(), priority, category: z.string().trim().min(1).max(80).optional() })).mutation(({ ctx, input }) => db.updateTask(ctx.user.id, input.taskId, input)),
     delete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.deleteTask(ctx.user.id, input.taskId)),
     complete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.completeTask(ctx.user.id, input.taskId)),
+  }),
+  lessonSources: router({
+    list: protectedProcedure.query(({ ctx }) => db.listLessonSources(ctx.user.id)),
+    seedDefaults: protectedProcedure.mutation(({ ctx }) => db.seedSeifLessonSources(ctx.user.id)),
+    create: protectedProcedure.input(lessonSourceInput).mutation(({ ctx, input }) => db.createLessonSource(ctx.user.id, input)),
+    update: protectedProcedure.input(lessonSourceInput.extend({ sourceId: id, active: z.boolean() })).mutation(({ ctx, input }) => db.updateLessonSource(ctx.user.id, input.sourceId, input)),
+    delete: protectedProcedure.input(z.object({ sourceId: id })).mutation(({ ctx, input }) => db.deleteLessonSource(ctx.user.id, input.sourceId)),
   }),
   habits: router({
     list: protectedProcedure.query(({ ctx }) => db.listHabits(ctx.user.id)),

@@ -281,6 +281,23 @@ export const calendarEvents = mysqlTable("calendarEvents", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => [index("calendarEvents_user_cycle_date_idx").on(table.userId, table.cycleId, table.startsAt)]);
 
+export const lessonSources = mysqlTable("lessonSources", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  subject: varchar("subject", { length: 80 }).notNull(),
+  platform: varchar("platform", { length: 180 }).notNull(),
+  teacherName: varchar("teacherName", { length: 180 }).notNull(),
+  delivery: mysqlEnum("delivery", ["online", "in_person", "hybrid"]).default("online").notNull(),
+  role: mysqlEnum("role", ["primary", "review", "support"]).default("primary").notNull(),
+  url: varchar("url", { length: 768 }),
+  location: varchar("location", { length: 255 }),
+  weeklyPlan: varchar("weeklyPlan", { length: 255 }),
+  notes: text("notes"),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [index("lessonSources_user_subject_idx").on(table.userId, table.subject), index("lessonSources_user_active_idx").on(table.userId, table.active)]);
+
 export const rewards = mysqlTable("rewards", {
   id: int("id").autoincrement().primaryKey(),
   catalogId: int("catalogId").notNull(),
