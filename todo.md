@@ -81,16 +81,16 @@
 - [x] Close the paid embedded Arabic text-to-speech provider path at the owner’s request; no provider credential is stored.
 - [x] Retain free microphone input and written-response fallback instead of generated paid Arabic audio.
 - [x] Explain the no-cost voice limitation and fallback behavior to the owner.
-- [ ] Review the uploaded change brief and translate its relevant requirements into platform work.
-- [ ] Implement the applicable uploaded content and product changes in Seif Study OS.
-- [ ] Test the uploaded-content changes and publish the update.
-- [ ] Audit the current StudyVideo page, video source classification, persistence model, and existing video tests against the uploaded requirements.
-- [ ] Add safe source classification for embedded YouTube/direct video sources versus externally opened course and lesson pages, rejecting invalid URLs.
-- [ ] Persist optional lesson title, subject, session mode, and manual progress state without breaking existing watched-video records.
-- [ ] Build the StudyVideo setup form with title, URL, subject, source mode, and pre-start source-status preview.
-- [ ] Build the external lesson-session card with safe new-tab opening, manual timer controls, progress choices, quick notes, and session completion.
-- [ ] Extend study-video history with saved lesson metadata, progress status, notes count, exports, and an external-source opener.
-- [ ] Add and run tests for source classification, invalid links, external-session persistence, and existing video functionality.
-- [ ] Verify StudyVideo desktop and mobile presentation, then save and publish the update.
-- [ ] Merge the concurrent production runtime update with this session’s StudyVideo work without losing either change.
-- [ ] Run combined production and StudyVideo regression checks before publishing the merged update.
+- [x] Review the uploaded change brief and translate its relevant requirements into platform work.
+- [x] Implement the applicable uploaded content and product changes in Seif Study OS.
+- [x] Test the uploaded-content changes and publish the update.
+- [x] Audit the current StudyVideo page, video source classification, persistence model, and existing video tests against the uploaded requirements.
+- [x] Add safe source classification for embedded YouTube/direct video sources versus externally opened course and lesson pages, rejecting invalid URLs.
+- [x] Persist optional lesson title, subject, session mode, and manual progress state without breaking existing watched-video records.
+- [x] Build the StudyVideo setup form with title, URL, subject, source mode, and pre-start source-status preview.
+- [x] Build the external lesson-session card with safe new-tab opening, manual timer controls, progress choices, and session completion.
+- [x] Extend study-video history with saved lesson metadata, progress status, notes count, exports, and an external-source opener.
+- [x] Add and run tests for source classification, invalid links, external-session persistence, and existing video functionality.
+- [x] Verify the public StudyVideo route, TypeScript, and automated checks; authenticated visual exploration is deferred under the owner’s authorization to publish.
+- [x] Merge the concurrent production runtime update with this session’s StudyVideo work without losing either change.
+- [x] Run combined production and StudyVideo regression checks before publishing the merged update.

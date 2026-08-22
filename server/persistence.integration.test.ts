@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { achievements, coinTransactions, examAttempts, goalMilestones, goals, habitCompletions, lessonProgress, lessons, notes, pomodoroSessions, rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks, userAchievements, users, chapters, exams, notebooks } from "../drizzle/schema";
-import { analytics, completeExamAttempt, completeLesson, completeTask, createChapter, createExam, createFlashcard, createFlashcardDeck, createLesson, createNotebook, createSubject, createTask, createVideoNote, endVideoSession, getActiveCycle, getDailyStudySummary, getDb, listAchievements, listAssistantMessages, listExams, listFlashcardDecks, listStudyPlan, listTasks, listVideoSessions, markNotebookQuizReviewed, purchaseReward, reviewFlashcard, reviewLesson, saveAssistantMessage, saveNotebookQuiz, startVideoSession, updateVideoNote, deleteVideoNote } from "./db";
+import { analytics, completeExamAttempt, completeLesson, completeTask, createChapter, createExam, createFlashcard, createFlashcardDeck, createLesson, createNotebook, createSubject, createTask, createVideoNote, endVideoSession, getActiveCycle, getDailyStudySummary, getDb, listAchievements, listAssistantMessages, listExams, listFlashcardDecks, listStudyPlan, listTasks, listVideoSessions, markNotebookQuizReviewed, purchaseReward, reviewFlashcard, reviewLesson, saveAssistantMessage, saveNotebookQuiz, setExternalVideoTimer, setVideoManualProgress, startVideoSession, updateVideoNote, deleteVideoNote } from "./db";
 import { executePersonalAssistantAction } from "./personalAssistant";
 
 const enabled = Boolean(process.env.DATABASE_URL);
@@ -44,7 +44,7 @@ suite("database-backed Seif Study OS business flows", () => {
   }, 70_000);
 
   it("persists watched-video history and per-video note CRUD through real persistence", async () => {
-    const video = await startVideoSession(userId, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    const video = await startVideoSession(userId, { videoUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", lessonTitle: "YouTube integration", subject: "other", requestedMode: "auto" });
     expect(video).toBeTruthy();
     await createVideoNote(userId, { sessionId: video!.id, title: "First insight", content: "مفهوم مهم من المحاضرة", timestampSeconds: 42 });
     const history = await listVideoSessions(userId);
@@ -59,6 +59,17 @@ suite("database-backed Seif Study OS business flows", () => {
     expect((await listVideoSessions(userId)).find(item => item.id === video!.id)?.notes).toHaveLength(0);
     await endVideoSession(userId, video!.id);
     expect((await listVideoSessions(userId)).find(item => item.id === video!.id)?.phase).toBe("completed");
+  }, 70_000);
+
+  it("persists external lesson metadata, manual progress, and manual timer sessions without embedding the platform", async () => {
+    const external = await startVideoSession(userId, { videoUrl: "https://course.example.com/physics/lesson-1", lessonTitle: "فيزياء — الدرس 1", subject: "history", requestedMode: "auto" });
+    expect(external).toMatchObject({ sourceMode: "external", lessonTitle: "فيزياء — الدرس 1", subject: "history", manualProgress: "started" });
+    await setVideoManualProgress(userId, external!.id, "middle");
+    await setExternalVideoTimer(userId, external!.id, true);
+    await setExternalVideoTimer(userId, external!.id, false);
+    const stored = (await listVideoSessions(userId)).find(item => item.id === external!.id);
+    expect(stored).toMatchObject({ sourceMode: "external", manualProgress: "middle", timerRunning: false });
+    await endVideoSession(userId, external!.id);
   }, 70_000);
 
   it("persists native flashcard decks and review state through real persistence", async () => {
