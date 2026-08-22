@@ -1,6 +1,6 @@
 import { Link } from "wouter";
 import { PageHeader } from "@/components/PageHeader";
-import { BookOpen, BrainCircuit, CheckSquare, GraduationCap, Layers3, NotebookPen, Search, Sparkles, Timer, Video } from "lucide-react";
+import { BookOpen, BrainCircuit, CalendarRange, CheckSquare, GraduationCap, Layers3, NotebookPen, Search, Sparkles, Timer, Video } from "lucide-react";
 
 const tools = [
   { href: "/notebooks", title: "مساحة النوتس", copy: "اكتب، رتّب، واعمل دفاتر لكل مادة — مكانك كله جوه الموقع.", icon: NotebookPen, color: "from-violet-500 to-fuchsia-500" },
@@ -8,6 +8,7 @@ const tools = [
   { href: "/study-search", title: "دوّر في مذاكرتك", copy: "ابحث في نوتاتك ودروسك وكروتك من مكان واحد.", icon: Search, color: "from-lime-500 to-emerald-500" },
   { href: "/flashcards", title: "فلاش كاردز", copy: "تكرار ذكي وأسئلة قصيرة تخلي الحفظ يثبت.", icon: Layers3, color: "from-amber-500 to-orange-500" },
   { href: "/study-plan", title: "خطة المنهج", copy: "قسّم المنهج لدروس صغيرة وخلص واحدة واحدة.", icon: BookOpen, color: "from-emerald-500 to-teal-500" },
+  { href: "/weekly-schedule", title: "جدول الأسبوع", copy: "خطة قاسم 100: جلساتك، اختبارك الأسبوعي، وإصلاح أخطائك.", icon: CalendarRange, color: "from-violet-500 to-indigo-500" },
   { href: "/tasks", title: "خطة يومك", copy: "مهامك ومواعيدك من غير توتر ولا لخبطة.", icon: CheckSquare, color: "from-rose-500 to-pink-500" },
   { href: "/pomodoro", title: "فوكَس مود", copy: "جلسات تركيز وراحة في الوقت الصح.", icon: Timer, color: "from-indigo-500 to-blue-500" },
   { href: "/exams", title: "معمل الامتحانات", copy: "حدد الدروس واعرف إنت جاهز قد إيه قبل اللجنة.", icon: GraduationCap, color: "from-red-500 to-orange-500" },
