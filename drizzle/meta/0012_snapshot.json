@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "2b5af259-d03b-4ed2-b428-7dcc013142ea",
-  "prevId": "0d0c0eba-0787-41b1-8791-f6fba327f551",
+  "id": "9ef00bd4-ce9c-4f86-a03b-3fae6f496360",
+  "prevId": "2b5af259-d03b-4ed2-b428-7dcc013142ea",
   "tables": {
     "achievements": {
       "name": "achievements",
@@ -2944,6 +2944,45 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "lessonTitle": {
+          "name": "lessonTitle",
+          "type": "varchar(220)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "subject": {
+          "name": "subject",
+          "type": "enum('arabic','history','english','programming_ai','german','other')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'other'"
+        },
+        "sourceMode": {
+          "name": "sourceMode",
+          "type": "enum('embedded','external')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'embedded'"
+        },
+        "manualProgress": {
+          "name": "manualProgress",
+          "type": "enum('started','middle','finished','reviewed')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'started'"
+        },
+        "timerRunning": {
+          "name": "timerRunning",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         },
         "activeSeconds": {
           "name": "activeSeconds",

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Award, BarChart3, Bot, BookOpen, CalendarDays, CheckSquare, CircleDollarSign, Clock3, Flame, Gift, GraduationCap, LayoutDashboard, LogOut, Menu, NotebookPen, Layers3, Search, Settings, Sparkles, Timer, Trophy, Video } from "lucide-react";
+import { Award, BarChart3, Bot, BookOpen, CalendarDays, CalendarRange, CheckSquare, CircleDollarSign, Clock3, Flame, Gift, GraduationCap, LayoutDashboard, LogOut, Menu, NotebookPen, Layers3, Search, Settings, Sparkles, Timer, Trophy, Users, Video } from "lucide-react";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { useState } from "react";
 
 const menu = [
-  ["لوحة التحكم", "/", LayoutDashboard], ["مركز المذاكرة", "/hub", Sparkles], ["خطة المذاكرة", "/study-plan", BookOpen], ["الامتحانات", "/exams", GraduationCap], ["الجدول اليومي", "/daily", CalendarDays], ["دوّر في مذاكرتك", "/study-search", Search], ["فلاش كاردز", "/flashcards", Layers3], ["Pomodoro", "/pomodoro", Timer], ["استراحة محسوبة", "/focus-lounge", Clock3], ["فيديو المذاكرة", "/study-video", Video], ["الأهداف", "/goals", Trophy], ["العادات", "/habits", Flame], ["التحليلات", "/analytics", BarChart3], ["المساعد الذكي", "/assistant", Bot], ["Notebook AI", "/notebooks", NotebookPen], ["التقويم", "/calendar", CalendarDays], ["الإنجازات", "/achievements", Award], ["الهدايا", "/rewards", Gift], ["Coins", "/coins", CircleDollarSign], ["الإعدادات", "/settings", Settings],
+  ["لوحة التحكم", "/", LayoutDashboard], ["مركز المذاكرة", "/hub", Sparkles], ["مصادر دروسي", "/lesson-sources", Users], ["خطة المنهج", "/study-plan", BookOpen], ["جدول الأسبوع", "/weekly-schedule", CalendarRange], ["الامتحانات", "/exams", GraduationCap], ["الجدول اليومي", "/daily", CalendarDays], ["دوّر في مذاكرتك", "/study-search", Search], ["فلاش كاردز", "/flashcards", Layers3], ["Pomodoro", "/pomodoro", Timer], ["استراحة محسوبة", "/focus-lounge", Clock3], ["فيديو المذاكرة", "/study-video", Video], ["الأهداف", "/goals", Trophy], ["العادات", "/habits", Flame], ["التحليلات", "/analytics", BarChart3], ["المساعد الذكي", "/assistant", Bot], ["Notebook AI", "/notebooks", NotebookPen], ["التقويم", "/calendar", CalendarDays], ["الإنجازات", "/achievements", Award], ["الهدايا", "/rewards", Gift], ["Coins", "/coins", CircleDollarSign], ["الإعدادات", "/settings", Settings],
 ] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

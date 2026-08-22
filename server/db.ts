@@ -3,9 +3,10 @@ import { drizzle } from "drizzle-orm/mysql2";
 import {
   achievements, calendarEvents, chapters, coinTransactions, examAttempts, examLessons, exams, goalMilestones,
   assistantMessages, dailyStudySummaries, goals, habitCompletions, habits, lessonProgress, lessons, flashcardDecks, flashcards, notebooks, notebookSources, notes, pomodoroSessions,
-  rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks,
+  rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks, lessonSources,
   userAchievements, users, type InsertUser,
 } from "../drizzle/schema";
+import { seifLessonSourceDefaults, type LessonSourceDraft } from "../shared/lessonSources";
 import { achievementCatalog, rewardCatalog, type AchievementMetric } from "../shared/catalog";
 import { invokeLLM, listLLMModels } from "./_core/llm";
 import { storageGetSignedUrl, storagePut } from "./storage";
@@ -293,6 +294,69 @@ export async function completeTask(userId: number, taskId: number) {
 }
 export async function updateTask(userId: number, taskId: number, input: { title: string; description?: string; scheduledFor?: string; deadline?: Date; priority: "urgent" | "medium" | "low"; category?: string }) { const db = await database(); return db.update(tasks).set({ title: input.title, description: input.description ?? null, scheduledFor: input.scheduledFor ?? null, deadline: input.deadline ?? null, priority: input.priority, category: input.category ?? "دراسة" }).where(and(eq(tasks.id, taskId), eq(tasks.userId, userId))); }
 export async function deleteTask(userId: number, taskId: number) { const db = await database(); return db.delete(tasks).where(and(eq(tasks.id, taskId), eq(tasks.userId, userId))); }
+
+export async function listLessonSources(userId: number) {
+  const db = await database();
+  return db.select().from(lessonSources).where(eq(lessonSources.userId, userId)).orderBy(lessonSources.subject, lessonSources.createdAt);
+}
+
+export async function createLessonSource(userId: number, input: LessonSourceDraft) {
+  const db = await database();
+  await db.insert(lessonSources).values({
+    userId,
+    subject: input.subject,
+    platform: input.platform,
+    teacherName: input.teacherName,
+    delivery: input.delivery,
+    role: input.role,
+    url: input.url ?? null,
+    location: input.location ?? null,
+    weeklyPlan: input.weeklyPlan ?? null,
+    notes: input.notes ?? null,
+  });
+}
+
+async function ownedLessonSource(db: any, userId: number, sourceId: number) {
+  const row = await db.select({ id: lessonSources.id }).from(lessonSources).where(and(eq(lessonSources.id, sourceId), eq(lessonSources.userId, userId))).limit(1);
+  if (!row[0]) throw new Error("مصدر الدرس غير موجود.");
+}
+
+export async function updateLessonSource(userId: number, sourceId: number, input: LessonSourceDraft & { active: boolean }) {
+  const db = await database();
+  await ownedLessonSource(db, userId, sourceId);
+  return db.update(lessonSources).set({
+    subject: input.subject,
+    platform: input.platform,
+    teacherName: input.teacherName,
+    delivery: input.delivery,
+    role: input.role,
+    url: input.url ?? null,
+    location: input.location ?? null,
+    weeklyPlan: input.weeklyPlan ?? null,
+    notes: input.notes ?? null,
+    active: input.active,
+  }).where(eq(lessonSources.id, sourceId));
+}
+
+export async function deleteLessonSource(userId: number, sourceId: number) {
+  const db = await database();
+  await ownedLessonSource(db, userId, sourceId);
+  return db.delete(lessonSources).where(eq(lessonSources.id, sourceId));
+}
+
+export async function seedSeifLessonSources(userId: number) {
+  const db = await database();
+  for (const source of seifLessonSourceDefaults) {
+    const existing = await db.select({ id: lessonSources.id }).from(lessonSources).where(and(
+      eq(lessonSources.userId, userId),
+      eq(lessonSources.subject, source.subject),
+      eq(lessonSources.platform, source.platform),
+      eq(lessonSources.teacherName, source.teacherName),
+    )).limit(1);
+    if (!existing[0]) await db.insert(lessonSources).values({ ...source, userId, url: source.url ?? null, location: source.location ?? null, weeklyPlan: source.weeklyPlan ?? null, notes: source.notes ?? null });
+  }
+  return listLessonSources(userId);
+}
 
 export async function listAssistantMessages(userId: number, limit = 24) {
   const db = await database();
