@@ -94,3 +94,6 @@
 - [x] Verify the public StudyVideo route, TypeScript, and automated checks; authenticated visual exploration is deferred under the owner’s authorization to publish.
 - [x] Merge the concurrent production runtime update with this session’s StudyVideo work without losing either change.
 - [x] Run combined production and StudyVideo regression checks before publishing the merged update.
+- [x] Audit Seify’s microphone flow for laptop browser permission, missing-device, and unsupported-recognition failures.
+- [x] Add microphone permission checks, clearer laptop recovery guidance, and a retry control to Seify.
+- [x] Test microphone permission denial, no-device, and browser-recognition failure states before publishing.

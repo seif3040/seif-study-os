@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { arabicVoiceUnavailableMessage, getSpeechRecognitionConstructor, selectArabicVoice, startVoiceRecognition, voiceRecognitionFailedMessage, voiceRecognitionUnavailableMessage, type SpeechRecognitionConstructor } from "../client/src/lib/voice";
+import { arabicVoiceUnavailableMessage, getSpeechRecognitionConstructor, microphoneAccessErrorMessage, prepareMicrophone, selectArabicVoice, startVoiceRecognition, voiceRecognitionErrorMessage, voiceRecognitionFailedMessage, voiceRecognitionUnavailableMessage, type SpeechRecognitionConstructor } from "../client/src/lib/voice";
 
 describe("Seify voice fallback", () => {
   it("returns no constructor when browser speech recognition is unavailable", () => {
@@ -38,10 +38,20 @@ describe("Seify voice fallback", () => {
     }
     const errorFlow = { onStart: vi.fn(), onError: vi.fn(), onEnd: vi.fn(), onTranscript: vi.fn(), onUnavailable: vi.fn() };
     startVoiceRecognition({ SpeechRecognition: FakeRecognition as unknown as SpeechRecognitionConstructor }, errorFlow);
-    active.onerror?.(); active.onend?.();
+    active.onerror?.({ error: "not-allowed" }); active.onend?.();
     expect(errorFlow.onStart).toHaveBeenCalledOnce();
-    expect(errorFlow.onError).toHaveBeenCalledOnce();
+    expect(errorFlow.onError).toHaveBeenCalledWith("not-allowed");
     expect(errorFlow.onEnd).toHaveBeenCalledOnce();
     expect(errorFlow.onUnavailable).not.toHaveBeenCalled();
+  });
+
+  it("explains laptop microphone permissions and missing-device failures before recognition starts", async () => {
+    expect(voiceRecognitionErrorMessage("not-allowed")).toContain("علامة القفل");
+    expect(voiceRecognitionErrorMessage("audio-capture")).toContain("ميكروفون");
+    expect(microphoneAccessErrorMessage({ name: "NotFoundError" })).toContain("مش لاقي");
+    const denied = await prepareMicrophone({ navigator: { mediaDevices: { getUserMedia: async () => { throw { name: "NotAllowedError" }; } } } });
+    expect(denied).toMatchObject({ allowed: false, message: expect.stringContaining("علامة القفل") });
+    const stopped = vi.fn(); const allowed = await prepareMicrophone({ navigator: { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop: stopped }] }) } } });
+    expect(allowed).toMatchObject({ allowed: true }); expect(stopped).toHaveBeenCalledOnce();
   });
 });
