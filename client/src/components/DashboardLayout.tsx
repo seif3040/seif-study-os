@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { useState } from "react";
 
 const menu = [
-  ["لوحة التحكم", "/", LayoutDashboard], ["سيفي AI", "/seify", Sparkles], ["مصادر دروسي", "/lesson-sources", Users], ["خطة المنهج", "/study-plan", BookOpen], ["الامتحانات", "/exams", GraduationCap], ["Pomodoro", "/pomodoro", Timer], ["استراحة محسوبة", "/focus-lounge", Clock3], ["فيديو المذاكرة", "/study-video", Video], ["العادات", "/habits", Flame], ["التحليلات", "/analytics", BarChart3], ["التقويم", "/calendar", CalendarDays], ["الهدايا", "/rewards", Gift], ["Coins", "/coins", CircleDollarSign], ["الإعدادات", "/settings", Settings],
+  ["لوحة التحكم", "/", LayoutDashboard], ["جارفيس", "/seify", Sparkles], ["مصادر دروسي", "/lesson-sources", Users], ["خطة المنهج", "/study-plan", BookOpen], ["الامتحانات", "/exams", GraduationCap], ["Pomodoro", "/pomodoro", Timer], ["استراحة محسوبة", "/focus-lounge", Clock3], ["فيديو المذاكرة", "/study-video", Video], ["العادات", "/habits", Flame], ["التحليلات", "/analytics", BarChart3], ["التقويم", "/calendar", CalendarDays], ["الهدايا", "/rewards", Gift], ["Coins", "/coins", CircleDollarSign], ["الإعدادات", "/settings", Settings],
 ] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -32,5 +32,5 @@ function StudyNavigation({ children }: { children: React.ReactNode }) {
       <Icon className="size-5" aria-hidden /><span>{label}</span>
     </button>
   )}
-</nav>{location !== "/seify" && <Button className="study-assistant fixed bottom-4 left-4 z-40" onClick={() => navigate("/seify?from=" + encodeURIComponent(location))}><Sparkles />كلم سيفي</Button>}</SidebarInset></SidebarProvider>;
+</nav>{location !== "/seify" && <Button className="study-assistant fixed bottom-4 left-4 z-40" onClick={() => navigate("/seify?from=" + encodeURIComponent(location))}><Sparkles />كلم جارفيس</Button>}</SidebarInset></SidebarProvider>;
 }

@@ -115,6 +115,10 @@ export const appRouter = router({
     plan: protectedProcedure.input(z.object({ request: z.string().trim().min(1).max(1200), page: z.string().max(100).optional(), shareWithOpenRouter: z.boolean().default(false), chatId: id.optional(), includeChatHistory: z.boolean().default(false) })).mutation(({ ctx, input }) => personalAssistant.planPersonalAssistantAction(ctx.user.id, input.request, input.page, input.shareWithOpenRouter, input.chatId, input.includeChatHistory)),
     chats: protectedProcedure.query(({ ctx }) => db.listAssistantChats(ctx.user.id)),
     createChat: protectedProcedure.mutation(({ ctx }) => db.createAssistantChat(ctx.user.id)),
+    renameChat: protectedProcedure.input(z.object({ chatId: id.optional(), title: z.string().trim().min(1).max(100) }))
+      .mutation(({ ctx, input }) => db.renameAssistantChat(ctx.user.id, input.title, input.chatId)),
+    deleteChat: protectedProcedure.input(z.object({ chatId: id.optional() }))
+      .mutation(({ ctx, input }) => db.deleteAssistantChat(ctx.user.id, input.chatId)),
     chatMessages: protectedProcedure.input(z.object({ chatId: id.optional() })).query(({ ctx, input }) => db.listAssistantMessages(ctx.user.id, 500, input.chatId)),
     memory: protectedProcedure.query(({ ctx }) => db.listAssistantMessages(ctx.user.id)),
     dailySummary: protectedProcedure.mutation(({ ctx }) => db.getDailyStudySummary(ctx.user.id)),

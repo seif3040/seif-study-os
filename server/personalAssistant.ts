@@ -36,7 +36,7 @@ export function normalizePersonalAssistantPlan(input: unknown): PersonalAssistan
   }
   const parentTitle = typeof value?.parentTitle === "string" ? value.parentTitle.trim().slice(0, 200) : "";
   const number = Number.isInteger(value?.value) ? Math.max(0, Math.min(1_000_000, Number(value.value))) : 0;
-  if (actionType.startsWith("delete_")) return { ...FALLBACK_PLAN, reply: "ممكن أرشف امتحان أو أخفي هدية مع الاحتفاظ بسجلها. الحذف النهائي مش متاح من سيفي." };
+  if (actionType.startsWith("delete_")) return { ...FALLBACK_PLAN, reply: "ممكن أرشف امتحان أو أخفي هدية مع الاحتفاظ بسجلها. الحذف النهائي مش متاح من جارفيس." };
   const isMutation = actionType !== "none" && actionType !== "navigate";
   const isEdit = actionType.startsWith("update_");
   const requiresExistingTask = actionType === "reschedule_task" || actionType === "reprioritize_task";
@@ -58,7 +58,7 @@ export function normalizePersonalAssistantPlan(input: unknown): PersonalAssistan
 }
 
 export async function planPersonalAssistantAction(userId: number, request: string, page = "", shareWithOpenRouter = false, chatId?: number, includeChatHistory = false): Promise<PersonalAssistantPlan> {
-  if (!hasStudyAI()) return { ...FALLBACK_PLAN, reply: "سيفي محتاج إعداد OpenRouter عشان يرد." };
+  if (!hasStudyAI()) return { ...FALLBACK_PLAN, reply: "جارفيس محتاج إعداد OpenRouter عشان يرد." };
   if (chatId !== undefined) await ownedAssistantChat(userId, chatId);
   const history = shareWithOpenRouter && includeChatHistory && chatId !== undefined ? await listAssistantMessages(userId, 8, chatId) : [];
   try {
@@ -76,12 +76,12 @@ export async function planPersonalAssistantAction(userId: number, request: strin
       await saveAssistantMessage(userId, "assistant", reply, chatId);
       return { ...FALLBACK_PLAN, reply };
     }
-    if (!shareWithOpenRouter) return { ...FALLBACK_PLAN, reply: "فعّل إرسال الرسالة إلى OpenRouter عشان سيفي يقدر يرد." };
+    if (!shareWithOpenRouter) return { ...FALLBACK_PLAN, reply: "فعّل إرسال الرسالة إلى OpenRouter عشان جارفيس يقدر يرد." };
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo" }).format(new Date());
     const response = await invokeLLM({
       maxTokens: 600,
       messages: [
-        { role: "system", content: "You are Seify, a personal study assistant for Seif Study OS. Reply in Egyptian Arabic. Propose at most one action; only a user confirmation in the app executes it. Never claim anything was saved before confirmation. You receive the current page and the student's current message. Previous messages may be included when explicitly authorized. Do not invent record titles, costs, dates or results. Ask for the exact title when uncertain. Use title for the requested record or new name, targetTitle for the original name when updating, and parentTitle for the subject when creating a chapter or the chapter when creating a lesson. For complete_lesson, parentTitle can identify the chapter. scheduledFor is YYYY-MM-DD (Cairo); for add_task and add_exam it can be blank. For start_focus, value must be 15, 25, 45 or 60 minutes. For add_lesson, value is duration or 0 for 30 minutes. For add_reward, value is the confirmed price in Coins. Don't award arbitrary Coins, purchase, permanently delete, change account settings or send data anywhere else. Use archive_exam, restore_exam, hide_reward and restore_reward for reversible changes. For unsupported requests explain the limit and help navigate. For normal questions use actionType none. Return a JSON object with keys reply, actionType, title, targetTitle, parentTitle, value, priority, scheduledFor, frequency, target, route, requiresConfirmation." },
+        { role: "system", content: "You are Jarvis (جارفيس), a personal study assistant for Seif Study OS. Reply in Egyptian Arabic. When asked to create a task or exam, use add_task or add_exam so the user can confirm and save it. Propose at most one action; only a user confirmation in the app executes it. Never claim anything was saved before confirmation. You receive the current page and the student's current message. Previous messages may be included when explicitly authorized. Do not invent record titles, costs, dates or results. Ask for the exact title when uncertain. Use title for the requested record or new name, targetTitle for the original name when updating, and parentTitle for the subject when creating a chapter or the chapter when creating a lesson. For complete_lesson, parentTitle can identify the chapter. scheduledFor is YYYY-MM-DD (Cairo); for add_task and add_exam it can be blank. For start_focus, value must be 15, 25, 45 or 60 minutes. For add_lesson, value is duration or 0 for 30 minutes. For add_reward, value is the confirmed price in Coins. Don't award arbitrary Coins, purchase, permanently delete, change account settings or send data anywhere else. Use archive_exam, restore_exam, hide_reward and restore_reward for reversible changes. For unsupported requests explain the limit and help navigate. For normal questions use actionType none. Return a JSON object with keys reply, actionType, title, targetTitle, parentTitle, value, priority, scheduledFor, frequency, target, route, requiresConfirmation." },
         ...history.map(message => ({ role: message.role, content: message.content.slice(0, 1200) })),
         { role: "user", content: `تاريخ القاهرة: ${today}\nالصفحة: ${isRoute(page) ? page : ""}\nطلب الطالب: ${request}` },
       ],

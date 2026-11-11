@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useLocation, useSearch } from "wouter";
-import { Headphones, MessageSquare, Mic, Plus, Send, Sparkles, Square } from "lucide-react";
+import { Headphones, MessageSquare, Mic, Pencil, Plus, Send, Sparkles, Square, Trash2 } from "lucide-react";
 import { ActionPreview, type Plan } from "@/components/PersonalAssistant";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useArabicVoice } from "@/hooks/useArabicVoice";
 import { errorText } from "@/lib/study";
@@ -30,6 +32,8 @@ export default function Seify() {
   const [, navigate] = useLocation();
   const from = new URLSearchParams(useSearch()).get("from") ?? "/";
   const [chat, setChat] = useState<number>();
+  const [chatDialog, setChatDialog] = useState<"rename" | "delete" | null>(null);
+  const [chatTitle, setChatTitle] = useState("");
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState<Mode>("text");
   const [shareText, setShareText] = useState(false);
@@ -51,6 +55,8 @@ export default function Seify() {
   const chats = trpc.personalAssistant.chats.useQuery();
   const messages = trpc.personalAssistant.chatMessages.useQuery({ chatId: chat });
   const create = trpc.personalAssistant.createChat.useMutation();
+  const rename = trpc.personalAssistant.renameChat.useMutation();
+  const remove = trpc.personalAssistant.deleteChat.useMutation();
   const ask = trpc.personalAssistant.plan.useMutation();
 
   const execute = trpc.personalAssistant.execute.useMutation();
@@ -191,20 +197,70 @@ export default function Seify() {
     } catch (error) { toast.error(errorText(error)); }
   }
 
-  const busy = ask.isPending || recording || preparing || execute.isPending || create.isPending;
+  async function manageChat(event: FormEvent) {
+    event.preventDefault();
+    if (!chatDialog || rename.isPending || remove.isPending) return;
+    try {
+      if (chatDialog === "rename") {
+        const result = await rename.mutateAsync({ chatId: chat, title: chatTitle.trim() });
+        if (result.id !== chat) switchChat(result.id);
+        toast.success("اتغيّر اسم المحادثة");
+      } else {
+        await remove.mutateAsync({ chatId: chat });
+        switchChat();
+        toast.success("اتمسحت المحادثة");
+      }
+      setChatDialog(null);
+      await Promise.all([
+        utils.personalAssistant.chats.invalidate(),
+        utils.personalAssistant.chatMessages.invalidate(),
+      ]);
+    } catch (error) {
+      toast.error(errorText(error));
+    }
+  }
+
+  const selectedChat = chats.data?.find(item => item.id === chat);
+  const canManageChat = !!selectedChat || (chat === undefined && !!messages.data?.length);
+  const managing = rename.isPending || remove.isPending;
+  const busy = managing || ask.isPending || recording || preparing || execute.isPending || create.isPending;
   const canRecord = mode !== "live" || shareText;
   return <div className="grid min-h-[70vh] gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
     <aside className="surface min-w-0 p-3">
       <div className="mb-3 flex items-center justify-between gap-2"><h2 className="font-bold">المحادثات</h2><Button size="sm" disabled={busy} onClick={() => void newChat()}><Plus />شات جديد</Button></div>
-      <nav aria-label="محادثات سيفي" className="flex gap-2 overflow-x-auto lg:max-h-[64vh] lg:flex-col lg:overflow-y-auto">
+      <nav aria-label="محادثات جارفيس" className="flex gap-2 overflow-x-auto lg:max-h-[64vh] lg:flex-col lg:overflow-y-auto">
         <Button variant={chat === undefined ? "secondary" : "ghost"} className="justify-start" disabled={busy} onClick={() => switchChat()}><MessageSquare />المحادثة السابقة</Button>
         {(chats.data ?? []).map(item => <Button key={item.id} variant={chat === item.id ? "secondary" : "ghost"} className="max-w-56 justify-start lg:max-w-none" disabled={busy} onClick={() => switchChat(item.id)}><MessageSquare /><span className="truncate">{item.title}</span></Button>)}
       </nav>
       {chats.isError && <button className="mt-2 text-xs text-primary" onClick={() => void chats.refetch()}>إعادة تحميل المحادثات</button>}
     </aside>
+    <Dialog open={chatDialog !== null} onOpenChange={open => { if (!open && !managing) setChatDialog(null); }}>
+      <DialogContent dir="rtl">
+        <DialogHeader>
+          <DialogTitle>{chatDialog === "rename" ? "إعادة تسمية المحادثة" : "حذف المحادثة؟"}</DialogTitle>
+          <DialogDescription>{chatDialog === "rename" ? "اكتب الاسم اللي عايزه يظهر في القائمة." : "كل رسائل المحادثة دي هتتمسح نهائيًا."}</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={manageChat} className="space-y-4">
+          {chatDialog === "rename" && <Input aria-label="اسم المحادثة" autoFocus required maxLength={100} value={chatTitle} onChange={event => setChatTitle(event.target.value)} />}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={managing} onClick={() => setChatDialog(null)}>إلغاء</Button>
+            <Button type="submit" variant={chatDialog === "delete" ? "destructive" : "default"} disabled={managing || (chatDialog === "rename" && !chatTitle.trim())}>{chatDialog === "delete" ? "حذف المحادثة" : "حفظ الاسم"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
     <section className="surface flex min-w-0 flex-col">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
-        <h1 className="flex items-center gap-2 text-xl font-bold"><Sparkles className="text-primary" />سيفي AI</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="flex items-center gap-2 text-xl font-bold"><Sparkles className="text-primary" />جارفيس</h1>
+          {canManageChat && <>
+            <Button type="button" size="icon" variant="ghost" aria-label="إعادة تسمية المحادثة" title="إعادة تسمية المحادثة" disabled={busy} onClick={() => {
+              setChatTitle(selectedChat?.title ?? "المحادثة السابقة");
+              setChatDialog("rename");
+            }}><Pencil /></Button>
+            <Button type="button" size="icon" variant="ghost" aria-label="حذف المحادثة" title="حذف المحادثة" disabled={busy} onClick={() => setChatDialog("delete")}><Trash2 /></Button>
+          </>}
+        </div>
         <div role="group" aria-label="طريقة المحادثة" className="flex flex-wrap gap-1">
           {([["text", "كتابة"], ["dictate", "Dictate"], ["live", "Live Speak"]] as const).map(([value, label]) =>
             <Button key={value} size="sm" variant={mode === value ? "secondary" : "ghost"} aria-pressed={mode === value} disabled={busy} onClick={() => { setMode(value); setVoiceError(""); window.speechSynthesis?.cancel(); }}>{label}</Button>)}
@@ -213,10 +269,10 @@ export default function Seify() {
       <div className="max-h-[52vh] min-h-56 flex-1 space-y-3 overflow-auto p-4 sm:p-6" role="log" aria-label="رسائل المحادثة">
         {messages.isLoading && <p className="text-sm text-muted-foreground">جارٍ تحميل الرسائل…</p>}
         {messages.isError && <button className="text-sm text-primary" onClick={() => void messages.refetch()}>تعذّر التحميل. جرّب تاني.</button>}
-        {!messages.isLoading && !messages.isError && !messages.data?.length && !outgoing && <p className="text-sm text-muted-foreground">ابدأ بسؤال، أو اطلب من سيفي يساعدك في خطة المذاكرة.</p>}
+        {!messages.isLoading && !messages.isError && !messages.data?.length && !outgoing && <p className="text-sm text-muted-foreground">مثلاً «ضيف مهمة حل الواجب بكرة» أو «ضيف امتحان مراجعة الفيزياء».</p>}
         {messages.data?.map(message => <p key={message.id} className={"max-w-[90%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm " + (message.role === "user" ? "ms-auto bg-primary text-primary-foreground" : "me-auto bg-muted")}>{message.content}</p>)}
         {outgoing && <p className="ms-auto max-w-[90%] whitespace-pre-wrap rounded-2xl bg-primary px-4 py-3 text-sm text-primary-foreground">{outgoing}</p>}
-        {ask.isPending && <p className="text-sm text-muted-foreground">سيفي بيجهّز الرد…</p>}
+        {ask.isPending && <p className="text-sm text-muted-foreground">جارفيس بيجهّز الرد…</p>}
         {plan && <ActionPreview plan={plan} loading={execute.isPending} onConfirm={() => void apply()} onNavigate={() => { if (plan.route) navigate(plan.route); setPlan(null); }} />}
         <div ref={bottom} />
       </div>
@@ -229,14 +285,14 @@ export default function Seify() {
         {mode !== "text" && <div className="flex flex-wrap items-center gap-2">
           <Button variant={recording ? "destructive" : "outline"} disabled={!recording && (busy || !canRecord)} onClick={() => recording ? recorder.current?.stop() : void record()}>
             {recording ? <Square /> : mode === "live" ? <Headphones /> : <Mic />}
-            {recording ? "إيقاف التسجيل" : preparing ? (voiceStatus || "جارٍ تجهيز الصوت…") : mode === "live" ? "اتكلم مع سيفي" : "ابدأ الإملاء"}
+            {recording ? "إيقاف التسجيل" : preparing ? (voiceStatus || "جارٍ تجهيز الصوت…") : mode === "live" ? "اتكلم مع جارفيس" : "ابدأ الإملاء"}
           </Button>
-          <span className="text-xs text-muted-foreground">{recording ? "المايك شغال، الحد الأقصى ٢٥ ثانية." : mode === "dictate" ? "النص هيتكتب في خانة الرسالة." : "كل تسجيل بيتبعت كرسالة، وسيفي هيرد بصوت لو الجهاز فيه صوت عربي."}</span>
+          <span className="text-xs text-muted-foreground">{recording ? "المايك شغال، الحد الأقصى ٢٥ ثانية." : mode === "dictate" ? "النص هيتكتب في خانة الرسالة." : "كل تسجيل بيتبعت كرسالة، وجارفيس هيرد بصوت لو الجهاز فيه صوت عربي."}</span>
         </div>}
         {voiceError && <p role="status" className="rounded-lg bg-muted p-2 text-sm">{voiceError}</p>}
         {mode === "live" && !voices.length && <p className="text-xs text-muted-foreground">صوت عربي مش متاح حاليًا على الجهاز. الرد هيظهر مكتوب.</p>}
         <form className="flex items-end gap-2" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void send(draft, mode === "live"); }}>
-          <Textarea aria-label="الرسالة" value={draft} maxLength={1200} onChange={e => setDraft(e.target.value)} placeholder="اكتب رسالتك لسيفي" rows={2} />
+          <Textarea aria-label="الرسالة" value={draft} maxLength={1200} onChange={e => setDraft(e.target.value)} placeholder="اكتب رسالتك لجارفيس" rows={2} />
           <Button type="submit" disabled={!shareText || busy || !draft.trim()}><Send />إرسال</Button>
         </form>
       </div>

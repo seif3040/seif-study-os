@@ -412,6 +412,44 @@ export async function ownedAssistantChat(userId: number, chatId: number) {
   if (!chat) throw new Error("المحادثة مش موجودة.");
   return chat;
 }
+export async function renameAssistantChat(userId: number, title: string, chatId?: number) {
+  const db = await database();
+  if (chatId !== undefined) {
+    await ownedAssistantChat(userId, chatId);
+    await db.update(assistantChats).set({ title })
+      .where(and(eq(assistantChats.userId, userId), eq(assistantChats.id, chatId)));
+    return { id: chatId };
+  }
+
+  return db.transaction(async tx => {
+    const [result] = await tx.insert(assistantChats).values({ userId, title });
+    await tx.update(assistantMessages).set({ chatId: result.insertId })
+      .where(and(eq(assistantMessages.userId, userId), isNull(assistantMessages.chatId)));
+    return { id: result.insertId };
+  });
+}
+
+export async function deleteAssistantChat(userId: number, chatId?: number) {
+  const db = await database();
+  await db.transaction(async tx => {
+    if (chatId !== undefined) {
+      const [chat] = await tx.select({ id: assistantChats.id }).from(assistantChats)
+        .where(and(eq(assistantChats.userId, userId), eq(assistantChats.id, chatId))).for("update");
+      if (!chat) return;
+    }
+
+    await tx.delete(assistantMessages).where(and(
+      eq(assistantMessages.userId, userId),
+      chatId === undefined ? isNull(assistantMessages.chatId) : eq(assistantMessages.chatId, chatId),
+    ));
+    if (chatId !== undefined) {
+      await tx.delete(assistantChats)
+        .where(and(eq(assistantChats.userId, userId), eq(assistantChats.id, chatId)));
+    }
+  });
+  return { ok: true };
+}
+
 export async function listAssistantMessages(userId: number, limit = 24, chatId?: number) {
   const db = await database();
   if (chatId !== undefined) await ownedAssistantChat(userId, chatId);
@@ -422,14 +460,24 @@ export async function listAssistantMessages(userId: number, limit = 24, chatId?:
 }
 export async function saveAssistantMessage(userId: number, role: "user" | "assistant", content: string, chatId?: number) {
   const db = await database();
-  const chat = chatId === undefined ? null : await ownedAssistantChat(userId, chatId);
-  await db.insert(assistantMessages).values({ userId, role, content: content.slice(0, 5000), chatId });
-  if (chat) {
-    await db.update(assistantChats).set({
-      updatedAt: new Date(),
-      ...(role === "user" && chat.title === "محادثة جديدة" ? { title: [...content.replace(/\s+/g, " ").trim()].slice(0, 65).join("") } : {}),
-    }).where(and(eq(assistantChats.id, chat.id), eq(assistantChats.userId, userId)));
+  const message = { userId, role, content: content.slice(0, 5000), chatId };
+  if (chatId === undefined) {
+    await db.insert(assistantMessages).values(message);
+    return;
   }
+
+  await db.transaction(async tx => {
+    const ownerChat = and(eq(assistantChats.userId, userId), eq(assistantChats.id, chatId));
+    const [chat] = await tx.select().from(assistantChats).where(ownerChat).for("update");
+    if (!chat) throw new Error("المحادثة مش موجودة.");
+    await tx.insert(assistantMessages).values(message);
+    await tx.update(assistantChats).set({
+      updatedAt: new Date(),
+      ...(role === "user" && chat.title === "محادثة جديدة"
+        ? { title: [...content.replace(/\s+/g, " ").trim()].slice(0, 65).join("") }
+        : {}),
+    }).where(ownerChat);
+  });
 }
 
 export async function getDailyStudySummary(userId: number) {

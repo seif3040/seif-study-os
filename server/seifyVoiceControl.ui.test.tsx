@@ -12,7 +12,7 @@ afterEach(() => { cleanup(); mocks.toastError.mockClear(); delete (window as any
 describe("mounted Seify voice control", () => {
   it("shows a fallback message when the browser lacks speech recognition", async () => {
     render(<SeifyVoiceControl onTranscript={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "ابدأ الكلام مع سيفي" }));
+    fireEvent.click(screen.getByRole("button", { name: "ابدأ الكلام مع جارفيس" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Chrome"));
   });
 
@@ -21,17 +21,17 @@ describe("mounted Seify voice control", () => {
     class FakeRecognition { lang = ""; interimResults = false; continuous = false; onstart: (() => void) | null = null; onerror: (() => void) | null = null; onend: (() => void) | null = null; onresult: ((event: unknown) => void) | null = null; start() { active = this; this.onstart?.(); } stop() {} }
     (window as any).SpeechRecognition = FakeRecognition;
     render(<SeifyVoiceControl onTranscript={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "ابدأ الكلام مع سيفي" }));
+    fireEvent.click(screen.getByRole("button", { name: "ابدأ الكلام مع جارفيس" }));
     await waitFor(() => expect(screen.getByText("سامعك… اتكلم براحتك")).toBeTruthy());
     act(() => active.onerror?.({ error: "no-speech" }));
-    expect(screen.getByText("اضغط واتكلم، وسيفي هيكتب طلبك")).toBeTruthy();
+    expect(screen.getByText("اضغط واتكلم، وجارفيس هيكتب طلبك")).toBeTruthy();
     expect(screen.getByRole("status").textContent).toContain("قرّب");
   });
 
   it("shows laptop permission recovery and a retry control when microphone access is denied", async () => {
     (navigator as any).mediaDevices = { getUserMedia: vi.fn().mockRejectedValue({ name: "NotAllowedError" }) };
     render(<SeifyVoiceControl onTranscript={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "ابدأ الكلام مع سيفي" }));
+    fireEvent.click(screen.getByRole("button", { name: "ابدأ الكلام مع جارفيس" }));
     expect(await screen.findByText(/علامة القفل/)).toBeTruthy();
     expect(screen.getByRole("button", { name: /جرّب تاني/ })).toBeTruthy();
   });
@@ -42,7 +42,7 @@ describe("mounted Seify voice control", () => {
     (window as any).SpeechRecognition = FakeRecognition;
     (navigator as any).mediaDevices = { getUserMedia: vi.fn().mockRejectedValue({ name: "NotReadableError" }) };
     render(<SeifyVoiceControl onTranscript={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "ابدأ الكلام مع سيفي" }));
+    fireEvent.click(screen.getByRole("button", { name: "ابدأ الكلام مع جارفيس" }));
     await waitFor(() => expect(screen.getByText("سامعك… اتكلم براحتك")).toBeTruthy());
     expect(active).toBeTruthy(); expect(screen.queryByRole("status")).toBeNull(); expect(mocks.toastError).not.toHaveBeenCalled();
   });
