@@ -30,8 +30,7 @@ export async function createPrivateSession() {
     .sign(signingKey());
 }
 
-export async function readPrivateSession(cookieHeader: string | undefined) {
-  const token = parse(cookieHeader ?? "")[PRIVATE_SESSION_COOKIE];
+async function readPrivateSessionToken(token: string | undefined) {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, signingKey());
@@ -39,4 +38,10 @@ export async function readPrivateSession(cookieHeader: string | undefined) {
   } catch {
     return null;
   }
+}
+
+export async function readPrivateSession(cookieHeader: string | undefined, authorizationHeader?: string) {
+  const cookieToken = parse(cookieHeader ?? "")[PRIVATE_SESSION_COOKIE];
+  const bearerToken = authorizationHeader?.match(/^Bearer\s+(.+)$/i)?.[1];
+  return readPrivateSessionToken(bearerToken ?? cookieToken);
 }

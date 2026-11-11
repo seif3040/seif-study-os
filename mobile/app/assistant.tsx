@@ -1,0 +1,16 @@
+import { useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { router } from "expo-router";
+import { ScreenContainer } from "@/components/screen-container";
+import { colors } from "@/constants/theme";
+import { trpc } from "@/lib/trpc";
+
+export default function AssistantScreen() {
+  const [message, setMessage] = useState("");
+  const [reply, setReply] = useState("أنا سيفي، قولّي عايز تعمل إيه في المذاكرة؟");
+  const plan = trpc.personalAssistant.plan.useMutation({ onSuccess: result => { setReply(result.reply); setMessage(""); } });
+  return <ScreenContainer><ScrollView contentContainerStyle={styles.content}><Pressable onPress={() => router.back()}><Text style={styles.back}>‹ رجوع</Text></Pressable><Text style={styles.title}>سيفي</Text><Text style={styles.subtitle}>مساعدك الشخصي بالمصري، وبيفتكر محادثاتك على نفس الحساب.</Text><View style={styles.avatar}><Text style={styles.avatarText}>س</Text></View><View style={styles.bubble}><Text style={styles.bubbleText}>{reply}</Text></View><TextInput value={message} onChangeText={setMessage} multiline placeholder="قولّي أعملك إيه؟" placeholderTextColor={colors.muted} style={styles.input} /><Pressable disabled={!message.trim() || plan.isPending} onPress={() => plan.mutate({ request: message })} style={[styles.primary, !message.trim() && styles.disabled]}>{plan.isPending ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>ابعت لسيفي</Text>}</Pressable><Text style={styles.note}>الأوامر اللي بتغيّر مهامك هتطلب تأكيد قبل التنفيذ.</Text></ScrollView></ScreenContainer>;
+}
+
+const styles = StyleSheet.create({ content: { padding: 20, paddingBottom: 40 }, back: { color: colors.primary, textAlign: "right", fontWeight: "800", fontSize: 16 }, title: { color: colors.foreground, textAlign: "right", fontSize: 30, fontWeight: "900", marginTop: 18 }, subtitle: { color: colors.muted, textAlign: "right", lineHeight: 22, marginTop: 6 }, avatar: { width: 62, height: 62, backgroundColor: colors.primary, borderRadius: 22, alignItems: "center", justifyContent: "center", alignSelf: "flex-end", marginTop: 30 }, avatarText: { color: "#fff", fontSize: 30, fontWeight: "900" }, bubble: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: 18, padding: 17, marginTop: 10 }, bubbleText: { color: colors.foreground, textAlign: "right", lineHeight: 24, fontSize: 16 }, input: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 15, minHeight: 100, color: colors.foreground, textAlign: "right", marginTop: 16, textAlignVertical: "top", fontSize: 16 }, primary: { backgroundColor: colors.primary, borderRadius: 14, padding: 15, alignItems: "center", marginTop: 12 }, primaryText: { color: "#fff", fontWeight: "900", fontSize: 16 }, disabled: { opacity: 0.45 }, note: { color: colors.muted, textAlign: "right", marginTop: 12, fontSize: 12 },
+});

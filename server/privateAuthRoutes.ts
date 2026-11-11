@@ -21,8 +21,10 @@ export function registerPrivateAuthRoutes(app: Express) {
     }
     const user = await ensurePrivateOwner();
     if (!user) { res.status(500).json({ success: false, message: "تعذّر تجهيز الحساب الخاص." }); return; }
-    res.cookie(PRIVATE_SESSION_COOKIE, await createPrivateSession(), cookieOptions(req));
-    res.json({ success: true, email: user.email });
+    const sessionToken = await createPrivateSession();
+    res.cookie(PRIVATE_SESSION_COOKIE, sessionToken, cookieOptions(req));
+    const isMobileClient = req.header("x-client") === "seif-study-os-mobile";
+    res.json({ success: true, email: user.email, ...(isMobileClient ? { sessionToken } : {}) });
   });
 
   app.get("/api/private-auth/session", async (req, res) => {

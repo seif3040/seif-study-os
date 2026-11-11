@@ -21,7 +21,7 @@ export async function createContext(
   } catch {
     user = null;
   }
-  if (!user && await readPrivateSession(opts.req.headers.cookie)) {
+  if (!user && await readPrivateSession(opts.req.headers.cookie, opts.req.headers.authorization)) {
     user = await getUserByOpenId(privateOwnerOpenId) ?? null;
   }
 

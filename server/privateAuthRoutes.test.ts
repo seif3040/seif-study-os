@@ -1,6 +1,7 @@
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { registerPrivateAuthRoutes } from "./privateAuthRoutes";
+import { privateOwnerOpenId, readPrivateSession } from "./privateAuth";
 
 let server: ReturnType<typeof express.application.listen>;
 let baseUrl = "";
@@ -28,6 +29,12 @@ describe("private account endpoint", () => {
     expect(signedOut.status).toBe(200);
     const ended = await fetch(`${baseUrl}/api/private-auth/session`);
     expect(ended.status).toBe(401);
+
+    const mobileResponse = await fetch(`${baseUrl}/api/private-auth/sign-in`, { method: "POST", headers: { "Content-Type": "application/json", "x-client": "seif-study-os-mobile" }, body: JSON.stringify({ email: "seif94803@gmail.com", password }) });
+    const mobileResult = await mobileResponse.json() as { success?: boolean; sessionToken?: string };
+    expect(mobileResult).toMatchObject({ success: true });
+    expect(mobileResult.sessionToken).toEqual(expect.any(String));
+    expect(await readPrivateSession(undefined, `Bearer ${mobileResult.sessionToken}`)).toBe(privateOwnerOpenId);
   });
 
   it("rejects a non-owner password", async () => {
