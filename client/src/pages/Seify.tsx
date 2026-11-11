@@ -9,7 +9,7 @@ import { errorText } from "@/lib/study";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
-async function toWav(blob: Blob) {
+async function toSamples(blob: Blob) {
   const context = new AudioContext();
   let decoded: AudioBuffer;
   try { decoded = await context.decodeAudioData(await blob.arrayBuffer()); }
@@ -20,19 +20,7 @@ async function toWav(blob: Blob) {
   source.buffer = decoded;
   source.connect(offline.destination);
   source.start();
-  const samples = (await offline.startRendering()).getChannelData(0);
-  const wav = new ArrayBuffer(44 + samples.length * 2);
-  const bytes = new DataView(wav);
-  const text = (offset: number, value: string) => [...value].forEach((letter, index) => bytes.setUint8(offset + index, letter.charCodeAt(0)));
-  text(0, "RIFF"); bytes.setUint32(4, wav.byteLength - 8, true); text(8, "WAVE"); text(12, "fmt ");
-  bytes.setUint32(16, 16, true); bytes.setUint16(20, 1, true); bytes.setUint16(22, 1, true);
-  bytes.setUint32(24, rate, true); bytes.setUint32(28, rate * 2, true); bytes.setUint16(32, 2, true); bytes.setUint16(34, 16, true);
-  text(36, "data"); bytes.setUint32(40, samples.length * 2, true);
-  samples.forEach((sample, index) => bytes.setInt16(44 + index * 2, Math.round(Math.max(-1, Math.min(1, sample)) * 32767), true));
-  const data = new Uint8Array(wav);
-  let binary = "";
-  for (let offset = 0; offset < data.length; offset += 8192) binary += String.fromCharCode(...data.subarray(offset, offset + 8192));
-  return btoa(binary);
+  return (await offline.startRendering()).getChannelData(0);
 }
 
 type Mode = "text" | "dictate" | "live";
@@ -46,7 +34,8 @@ export default function Seify() {
   const [mode, setMode] = useState<Mode>("text");
   const [shareText, setShareText] = useState(false);
   const [shareHistory, setShareHistory] = useState(false);
-  const [shareAudio, setShareAudio] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState("");
+  const worker = useRef<Worker | null>(null);
   const [recording, setRecording] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [voiceError, setVoiceError] = useState("");
@@ -63,7 +52,7 @@ export default function Seify() {
   const messages = trpc.personalAssistant.chatMessages.useQuery({ chatId: chat });
   const create = trpc.personalAssistant.createChat.useMutation();
   const ask = trpc.personalAssistant.plan.useMutation();
-  const transcribe = trpc.personalAssistant.transcribe.useMutation();
+
   const execute = trpc.personalAssistant.execute.useMutation();
 
   useEffect(() => {
@@ -72,6 +61,8 @@ export default function Seify() {
       active.current = false;
       if (recorder.current?.state === "recording") recorder.current.stop();
       stream.current?.getTracks().forEach(track => track.stop());
+      worker.current?.terminate();
+      worker.current = null;
       window.clearTimeout(timer.current);
       window.speechSynthesis?.cancel();
     };
@@ -109,7 +100,7 @@ export default function Seify() {
   }
 
   async function record() {
-    if (!shareAudio || (mode === "live" && !shareText) || preparing || recording || transcribe.isPending || ask.isPending) return;
+    if ((mode === "live" && !shareText) || preparing || recording || ask.isPending) return;
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
       setVoiceError("المتصفح ده مش بيدعم تسجيل الصوت. افتح الموقع في Chrome أو Edge أو Safari حديث.");
       return;
@@ -132,16 +123,19 @@ export default function Seify() {
         setPreparing(true);
         try {
           if (!chunks.length) throw new Error("التسجيل طلع فاضي. جرّب تاني.");
-          const audio = await toWav(new Blob(chunks, { type: capture.mimeType }));
+          const samples = await toSamples(new Blob(chunks, { type: capture.mimeType }));
           if (!active.current) return;
-          const { text } = await transcribe.mutateAsync({ audio, shareAudioWithOpenRouter: true });
+          const peak = samples.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
+          if (peak < 0.001) throw new Error("التسجيل مافيهوش صوت واضح. راجع المايك المختار.");
+          setVoiceStatus("جارٍ تجهيز نموذج الصوت على الجهاز…");
+          const text = await transcribeLocally(samples);
           if (!active.current) return;
           if (mode === "dictate") setDraft(previous => [previous.trim(), text].filter(Boolean).join(" ").slice(0, 1200));
           else await send(text, true);
         } catch (error) {
           if (active.current) setVoiceError(errorText(error));
         } finally {
-          if (active.current) setPreparing(false);
+          if (active.current) { setPreparing(false); setVoiceStatus(""); }
         }
       };
       capture.start();
@@ -157,6 +151,36 @@ export default function Seify() {
     }
   }
 
+  function transcribeLocally(samples: Float32Array) {
+    const instance = worker.current ?? new Worker(new URL("../lib/seifyVoice.worker.ts", import.meta.url), { type: "module" });
+    worker.current = instance;
+    return new Promise<string>((resolve, reject) => {
+      const deadline = window.setTimeout(() => {
+        instance.terminate();
+        if (worker.current === instance) worker.current = null;
+        reject(new Error("تحميل نموذج الصوت أخد وقت طويل. اتأكد من الاتصال وجرّب تاني."));
+      }, 180_000);
+      instance.onmessage = event => {
+        const value = event.data as { status: "loading" | "working" | "done" | "error"; text?: string; progress?: number };
+        if (value.status === "loading") {
+          if (value.progress !== undefined) setVoiceStatus("تحميل نموذج الصوت: " + Math.round(value.progress) + "%");
+          return;
+        }
+        if (value.status === "working") { setVoiceStatus("بحوّل التسجيل لكتابة على جهازك…"); return; }
+        window.clearTimeout(deadline);
+        if (value.status === "done" && value.text) resolve(value.text);
+        else reject(new Error(value.text ?? "تعذّر تشغيل نموذج الصوت على الجهاز."));
+      };
+      instance.onerror = () => {
+        window.clearTimeout(deadline);
+        instance.terminate();
+        if (worker.current === instance) worker.current = null;
+        reject(new Error("المتصفح ماقدرش يشغّل نموذج الصوت على الجهاز."));
+      };
+      instance.postMessage(samples, [samples.buffer]);
+    });
+  }
+
   async function apply() {
     if (!plan || execute.isPending) return;
     try {
@@ -167,8 +191,8 @@ export default function Seify() {
     } catch (error) { toast.error(errorText(error)); }
   }
 
-  const busy = ask.isPending || transcribe.isPending || recording || preparing || execute.isPending || create.isPending;
-  const canRecord = shareAudio && (mode !== "live" || shareText);
+  const busy = ask.isPending || recording || preparing || execute.isPending || create.isPending;
+  const canRecord = mode !== "live" || shareText;
   return <div className="grid min-h-[70vh] gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
     <aside className="surface min-w-0 p-3">
       <div className="mb-3 flex items-center justify-between gap-2"><h2 className="font-bold">المحادثات</h2><Button size="sm" disabled={busy} onClick={() => void newChat()}><Plus />شات جديد</Button></div>
@@ -200,12 +224,12 @@ export default function Seify() {
         <div className="flex flex-col gap-2 text-xs text-muted-foreground">
           <label className="flex items-start gap-2"><input type="checkbox" checked={shareText} disabled={busy} onChange={e => setShareText(e.target.checked)} /><span>أوافق على إرسال الرسالة الحالية واسم الصفحة إلى OpenRouter للرد.</span></label>
           {chat !== undefined && shareText && <label className="flex items-start gap-2"><input type="checkbox" checked={shareHistory} disabled={busy} onChange={e => setShareHistory(e.target.checked)} /><span>أوافق على إرسال آخر ٨ رسائل من المحادثة دي للسياق.</span></label>}
-          {mode !== "text" && <label className="flex items-start gap-2"><input type="checkbox" checked={shareAudio} disabled={busy} onChange={e => setShareAudio(e.target.checked)} /><span>أوافق على إرسال تسجيل المايك إلى OpenRouter لتحويله لنص.</span></label>}
+          {mode !== "text" && <p>الصوت بيتحوّل لنص على جهازك. أول مرة تحتاج تنزيل نموذج الصوت.</p>}
         </div>
         {mode !== "text" && <div className="flex flex-wrap items-center gap-2">
           <Button variant={recording ? "destructive" : "outline"} disabled={!recording && (busy || !canRecord)} onClick={() => recording ? recorder.current?.stop() : void record()}>
             {recording ? <Square /> : mode === "live" ? <Headphones /> : <Mic />}
-            {recording ? "إيقاف التسجيل" : preparing || transcribe.isPending ? "جارٍ تجهيز الصوت…" : mode === "live" ? "اتكلم مع سيفي" : "ابدأ الإملاء"}
+            {recording ? "إيقاف التسجيل" : preparing ? (voiceStatus || "جارٍ تجهيز الصوت…") : mode === "live" ? "اتكلم مع سيفي" : "ابدأ الإملاء"}
           </Button>
           <span className="text-xs text-muted-foreground">{recording ? "المايك شغال، الحد الأقصى ٢٥ ثانية." : mode === "dictate" ? "النص هيتكتب في خانة الرسالة." : "كل تسجيل بيتبعت كرسالة، وسيفي هيرد بصوت لو الجهاز فيه صوت عربي."}</span>
         </div>}
