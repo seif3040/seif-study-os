@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { COOKIE_NAME } from "@shared/const";
-import { getSessionCookieOptions } from "./_core/cookies";
-import { systemRouter } from "./_core/systemRouter";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
-import * as db from "./db";
-import * as personalAssistant from "./personalAssistant";
-import { safeStudyUrl } from "../client/src/lib/videoSources";
+import { COOKIE_NAME } from "../shared/const.js";
+import { getSessionCookieOptions } from "./_core/cookies.js";
+import { systemRouter } from "./_core/systemRouter.js";
+import { protectedProcedure, publicProcedure, router } from "./_core/trpc.js";
+import * as db from "./db.js";
+import * as personalAssistant from "./personalAssistant.js";
+import { safeStudyUrl } from "../client/src/lib/videoSources.js";
 
 const id = z.number().int().positive();
 const date = z.coerce.date();

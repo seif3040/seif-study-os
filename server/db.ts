@@ -5,14 +5,14 @@ import {
   assistantMessages, dailyStudySummaries, goals, habitCompletions, habits, lessonProgress, lessons, flashcardDecks, flashcards, notebooks, notebookSources, notes, pomodoroSessions,
   rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks, lessonSources,
   userAchievements, users, type InsertUser,
-} from "../drizzle/schema";
-import { seifLessonSourceDefaults, type LessonSourceDraft } from "../shared/lessonSources";
-import { achievementCatalog, rewardCatalog, type AchievementMetric } from "../shared/catalog";
-import { invokeLLM, listLLMModels } from "./_core/llm";
-import { storageGetSignedUrl, storagePut } from "./storage";
-import { ENV } from "./_core/env";
-import { decideCompletion, decideRewardPurchase, deriveFallbackComprehension, selectAchievementUnlocks } from "./businessRules";
-import { classifyStudySource } from "../client/src/lib/videoSources";
+} from "../drizzle/schema.js";
+import { seifLessonSourceDefaults, type LessonSourceDraft } from "../shared/lessonSources.js";
+import { achievementCatalog, rewardCatalog, type AchievementMetric } from "../shared/catalog.js";
+import { invokeLLM, listLLMModels } from "./_core/llm.js";
+import { storageGetSignedUrl, storagePut } from "./storage.js";
+import { ENV } from "./_core/env.js";
+import { decideCompletion, decideRewardPurchase, deriveFallbackComprehension, selectAchievementUnlocks } from "./businessRules.js";
+import { classifyStudySource } from "../client/src/lib/videoSources.js";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const DAY_MS = 86_400_000;

@@ -1,4 +1,4 @@
-import type { AchievementMetric } from "../shared/catalog";
+import type { AchievementMetric } from "../shared/catalog.js";
 
 export type PurchaseDecision = "duplicate" | "insufficient_balance" | "approved";
 

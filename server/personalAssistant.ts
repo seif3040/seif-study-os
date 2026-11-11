@@ -1,5 +1,5 @@
-import { listLLMModels, invokeLLM } from "./_core/llm";
-import { createGoal, createHabit, createTask, deleteGoal, deleteHabit, deleteTask, listAssistantMessages, listGoals, listHabits, listTasks, saveAssistantMessage, updateGoal, updateHabit, updateTask } from "./db";
+import { listLLMModels, invokeLLM } from "./_core/llm.js";
+import { createGoal, createHabit, createTask, deleteGoal, deleteHabit, deleteTask, listAssistantMessages, listGoals, listHabits, listTasks, saveAssistantMessage, updateGoal, updateHabit, updateTask } from "./db.js";
 
 export const personalAssistantActionTypes = ["none", "add_task", "update_task", "reschedule_task", "reprioritize_task", "delete_task", "add_habit", "update_habit", "delete_habit", "add_goal", "update_goal", "delete_goal", "navigate"] as const;
 export type PersonalAssistantActionType = typeof personalAssistantActionTypes[number];

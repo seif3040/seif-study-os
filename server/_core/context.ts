@@ -1,8 +1,8 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
-import type { User } from "../../drizzle/schema";
-import { sdk } from "./sdk";
-import { getUserByOpenId } from "../db";
-import { privateOwnerEmail, privateOwnerOpenId, readPrivateSession } from "../privateAuth";
+import type { User } from "../../drizzle/schema.js";
+import { sdk } from "./sdk.js";
+import { getUserByOpenId } from "../db.js";
+import { privateOwnerEmail, privateOwnerOpenId, readPrivateSession } from "../privateAuth.js";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];

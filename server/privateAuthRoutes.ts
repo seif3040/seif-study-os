@@ -1,6 +1,6 @@
 import type { Express } from "express";
-import { getUserByOpenId, upsertUser } from "./db";
-import { createPrivateSession, PRIVATE_SESSION_COOKIE, privateOwnerEmail, privateOwnerOpenId, readPrivateSession, validPrivateCredentials } from "./privateAuth";
+import { getUserByOpenId, upsertUser } from "./db.js";
+import { createPrivateSession, PRIVATE_SESSION_COOKIE, privateOwnerEmail, privateOwnerOpenId, readPrivateSession, validPrivateCredentials } from "./privateAuth.js";
 
 function cookieOptions(req: Parameters<Express["post"]>[1] extends (req: infer R, ...args: any[]) => any ? R : never) {
   const secure = req.protocol === "https" || req.headers["x-forwarded-proto"] === "https";
