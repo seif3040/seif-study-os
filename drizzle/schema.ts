@@ -78,7 +78,16 @@ export const tasks = mysqlTable("tasks", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => [index("tasks_user_cycle_date_idx").on(table.userId, table.cycleId, table.scheduledFor)]);
 
+export const assistantChats = mysqlTable("assistantChats", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  title: varchar("title", { length: 100 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, table => [index("assistantChats_user_updated_idx").on(table.userId, table.updatedAt)]);
+
 export const assistantMessages = mysqlTable("assistantMessages", {
+  chatId: int("chatId"),
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
   role: mysqlEnum("role", ["user", "assistant"]).notNull(),

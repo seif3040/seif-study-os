@@ -1,3 +1,4 @@
+import { transcribeSeifyAudio } from "./seifyAudio.js";
 import { z } from "zod";
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies.js";
@@ -111,10 +112,14 @@ export const appRouter = router({
     chat: protectedProcedure.input(z.object({ messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().trim().min(1).max(5000) })).min(1).max(12) })).mutation(({ ctx, input }) => db.chatWithAssistant(ctx.user.id, input.messages)),
   }),
   personalAssistant: router({
-    plan: protectedProcedure.input(z.object({ request: z.string().trim().min(1).max(1200), page: z.string().max(100).optional(), shareWithOpenRouter: z.boolean().default(false) })).mutation(({ ctx, input }) => personalAssistant.planPersonalAssistantAction(ctx.user.id, input.request, input.page, input.shareWithOpenRouter)),
+    plan: protectedProcedure.input(z.object({ request: z.string().trim().min(1).max(1200), page: z.string().max(100).optional(), shareWithOpenRouter: z.boolean().default(false), chatId: id.optional(), includeChatHistory: z.boolean().default(false) })).mutation(({ ctx, input }) => personalAssistant.planPersonalAssistantAction(ctx.user.id, input.request, input.page, input.shareWithOpenRouter, input.chatId, input.includeChatHistory)),
+    chats: protectedProcedure.query(({ ctx }) => db.listAssistantChats(ctx.user.id)),
+    createChat: protectedProcedure.mutation(({ ctx }) => db.createAssistantChat(ctx.user.id)),
+    chatMessages: protectedProcedure.input(z.object({ chatId: id.optional() })).query(({ ctx, input }) => db.listAssistantMessages(ctx.user.id, 500, input.chatId)),
+    transcribe: protectedProcedure.input(z.object({ audio: z.string().min(60).max(1_500_000), shareAudioWithOpenRouter: z.literal(true) })).mutation(({ input }) => transcribeSeifyAudio(input.audio)),
     memory: protectedProcedure.query(({ ctx }) => db.listAssistantMessages(ctx.user.id)),
     dailySummary: protectedProcedure.mutation(({ ctx }) => db.getDailyStudySummary(ctx.user.id)),
-    execute: protectedProcedure.input(z.object({ plan: z.object({ reply: z.string().max(1200), actionType: z.enum(personalAssistant.personalAssistantActionTypes), title: z.string().max(200), targetTitle: z.string().max(200), parentTitle: z.string().max(200).optional(), value: z.number().int().min(0).max(1_000_000).optional(), priority: z.enum(["urgent", "medium", "low"]), scheduledFor: z.string().max(10), frequency: z.enum(["daily", "weekly"]), target: z.number().int().min(1).max(7), route: z.enum(personalAssistant.personalAssistantRoutes), requiresConfirmation: z.boolean() }), confirmed: z.literal(true) })).mutation(async ({ ctx, input }) => { const result = await personalAssistant.executePersonalAssistantAction(ctx.user.id, input.plan, input.confirmed, ctx.user.role === "admin"); await db.saveAssistantMessage(ctx.user.id, "assistant", result.message); return result; }),
+    execute: protectedProcedure.input(z.object({ plan: z.object({ reply: z.string().max(1200), actionType: z.enum(personalAssistant.personalAssistantActionTypes), title: z.string().max(200), targetTitle: z.string().max(200), parentTitle: z.string().max(200).optional(), value: z.number().int().min(0).max(1_000_000).optional(), priority: z.enum(["urgent", "medium", "low"]), scheduledFor: z.string().max(10), frequency: z.enum(["daily", "weekly"]), target: z.number().int().min(1).max(7), route: z.enum(personalAssistant.personalAssistantRoutes), requiresConfirmation: z.boolean() }), confirmed: z.literal(true), chatId: id.optional() })).mutation(async ({ ctx, input }) => { if (input.chatId !== undefined) await db.ownedAssistantChat(ctx.user.id, input.chatId); const result = await personalAssistant.executePersonalAssistantAction(ctx.user.id, input.plan, input.confirmed, ctx.user.role === "admin"); await db.saveAssistantMessage(ctx.user.id, "assistant", result.message, input.chatId); return result; }),
   }),
   notebooks: router({
     list: protectedProcedure.query(({ ctx }) => db.listNotebooks(ctx.user.id)),

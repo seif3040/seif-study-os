@@ -1,5 +1,5 @@
 import { hasStudyAI, invokeLLM } from "./_core/llm.js";
-import { completeLesson, completeTask, createChapter, createExam, createGoal, createHabit, createLesson, createReward, createSubject, createTask, dashboard, listExams, listGoals, listHabits, listPomodoros, listRewards, listStudyPlan, listTasks, saveAssistantMessage, setExamArchived, setRewardActive, startPomodoro, updateGoal, updateHabit, updateTask } from "./db.js";
+import { completeLesson, completeTask, createChapter, createExam, createGoal, createHabit, createLesson, createReward, createSubject, createTask, dashboard, listAssistantMessages, ownedAssistantChat, listExams, listGoals, listHabits, listPomodoros, listRewards, listStudyPlan, listTasks, saveAssistantMessage, setExamArchived, setRewardActive, startPomodoro, updateGoal, updateHabit, updateTask } from "./db.js";
 
 export const personalAssistantActionTypes = ["none", "add_task", "update_task", "reschedule_task", "reprioritize_task", "delete_task", "add_habit", "update_habit", "delete_habit", "add_goal", "update_goal", "delete_goal", "navigate", "complete_task", "add_subject", "add_chapter", "add_lesson", "complete_lesson", "add_exam", "archive_exam", "restore_exam", "add_reward", "hide_reward", "restore_reward", "start_focus"] as const;
 export const personalAssistantRoutes = ["","/","/tasks","/calendar","/lesson-sources","/study-plan","/exams","/pomodoro","/focus-lounge","/study-video","/habits","/analytics","/rewards","/coins","/settings"] as const;
@@ -57,10 +57,12 @@ export function normalizePersonalAssistantPlan(input: unknown): PersonalAssistan
   };
 }
 
-export async function planPersonalAssistantAction(userId: number, request: string, page = "", shareWithOpenRouter = false): Promise<PersonalAssistantPlan> {
+export async function planPersonalAssistantAction(userId: number, request: string, page = "", shareWithOpenRouter = false, chatId?: number, includeChatHistory = false): Promise<PersonalAssistantPlan> {
   if (!hasStudyAI()) return { ...FALLBACK_PLAN, reply: "سيفي محتاج إعداد OpenRouter عشان يرد." };
+  if (chatId !== undefined) await ownedAssistantChat(userId, chatId);
+  const history = shareWithOpenRouter && includeChatHistory && chatId !== undefined ? await listAssistantMessages(userId, 8, chatId) : [];
   try {
-    await saveAssistantMessage(userId, "user", request);
+    await saveAssistantMessage(userId, "user", request, chatId);
     const normalized = request.trim().replace(/[؟?!.]/g, "").replace(/\s+/g, " ");
     const isBalance = /^(رصيدي كام|رصيد الكوينز كام|معايا كام كوينز)$/.test(normalized);
     const isProgress = /^(لخص تقدّمي|لخص تقدمي|قولي تقدّمي في خطة المنهج|ذاكرت كام ساعة)$/.test(normalized);
@@ -71,7 +73,7 @@ export async function planPersonalAssistantAction(userId: number, request: strin
       const reply = isBalance ? "رصيدك الحالي " + format.format(coins.balance) + " Coins."
         : isExams ? "عندك " + format.format(upcomingExams.length) + (upcomingExams.length === 4 ? " امتحانات على الأقل في المواعيد الجاية." : " امتحانات في المواعيد الجاية.")
         : "سجلّك فيه " + format.format(metrics.studyMinutes / 60) + " ساعة مذاكرة، و" + format.format(metrics.lessonsCompleted) + " درس مكتمل، و" + format.format(metrics.tasksCompleted) + " مهمة مكتملة.";
-      await saveAssistantMessage(userId, "assistant", reply);
+      await saveAssistantMessage(userId, "assistant", reply, chatId);
       return { ...FALLBACK_PLAN, reply };
     }
     if (!shareWithOpenRouter) return { ...FALLBACK_PLAN, reply: "فعّل إرسال الرسالة إلى OpenRouter عشان سيفي يقدر يرد." };
@@ -79,17 +81,18 @@ export async function planPersonalAssistantAction(userId: number, request: strin
     const response = await invokeLLM({
       maxTokens: 600,
       messages: [
-        { role: "system", content: "You are Seify, a personal study assistant for Seif Study OS. Reply in Egyptian Arabic. Propose at most one action; only a user confirmation in the app executes it. Never claim anything was saved before confirmation. You receive the current page and the student's current message. Stored records are not included. Do not invent record titles, costs, dates or results. Ask for the exact title when uncertain. Use title for the requested record or new name, targetTitle for the original name when updating, and parentTitle for the subject when creating a chapter or the chapter when creating a lesson. For complete_lesson, parentTitle can identify the chapter. scheduledFor is YYYY-MM-DD (Cairo); for add_task and add_exam it can be blank. For start_focus, value must be 15, 25, 45 or 60 minutes. For add_lesson, value is duration or 0 for 30 minutes. For add_reward, value is the confirmed price in Coins. Don't award arbitrary Coins, purchase, permanently delete, change account settings or send data anywhere else. Use archive_exam, restore_exam, hide_reward and restore_reward for reversible changes. For unsupported requests explain the limit and help navigate. For normal questions use actionType none. Return a JSON object with keys reply, actionType, title, targetTitle, parentTitle, value, priority, scheduledFor, frequency, target, route, requiresConfirmation." },
+        { role: "system", content: "You are Seify, a personal study assistant for Seif Study OS. Reply in Egyptian Arabic. Propose at most one action; only a user confirmation in the app executes it. Never claim anything was saved before confirmation. You receive the current page and the student's current message. Previous messages may be included when explicitly authorized. Do not invent record titles, costs, dates or results. Ask for the exact title when uncertain. Use title for the requested record or new name, targetTitle for the original name when updating, and parentTitle for the subject when creating a chapter or the chapter when creating a lesson. For complete_lesson, parentTitle can identify the chapter. scheduledFor is YYYY-MM-DD (Cairo); for add_task and add_exam it can be blank. For start_focus, value must be 15, 25, 45 or 60 minutes. For add_lesson, value is duration or 0 for 30 minutes. For add_reward, value is the confirmed price in Coins. Don't award arbitrary Coins, purchase, permanently delete, change account settings or send data anywhere else. Use archive_exam, restore_exam, hide_reward and restore_reward for reversible changes. For unsupported requests explain the limit and help navigate. For normal questions use actionType none. Return a JSON object with keys reply, actionType, title, targetTitle, parentTitle, value, priority, scheduledFor, frequency, target, route, requiresConfirmation." },
+        ...history.map(message => ({ role: message.role, content: message.content.slice(0, 1200) })),
         { role: "user", content: `تاريخ القاهرة: ${today}\nالصفحة: ${isRoute(page) ? page : ""}\nطلب الطالب: ${request}` },
       ],
       response_format: { type: "json_schema", json_schema: { name: "personal_study_assistant_plan", strict: true, schema: { type: "object", properties: { reply: { type: "string" }, actionType: { type: "string", enum: personalAssistantActionTypes.filter(action => !action.startsWith("delete_")) }, title: { type: "string" }, targetTitle: { type: "string" }, parentTitle: { type: "string" }, value: { type: "integer" }, priority: { type: "string", enum: ["urgent", "medium", "low"] }, scheduledFor: { type: "string" }, frequency: { type: "string", enum: ["daily", "weekly"] }, target: { type: "integer", minimum: 1, maximum: 7 }, route: { type: "string", enum: [...personalAssistantRoutes] }, requiresConfirmation: { type: "boolean" } }, required: ["reply", "actionType", "title", "targetTitle", "parentTitle", "value", "priority", "scheduledFor", "frequency", "target", "route", "requiresConfirmation"], additionalProperties: false } } },
     }, { openRouter: true });
     const plan = normalizePersonalAssistantPlan(JSON.parse(String(response.choices[0]?.message?.content ?? "{}")));
-    await saveAssistantMessage(userId, "assistant", plan.reply);
+    await saveAssistantMessage(userId, "assistant", plan.reply, chatId);
     return plan;
   } catch {
     const reply = "OpenRouter مش قادر يرد دلوقتي. جرّب تاني بعد شوية.";
-    await saveAssistantMessage(userId, "assistant", reply).catch(() => undefined);
+    await saveAssistantMessage(userId, "assistant", reply, chatId).catch(() => undefined);
     return { ...FALLBACK_PLAN, reply };
   }
 }

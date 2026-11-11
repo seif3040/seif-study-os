@@ -2,7 +2,7 @@ import { and, count, desc, eq, gte, inArray, isNull, like, lte, or, sql } from "
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   achievements, calendarEvents, chapters, coinTransactions, examAttempts, examLessons, exams, goalMilestones,
-  assistantMessages, dailyStudySummaries, goals, habitCompletions, habits, lessonProgress, lessons, flashcardDecks, flashcards, notebooks, notebookSources, notes, pomodoroSessions,
+  assistantChats, assistantMessages, dailyStudySummaries, goals, habitCompletions, habits, lessonProgress, lessons, flashcardDecks, flashcards, notebooks, notebookSources, notes, pomodoroSessions,
   rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks, lessonSources,
   userAchievements, users, type InsertUser,
 } from "../drizzle/schema.js";
@@ -368,15 +368,39 @@ export async function seedSeifLessonSources(userId: number) {
   return listLessonSources(userId);
 }
 
-export async function listAssistantMessages(userId: number, limit = 24) {
+export async function listAssistantChats(userId: number) {
   const db = await database();
-  const rows = await db.select().from(assistantMessages).where(eq(assistantMessages.userId, userId)).orderBy(desc(assistantMessages.createdAt)).limit(limit);
+  return db.select().from(assistantChats).where(eq(assistantChats.userId, userId)).orderBy(desc(assistantChats.updatedAt), desc(assistantChats.id));
+}
+export async function createAssistantChat(userId: number) {
+  const db = await database();
+  const [result] = await db.insert(assistantChats).values({ userId, title: "محادثة جديدة" });
+  return { id: result.insertId };
+}
+export async function ownedAssistantChat(userId: number, chatId: number) {
+  const db = await database();
+  const [chat] = await db.select().from(assistantChats).where(and(eq(assistantChats.userId, userId), eq(assistantChats.id, chatId))).limit(1);
+  if (!chat) throw new Error("المحادثة مش موجودة.");
+  return chat;
+}
+export async function listAssistantMessages(userId: number, limit = 24, chatId?: number) {
+  const db = await database();
+  if (chatId !== undefined) await ownedAssistantChat(userId, chatId);
+  const rows = await db.select().from(assistantMessages)
+    .where(and(eq(assistantMessages.userId, userId), chatId === undefined ? isNull(assistantMessages.chatId) : eq(assistantMessages.chatId, chatId)))
+    .orderBy(desc(assistantMessages.id)).limit(limit);
   return rows.reverse();
 }
-
-export async function saveAssistantMessage(userId: number, role: "user" | "assistant", content: string) {
+export async function saveAssistantMessage(userId: number, role: "user" | "assistant", content: string, chatId?: number) {
   const db = await database();
-  await db.insert(assistantMessages).values({ userId, role, content: content.slice(0, 5000) });
+  const chat = chatId === undefined ? null : await ownedAssistantChat(userId, chatId);
+  await db.insert(assistantMessages).values({ userId, role, content: content.slice(0, 5000), chatId });
+  if (chat) {
+    await db.update(assistantChats).set({
+      updatedAt: new Date(),
+      ...(role === "user" && chat.title === "محادثة جديدة" ? { title: [...content.replace(/\s+/g, " ").trim()].slice(0, 65).join("") } : {}),
+    }).where(and(eq(assistantChats.id, chat.id), eq(assistantChats.userId, userId)));
+  }
 }
 
 export async function getDailyStudySummary(userId: number) {

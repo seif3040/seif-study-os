@@ -4,16 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { BarChart3, BookOpen, CalendarDays, CircleDollarSign, Clock3, Flame, Gift, GraduationCap, LayoutDashboard, LogOut, Menu, Settings, Timer, Users, Video } from "lucide-react";
+import { BarChart3, BookOpen, CalendarDays, CircleDollarSign, Clock3, Flame, Gift, GraduationCap, LayoutDashboard, LogOut, Menu, Settings, Sparkles, Timer, Users, Video } from "lucide-react";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Input } from "@/components/ui/input";
-import { PersonalAssistantPanel } from "@/components/PersonalAssistant";
 import { toast } from "sonner";
 import { useState } from "react";
 
 const menu = [
-  ["لوحة التحكم", "/", LayoutDashboard], ["مصادر دروسي", "/lesson-sources", Users], ["خطة المنهج", "/study-plan", BookOpen], ["الامتحانات", "/exams", GraduationCap], ["Pomodoro", "/pomodoro", Timer], ["استراحة محسوبة", "/focus-lounge", Clock3], ["فيديو المذاكرة", "/study-video", Video], ["العادات", "/habits", Flame], ["التحليلات", "/analytics", BarChart3], ["التقويم", "/calendar", CalendarDays], ["الهدايا", "/rewards", Gift], ["Coins", "/coins", CircleDollarSign], ["الإعدادات", "/settings", Settings],
+  ["لوحة التحكم", "/", LayoutDashboard], ["سيفي AI", "/seify", Sparkles], ["مصادر دروسي", "/lesson-sources", Users], ["خطة المنهج", "/study-plan", BookOpen], ["الامتحانات", "/exams", GraduationCap], ["Pomodoro", "/pomodoro", Timer], ["استراحة محسوبة", "/focus-lounge", Clock3], ["فيديو المذاكرة", "/study-video", Video], ["العادات", "/habits", Flame], ["التحليلات", "/analytics", BarChart3], ["التقويم", "/calendar", CalendarDays], ["الهدايا", "/rewards", Gift], ["Coins", "/coins", CircleDollarSign], ["الإعدادات", "/settings", Settings],
 ] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -33,5 +32,5 @@ function StudyNavigation({ children }: { children: React.ReactNode }) {
       <Icon className="size-5" aria-hidden /><span>{label}</span>
     </button>
   )}
-</nav><PersonalAssistantPanel /></SidebarInset></SidebarProvider>;
+</nav>{location !== "/seify" && <Button className="study-assistant fixed bottom-4 left-4 z-40" onClick={() => navigate("/seify?from=" + encodeURIComponent(location))}><Sparkles />كلم سيفي</Button>}</SidebarInset></SidebarProvider>;
 }

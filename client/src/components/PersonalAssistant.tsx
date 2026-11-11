@@ -51,9 +51,9 @@ function actionDescription(plan: Plan) {
     default: return "إضافة " + title;
   }
 }
-type Plan = { reply: string; actionType: string; title: string; targetTitle: string; parentTitle?: string; value?: number; priority: "urgent" | "medium" | "low"; scheduledFor: string; frequency: "daily" | "weekly"; target: number; route: string; requiresConfirmation: boolean };
+export type Plan = { reply: string; actionType: string; title: string; targetTitle: string; parentTitle?: string; value?: number; priority: "urgent" | "medium" | "low"; scheduledFor: string; frequency: "daily" | "weekly"; target: number; route: string; requiresConfirmation: boolean };
 
-function ActionPreview({ plan, onConfirm, onNavigate, loading }: { plan: Plan; onConfirm: () => void; onNavigate: () => void; loading: boolean }) {
+export function ActionPreview({ plan, onConfirm, onNavigate, loading }: { plan: Plan; onConfirm: () => void; onNavigate: () => void; loading: boolean }) {
   if (plan.actionType === "none") return null;
   const isNavigation = plan.actionType === "navigate"; const isDelete = plan.actionType.startsWith("delete"); const isEdit = plan.actionType.startsWith("update"); const isReschedule = plan.actionType === "reschedule_task"; const isPriority = plan.actionType === "reprioritize_task";
   const label = isNavigation ? `افتح ${routeLabels[plan.route] ?? "الصفحة"}` : isDelete ? `حذف «${plan.title}»` : isReschedule ? `نقل «${plan.targetTitle}» ليوم ${plan.scheduledFor}` : isPriority ? `تغيير أولوية «${plan.targetTitle}»` : isEdit ? `تعديل «${plan.targetTitle}» إلى «${plan.title}»` : actionDescription(plan);
