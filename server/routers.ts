@@ -30,6 +30,9 @@ export const appRouter = router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => { ctx.res.clearCookie(COOKIE_NAME, { ...getSessionCookieOptions(ctx.req), maxAge: -1 }); return { success: true } as const; }),
   }),
+  backup: router({
+    export: protectedProcedure.mutation(({ ctx }) => db.exportStudyBackup(ctx.user.id, ctx.user.role === "admin")),
+  }),
   dashboard: router({ summary: protectedProcedure.query(({ ctx }) => db.dashboard(ctx.user.id)) }),
   studyPlan: router({
     list: protectedProcedure.query(({ ctx }) => db.listStudyPlan(ctx.user.id)),

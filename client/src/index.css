@@ -83,3 +83,33 @@
   .study-content { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
   .study-assistant { bottom: calc(4.4rem + env(safe-area-inset-bottom)); }
 }
+
+
+.study-hero {
+  isolation: isolate;
+  overflow: hidden;
+  position: relative;
+  color: white;
+  background: linear-gradient(132deg, #191746 7%, #41309b 55%, #5438b1);
+}
+.study-hero::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: radial-gradient(ellipse at 12% 15%, #8961ecb3, transparent 52%),
+    repeating-radial-gradient(circle at 13% 20%, transparent 0 26px, #ffffff13 27px 28px, transparent 29px 42px);
+  pointer-events: none;
+}
+.study-topbar { background: color-mix(in srgb, var(--background) 85%, transparent); }
+.surface { border-radius: 1.35rem; }
+@media (max-width: 767px) {
+  .study-bottom-nav {
+    inset-inline: .55rem;
+    bottom: max(.45rem, env(safe-area-inset-bottom));
+    border: 1px solid var(--border);
+    border-radius: 1.2rem;
+    padding: .3rem;
+    box-shadow: 0 8px 35px #14163032;
+  }
+}

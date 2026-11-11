@@ -912,3 +912,47 @@ export async function subjectAnalytics(userId: number) {
     bestScore: stats.bestScore,
   }));
 }
+
+
+export async function exportStudyBackup(userId: number, includeCatalog: boolean) {
+  const db = await database();
+  return db.transaction(async tx => {
+    const ownedSubjects = tx.select({ id: subjects.id }).from(subjects).where(eq(subjects.userId, userId));
+    const ownedChapters = tx.select({ id: chapters.id }).from(chapters).where(inArray(chapters.subjectId, ownedSubjects));
+    const records = {
+      studyCycles: await tx.select().from(studyCycles).where(eq(studyCycles.userId, userId)),
+      subjects: await tx.select().from(subjects).where(eq(subjects.userId, userId)),
+      lessonProgress: await tx.select().from(lessonProgress).where(eq(lessonProgress.userId, userId)),
+      tasks: await tx.select().from(tasks).where(eq(tasks.userId, userId)),
+      assistantChats: await tx.select().from(assistantChats).where(eq(assistantChats.userId, userId)),
+      assistantMessages: await tx.select().from(assistantMessages).where(eq(assistantMessages.userId, userId)),
+      dailyStudySummaries: await tx.select().from(dailyStudySummaries).where(eq(dailyStudySummaries.userId, userId)),
+      habits: await tx.select().from(habits).where(eq(habits.userId, userId)),
+      habitCompletions: await tx.select().from(habitCompletions).where(eq(habitCompletions.userId, userId)),
+      goals: await tx.select().from(goals).where(eq(goals.userId, userId)),
+      pomodoroSessions: await tx.select().from(pomodoroSessions).where(eq(pomodoroSessions.userId, userId)),
+      studyVideoSessions: await tx.select().from(studyVideoSessions).where(eq(studyVideoSessions.userId, userId)),
+      videoNotes: await tx.select().from(videoNotes).where(eq(videoNotes.userId, userId)),
+      exams: await tx.select().from(exams).where(eq(exams.userId, userId)),
+      examAttempts: await tx.select().from(examAttempts).where(eq(examAttempts.userId, userId)),
+      notebooks: await tx.select().from(notebooks).where(eq(notebooks.userId, userId)),
+      flashcardDecks: await tx.select().from(flashcardDecks).where(eq(flashcardDecks.userId, userId)),
+      calendarEvents: await tx.select().from(calendarEvents).where(eq(calendarEvents.userId, userId)),
+      lessonSources: await tx.select().from(lessonSources).where(eq(lessonSources.userId, userId)),
+      rewardPurchases: await tx.select().from(rewardPurchases).where(eq(rewardPurchases.userId, userId)),
+      userAchievements: await tx.select().from(userAchievements).where(eq(userAchievements.userId, userId)),
+      coinTransactions: await tx.select().from(coinTransactions).where(eq(coinTransactions.userId, userId)),
+      studyEvents: await tx.select().from(studyEvents).where(eq(studyEvents.userId, userId)),
+      chapters: await tx.select().from(chapters).where(inArray(chapters.subjectId, ownedSubjects)),
+      lessons: await tx.select().from(lessons).where(inArray(lessons.chapterId, ownedChapters)),
+      goalMilestones: await tx.select().from(goalMilestones).where(inArray(goalMilestones.goalId, tx.select({ id: goals.id }).from(goals).where(eq(goals.userId, userId)))),
+      examLessons: await tx.select().from(examLessons).where(inArray(examLessons.examId, tx.select({ id: exams.id }).from(exams).where(eq(exams.userId, userId)))),
+      notes: await tx.select().from(notes).where(inArray(notes.notebookId, tx.select({ id: notebooks.id }).from(notebooks).where(eq(notebooks.userId, userId)))),
+      notebookSources: await tx.select().from(notebookSources).where(inArray(notebookSources.notebookId, tx.select({ id: notebooks.id }).from(notebooks).where(eq(notebooks.userId, userId)))),
+      flashcards: await tx.select().from(flashcards).where(inArray(flashcards.deckId, tx.select({ id: flashcardDecks.id }).from(flashcardDecks).where(eq(flashcardDecks.userId, userId)))),
+      rewards: includeCatalog ? await tx.select().from(rewards) : [],
+      coinRateSettings: includeCatalog ? await tx.select().from(coinRateSettings) : [],
+    };
+    return { format: "seif-study-os", version: 1, exportedAt: new Date().toISOString(), records };
+  });
+}
