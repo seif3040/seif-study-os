@@ -83,7 +83,7 @@ export default function StudyPlan() {
         </> : <span className="font-semibold" aria-current="page">{subject.title}</span>}
       </nav>}
       <PageHeader title={chapter?.title ?? subject?.title ?? "خطة المنهج"}
-        description={chapter ? subject?.title : subject ? "فصول المادة" : "اختار مادة عشان تفتح فصولها ودروسها."} />
+        description={chapter ? (subject?.title ?? "دروس الفصل") : subject ? "فصول المادة" : "اختار مادة عشان تفتح فصولها ودروسها."} />
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <Button onClick={add}><Plus />{action}</Button>
         {subject && <Button variant="outline" onClick={chapter ? () => setChapterId(undefined) : openSubjects}>
@@ -218,7 +218,7 @@ function ResourceEditor({ editor, onClose, onDone }: { editor: Editor; onClose: 
         if (editor.item) await updateChapter.mutateAsync({ chapterId: editor.item.id, title: name });
         else await createChapter.mutateAsync({ subjectId: editor.subjectId, title: name });
       } else {
-        const fields = { title: name, estimatedMinutes: duration, description: description.trim() || undefined, notes: notes.trim() || undefined };
+        const fields = { title: name, estimatedMinutes: duration, description: description || undefined, notes: notes || undefined };
         if (editor.item) await updateLesson.mutateAsync({ lessonId: editor.item.id, ...fields });
         else await createLesson.mutateAsync({ chapterId: editor.chapterId, ...fields });
       }
