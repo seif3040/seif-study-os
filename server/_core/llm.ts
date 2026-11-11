@@ -212,6 +212,13 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
+const openRouterKey = () => process.env.OPENROUTER_API_KEY?.trim();
+const openRouterModel = () => process.env.OPENROUTER_MODEL?.trim() || "openrouter/free";
+
+export function hasStudyAI() {
+  return Boolean(openRouterKey());
+}
+
 const resolveApiUrl = () =>
   ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
     ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
@@ -219,7 +226,7 @@ const resolveApiUrl = () =>
 
 const assertApiKey = () => {
   if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+    throw new Error("Manus AI is not configured");
   }
 };
 
@@ -339,8 +346,7 @@ const fetchWithBackoff = async (
     : new Error("LLM request failed after exhausting retries");
 };
 
-export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  assertApiKey();
+export async function invokeLLM(params: InvokeParams, options?: { openRouter: boolean }): Promise<InvokeResult> {
 
   const {
     messages,
@@ -401,6 +407,31 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
+  if (options?.openRouter) {
+    const routerKey = openRouterKey();
+    if (!routerKey) throw new Error("OpenRouter is not configured");
+    const endpoint = "https://openrouter.ai/api/v1/chat/completions";
+    payload.model = openRouterModel();
+    payload.provider = { data_collection: "deny", require_parameters: true };
+    delete payload.thinking;
+    const request = () => fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer " + routerKey },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(22_000),
+    });
+    let result = await request();
+    if ((result.status === 400 || result.status === 404) && normalizedResponseFormat?.type === "json_schema") {
+      payload.response_format = { type: "json_object" };
+      result = await request();
+    }
+    if (!result.ok) throw new Error("OpenRouter request failed (" + result.status + ")");
+    const data = await result.json() as InvokeResult;
+    if (!data.choices?.length) throw new Error("OpenRouter returned no choices");
+    return data;
+  }
+
+  assertApiKey();
   const response = await fetchWithBackoff(resolveApiUrl(), {
     method: "POST",
     headers: {
