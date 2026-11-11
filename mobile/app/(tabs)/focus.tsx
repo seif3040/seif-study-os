@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import * as Notifications from "expo-notifications";
+import { useKeepAwake } from "expo-keep-awake";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { colors } from "@/constants/theme";
@@ -9,6 +11,7 @@ const BREAK_SECONDS = 15 * 60;
 const formatTime = (value: number) => `${Math.floor(value / 60).toString().padStart(2, "0")}:${(value % 60).toString().padStart(2, "0")}`;
 
 export default function FocusScreen() {
+  useKeepAwake();
   const [running, setRunning] = useState(false);
   const [phase, setPhase] = useState<"idle" | "focus" | "break">("idle");
   const [remaining, setRemaining] = useState(FOCUS_SECONDS);
@@ -32,6 +35,8 @@ export default function FocusScreen() {
   }, [remaining, running, phase, sessionId]);
   async function startFocus() {
     const result = await start.mutateAsync({ plannedMinutes: 45 });
+    await Notifications.requestPermissionsAsync().catch(() => undefined);
+    await Notifications.scheduleNotificationAsync({ content: { title: "خلصت جلسة التركيز", body: "استراحة 15 دقيقة يا بطل — اتحرك واشرب مية." }, trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: FOCUS_SECONDS } }).catch(() => undefined);
     setSessionId(result.id); setPhase("focus"); setRemaining(FOCUS_SECONDS); setRunning(true);
   }
   async function togglePause() {

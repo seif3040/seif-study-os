@@ -25,5 +25,11 @@ For a local backend, use `EXPO_PUBLIC_API_BASE_URL=http://YOUR_COMPUTER_IP:3000`
 - Study Video safe external launcher with the same server session tracking.
 - Seify assistant request screen connected to the existing assistant router.
 - RTL Arabic-first navigation and mobile-safe layouts.
+- Dedicated native routes for the study plan, habits/goals, exams/flashcards, Notebook AI, and analytics/rewards/calendar.
+- SDK-compatible document picking, free device Arabic speech playback, focus wake lock, and break notifications.
 
-The remaining web feature screens are designed to be added as native routes while reusing the same typed tRPC procedures; no migration or second database is required.
+## Android builds
+
+`eas.json` contains internal APK and production AAB profiles. Run `eas build -p android --profile preview` for a shareable APK or `eas build -p android --profile production` for a Play Store bundle. EAS manages the Android signing key after the owner signs in and confirms the project identity.
+
+The remaining parity work is device QA plus deeper native flows such as editing/deleting every entity, exam attempts, push notification verification, and the full Android voice-input path. These continue to reuse the same typed tRPC procedures; no migration or second database is required.

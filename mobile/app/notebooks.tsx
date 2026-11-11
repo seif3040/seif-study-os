@@ -1,0 +1,39 @@
+import { useState } from "react";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { router } from "expo-router";
+import { ScreenContainer } from "@/components/screen-container";
+import { colors } from "@/constants/theme";
+import { trpc } from "@/lib/trpc";
+
+export default function NotebooksScreen() {
+  const utils = trpc.useUtils();
+  const notebooks = trpc.notebooks.list.useQuery();
+  const selectedId = notebooks.data?.[0]?.notebook.id ?? 0;
+  const notes = trpc.notebooks.notes.useQuery({ notebookId: selectedId }, { enabled: selectedId > 0 });
+  const sources = trpc.notebooks.sources.useQuery({ notebookId: selectedId }, { enabled: selectedId > 0 });
+  const [title, setTitle] = useState("");
+  const [noteTitle, setNoteTitle] = useState("");
+  const [noteContent, setNoteContent] = useState("");
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const createNotebook = trpc.notebooks.create.useMutation({ onSuccess: async () => { setTitle(""); await utils.notebooks.list.invalidate(); } });
+  const createNote = trpc.notebooks.createNote.useMutation({ onSuccess: async () => { setNoteTitle(""); setNoteContent(""); await utils.notebooks.notes.invalidate({ notebookId: selectedId }); } });
+  const upload = trpc.notebooks.uploadSource.useMutation({ onSuccess: async () => { await utils.notebooks.sources.invalidate({ notebookId: selectedId }); await utils.notebooks.list.invalidate(); } });
+  const ai = trpc.notebooks.ai.useMutation({ onSuccess: result => setAnswer(contentText(result)) });
+  async function uploadFile() {
+    if (!selectedId) return;
+    const result = await DocumentPicker.getDocumentAsync({ type: ["text/plain", "text/markdown", "application/pdf"], copyToCacheDirectory: true });
+    if (result.canceled || !result.assets[0]) return;
+    const file = result.assets[0];
+    const mimeType = file.mimeType === "application/pdf" ? "application/pdf" : file.mimeType === "text/markdown" ? "text/markdown" : "text/plain";
+    const contentBase64 = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.Base64 });
+    upload.mutate({ notebookId: selectedId, fileName: file.name, mimeType, contentBase64 });
+  }
+  return <ScreenContainer><ScrollView contentContainerStyle={styles.content}><Pressable onPress={() => router.back()}><Text style={styles.back}>‹ رجوع</Text></Pressable><Text style={styles.title}>Notebook AI</Text><Text style={styles.subtitle}>ارفع الملفات واسأل جوّاها بس — من غير إجابات من برّه المصدر.</Text><Create value={title} setValue={setTitle} placeholder="اسم دفتر جديد" action="أنشئ دفتر" disabled={!title.trim()} onPress={() => createNotebook.mutate({ title })} />{selectedId ? <><View style={styles.actions}><Pressable onPress={uploadFile} style={styles.primary}><Text style={styles.primaryText}>{upload.isPending ? "جارٍ الرفع…" : "ارفع PDF / TXT / MD"}</Text></Pressable><Pressable onPress={() => ai.mutate({ notebookId: selectedId, mode: "summary" })} style={styles.secondary}><Text style={styles.secondaryText}>لخّص الملفات</Text></Pressable></View><Text style={styles.section}>المصادر ({sources.data?.length ?? 0})</Text>{(sources.data ?? []).map(source => <View key={source.id} style={styles.row}><Text style={styles.rowTitle}>{source.fileName}</Text><Text style={styles.muted}>{source.characterCount} حرف</Text></View>)}<Text style={styles.section}>اسأل Notebook AI</Text><TextInput value={question} onChangeText={setQuestion} placeholder="اكتب سؤال من الملفات" placeholderTextColor={colors.muted} style={styles.textarea} /><Pressable disabled={!question.trim() || ai.isPending} onPress={() => ai.mutate({ notebookId: selectedId, mode: "question", prompt: question })} style={[styles.primary, !question.trim() && styles.disabled]}><Text style={styles.primaryText}>{ai.isPending ? "جارٍ البحث…" : "اسأل المصادر"}</Text></Pressable>{answer ? <Text style={styles.answer}>{answer}</Text> : null}<Text style={styles.section}>ملاحظات الدفتر</Text><TextInput value={noteTitle} onChangeText={setNoteTitle} placeholder="عنوان الملاحظة" placeholderTextColor={colors.muted} style={styles.input} /><TextInput value={noteContent} onChangeText={setNoteContent} placeholder="اكتب ملاحظة مرتبطة بالمذاكرة" placeholderTextColor={colors.muted} multiline style={styles.textarea} /><Pressable disabled={!noteTitle.trim() || !noteContent.trim()} onPress={() => createNote.mutate({ notebookId: selectedId, title: noteTitle, content: noteContent })} style={[styles.primary, (!noteTitle.trim() || !noteContent.trim()) && styles.disabled]}><Text style={styles.primaryText}>احفظ الملاحظة</Text></Pressable>{(notes.data ?? []).map(note => <View key={note.id} style={styles.row}><Text style={styles.rowTitle}>{note.title}</Text><Text style={styles.muted}>{note.content}</Text></View>)}</> : <Text style={styles.empty}>أنشئ أول دفتر، وبعدها ارفع ملفاتك.</Text>}</ScrollView></ScreenContainer>;
+}
+function Create({ value, setValue, placeholder, action, disabled, onPress }: { value: string; setValue: (value: string) => void; placeholder: string; action: string; disabled: boolean; onPress: () => void }) { return <View style={styles.create}><TextInput value={value} onChangeText={setValue} placeholder={placeholder} placeholderTextColor={colors.muted} style={styles.input} /><Pressable disabled={disabled} onPress={onPress} style={[styles.primary, disabled && styles.disabled]}><Text style={styles.primaryText}>{action}</Text></Pressable></View>; }
+function contentText(content: unknown) { if (typeof content === "string") return content; if (Array.isArray(content)) return content.map(part => typeof part === "object" && part && "text" in part ? String((part as { text?: unknown }).text ?? "") : String(part)).join("\n"); return "تعذر عرض النتيجة."; }
+const styles = StyleSheet.create({ content: { padding: 20, paddingBottom: 50 }, back: { color: colors.primary, textAlign: "right", fontWeight: "800", fontSize: 16 }, title: { color: colors.foreground, fontSize: 30, fontWeight: "900", textAlign: "right", marginTop: 16 }, subtitle: { color: colors.muted, textAlign: "right", lineHeight: 22, marginTop: 6, marginBottom: 18 }, create: { flexDirection: "row-reverse", gap: 8, marginBottom: 10 }, input: { flex: 1, backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: 11, padding: 12, color: colors.foreground, textAlign: "right" }, textarea: { minHeight: 90, backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: 12, padding: 12, color: colors.foreground, textAlign: "right", textAlignVertical: "top", marginTop: 8 }, primary: { backgroundColor: colors.primary, borderRadius: 11, padding: 13, alignItems: "center", justifyContent: "center" }, primaryText: { color: "#fff", fontWeight: "900" }, secondary: { backgroundColor: colors.primarySoft, borderRadius: 11, padding: 13, alignItems: "center", justifyContent: "center" }, secondaryText: { color: colors.primary, fontWeight: "900" }, actions: { gap: 8, marginTop: 8 }, disabled: { opacity: 0.45 }, section: { color: colors.foreground, textAlign: "right", fontWeight: "900", fontSize: 19, marginTop: 19, marginBottom: 8 }, row: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 13, marginBottom: 8 }, rowTitle: { color: colors.foreground, textAlign: "right", fontWeight: "800" }, muted: { color: colors.muted, textAlign: "right", lineHeight: 21, marginTop: 4, fontSize: 12 }, answer: { color: colors.foreground, backgroundColor: colors.primarySoft, borderRadius: 14, padding: 14, textAlign: "right", lineHeight: 23, marginTop: 12 }, empty: { color: colors.muted, textAlign: "center", padding: 35 },
+});

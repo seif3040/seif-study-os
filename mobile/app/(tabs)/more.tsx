@@ -5,6 +5,15 @@ import { colors } from "@/constants/theme";
 import { useMobileAuth } from "@/hooks/use-mobile-auth";
 
 const items = [
+  { title: "خطة المذاكرة", detail: "المواد والفصول وتقدم الدروس", route: "/plan" },
+  { title: "العادات والأهداف", detail: "إكمال العادة ورفع تقدم الهدف", route: "/habits-goals" },
+  { title: "الامتحانات والفلاش كاردز", detail: "اختبارات ومراجعة الكروت", route: "/exams-flashcards" },
+  { title: "Notebook AI", detail: "ملفات وملاحظات وأسئلة من المصدر", route: "/notebooks" },
+  { title: "التحليلات", detail: "أرقام مذاكرتك ومتوسطاتك", route: "/insights" },
+  { title: "المكافآت", detail: "اشتري من رصيد Coins", route: "/rewards" },
+  { title: "الإنجازات", detail: "شارات ونسب التقدم", route: "/achievements" },
+  { title: "التقويم", detail: "الأحداث والمهام القادمة", route: "/calendar" },
+  { title: "Study Hub", detail: "ملخص موحد لكل مساحاتك", route: "/study-hub" },
   { title: "سيفي المساعد", detail: "محادثات وأوامر بالمصري", route: "/assistant" },
   { title: "فيديو المذاكرة", detail: "جلسات 45/15 وملاحظات", route: "/video" },
 ];
