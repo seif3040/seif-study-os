@@ -2,7 +2,7 @@ import { z } from "zod";
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies.js";
 import { systemRouter } from "./_core/systemRouter.js";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc.js";
+import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc.js";
 import * as db from "./db.js";
 import * as personalAssistant from "./personalAssistant.js";
 import { safeStudyUrl } from "../client/src/lib/videoSources.js";
@@ -129,7 +129,17 @@ export const appRouter = router({
     list: protectedProcedure.input(z.object({ from: date, to: date })).query(({ ctx, input }) => db.listCalendar(ctx.user.id, input.from, input.to)),
     create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), startsAt: date, endsAt: date.optional(), eventType: z.enum(["important_date", "custom"]) })).mutation(({ ctx, input }) => db.createCalendarEvent(ctx.user.id, input)),
   }),
-  rewards: router({ list: protectedProcedure.query(({ ctx }) => db.listRewards(ctx.user.id)), purchase: protectedProcedure.input(z.object({ rewardId: id, referenceKey: z.string().uuid() })).mutation(({ ctx, input }) => db.purchaseReward(ctx.user.id, input.rewardId, input.referenceKey)) }),
+  rewards: router({
+    list: protectedProcedure.query(({ ctx }) => db.listRewards(ctx.user.id, ctx.user.role === "admin")),
+    purchase: protectedProcedure.input(z.object({ rewardId: id, referenceKey: z.string().uuid() })).mutation(({ ctx, input }) => db.purchaseReward(ctx.user.id, input.rewardId, input.referenceKey)),
+    create: adminProcedure.input(z.object({
+      title: z.string().trim().min(1).max(220),
+      cost: z.number().int().positive().max(1_000_000),
+      rarity: z.enum(["common", "uncommon", "rare", "epic", "legendary", "mythic"]).default("common"),
+    })).mutation(({ ctx, input }) => db.createReward(ctx.user.id, input)),
+    setActive: adminProcedure.input(z.object({ rewardId: id, active: z.boolean() }))
+      .mutation(({ input }) => db.setRewardActive(input.rewardId, input.active)),
+  }),
   achievements: router({ list: protectedProcedure.query(({ ctx }) => db.listAchievements(ctx.user.id)) }),
   coins: router({ ledger: protectedProcedure.query(({ ctx }) => db.coinLedger(ctx.user.id)) }),
   analytics: router({ overview: protectedProcedure.query(({ ctx }) => db.analytics(ctx.user.id)) }),

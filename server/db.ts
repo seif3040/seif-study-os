@@ -443,7 +443,36 @@ export async function completeExamAttempt(userId: number, input: { examId: numbe
 export async function listCalendar(userId: number, from: Date, to: Date) { const db = await database(); const [taskItems, examItems, goalItems, customItems, sessions] = await Promise.all([db.select().from(tasks).where(and(eq(tasks.userId, userId), gte(tasks.deadline, from), lte(tasks.deadline, to))), db.select().from(exams).where(and(eq(exams.userId, userId), gte(exams.scheduledAt, from), lte(exams.scheduledAt, to))), db.select().from(goals).where(and(eq(goals.userId, userId), gte(goals.deadline, from), lte(goals.deadline, to))), db.select().from(calendarEvents).where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startsAt, from), lte(calendarEvents.startsAt, to))), db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "completed"), gte(pomodoroSessions.completedAt, from), lte(pomodoroSessions.completedAt, to)))]); return { tasks: taskItems, exams: examItems, goals: goalItems, events: customItems, sessions }; }
 export async function createCalendarEvent(userId: number, input: { title: string; startsAt: Date; endsAt?: Date; eventType: "important_date" | "custom" }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(calendarEvents).values({ userId, cycleId: cycle.id, title: input.title, startsAt: input.startsAt, endsAt: input.endsAt ?? null, eventType: input.eventType }); }
 
-export async function listRewards(userId: number) { const db = await database(); await seedCatalogs(db); const [items, coins, purchases] = await Promise.all([db.select().from(rewards).where(eq(rewards.active, true)).orderBy(rewards.catalogId), getCoinSummary(db, userId), db.select({ rewardId: rewardPurchases.rewardId, purchasedAt: rewardPurchases.purchasedAt }).from(rewardPurchases).where(eq(rewardPurchases.userId, userId)).orderBy(desc(rewardPurchases.purchasedAt))]); return { items, coins, purchases }; }
+export async function listRewards(userId: number, canManage = false) {
+  const db = await database();
+  await seedCatalogs(db);
+  const [catalog, coins, purchases] = await Promise.all([
+    db.select().from(rewards).where(canManage ? undefined : eq(rewards.active, true)).orderBy(rewards.catalogId),
+    getCoinSummary(db, userId),
+    db.select({ rewardId: rewardPurchases.rewardId, purchasedAt: rewardPurchases.purchasedAt })
+      .from(rewardPurchases).where(eq(rewardPurchases.userId, userId)).orderBy(desc(rewardPurchases.purchasedAt)),
+  ]);
+  return { items: catalog.filter(item => item.active), archived: catalog.filter(item => !item.active), coins, purchases, canManage };
+}
+
+export async function createReward(userId: number, input: { title: string; cost: number; rarity: typeof rewards.$inferInsert.rarity }) {
+  const db = await database();
+  await seedCatalogs(db);
+  return db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const [previous] = await tx.select({ catalogId: rewards.catalogId }).from(rewards).orderBy(rewards.catalogId).limit(1);
+    const catalogId = Math.min(0, previous?.catalogId ?? 0) - 1;
+    await tx.insert(rewards).values({ ...input, catalogId });
+    return { success: true };
+  });
+}
+
+export async function setRewardActive(rewardId: number, active: boolean) {
+  const db = await database();
+  await db.update(rewards).set({ active }).where(eq(rewards.id, rewardId));
+  return { success: true };
+}
+
 export async function purchaseReward(userId: number, rewardId: number, referenceKey: string) { const db = await database(); const cycle = await getActiveCycle(userId); return db.transaction(async tx => { await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update"); const purchased = await tx.select({ id: rewardPurchases.id }).from(rewardPurchases).where(eq(rewardPurchases.referenceKey, referenceKey)).limit(1); const priorBalance = (await getCoinSummary(tx, userId)).balance; if (purchased[0] || decideRewardPurchase({ hasPriorReference: Boolean(purchased[0]), balance: priorBalance, cost: 0 }) === "duplicate") return { purchased: false, reason: "already_purchased", balance: priorBalance }; const reward = await tx.select().from(rewards).where(and(eq(rewards.id, rewardId), eq(rewards.active, true))).limit(1); if (!reward[0]) throw new Error("المكافأة غير متاحة."); const coins = await getCoinSummary(tx, userId); if (decideRewardPurchase({ hasPriorReference: false, balance: coins.balance, cost: reward[0].cost }) !== "approved") throw new Error("لا توجد Coins كافية لشراء هذه المكافأة."); await tx.insert(rewardPurchases).values({ userId, cycleId: cycle.id, rewardId, cost: reward[0].cost, referenceKey }); await tx.insert(coinTransactions).values({ userId, cycleId: cycle.id, amount: -reward[0].cost, type: "spend", reason: `شراء مكافأة: ${reward[0].title}`, referenceKey: `purchase:${referenceKey}` }); return { purchased: true, reward: reward[0].title, balance: coins.balance - reward[0].cost }; }); }
 
 export async function listAchievements(userId: number) {
