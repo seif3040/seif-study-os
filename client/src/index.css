@@ -51,3 +51,35 @@
   .surface { transition: transform 180ms cubic-bezier(0.23, 1, 0.32, 1), box-shadow 180ms cubic-bezier(0.23, 1, 0.32, 1); }
   .surface:hover { box-shadow: 0 16px 42px rgb(15 45 50 / .10); }
 }
+
+/* Study OS theme and phone navigation. */
+:root {
+  --background: #f3f5fb; --foreground: #181d39; --card: #fff; --card-foreground: #181d39;
+  --popover: #fff; --popover-foreground: #181d39; --primary: #5144ba; --primary-foreground: #fff;
+  --secondary: #eeeafb; --secondary-foreground: #342b75; --muted: #edf0f8; --muted-foreground: #596381;
+  --accent: #e8e4fa; --accent-foreground: #342b75; --border: #dce0ed; --input: #dce0ed; --ring: #6c5dd5;
+  --sidebar: #171d3f; --sidebar-foreground: #f6f7ff; --sidebar-primary: #80e8da;
+  --sidebar-primary-foreground: #102b30; --sidebar-accent: #252d57; --sidebar-accent-foreground: #fff;
+  --chart-1: #6352ca; --chart-2: #23867c;
+}
+.dark {
+  --background: #11162d; --foreground: #f1f2ff; --card: #1a2140; --card-foreground: #f1f2ff;
+  --popover: #1a2140; --popover-foreground: #f1f2ff; --primary: #aa9cfb; --primary-foreground: #171434;
+  --secondary: #2b2c51; --secondary-foreground: #eeeaff; --muted: #232b4b; --muted-foreground: #b6bfda;
+  --accent: #332b58; --accent-foreground: #f1eaff; --border: #343e65; --input: #343e65; --ring: #aa9cfb;
+  --sidebar: #10152c; --sidebar-accent: #222b50;
+}
+.app-shell { background: radial-gradient(ellipse at 12% 0%, #dcd5ff80, transparent 38rem), var(--background); }
+.dark .app-shell { background: radial-gradient(ellipse at 12% 0%, #33296a80, transparent 38rem), var(--background); }
+.study-bottom-nav {
+  position: fixed; z-index: 30; bottom: 0; inset-inline: 0; display: grid; grid-template-columns: repeat(5, minmax(0,1fr));
+  gap: .15rem; background: var(--card); padding: .4rem .35rem calc(.4rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border); box-shadow: 0 -6px 24px #151d3314;
+}
+.study-bottom-nav button { min-height: 3rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .2rem; border-radius: .75rem; font-size: .69rem; color: var(--muted-foreground); }
+.study-bottom-nav button[aria-current="page"] { color: var(--primary); background: var(--accent); font-weight: 700; }
+@media (min-width: 768px) { .study-bottom-nav { display: none; } }
+@media (max-width: 767px) {
+  .study-content { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
+  .study-assistant { bottom: calc(4.4rem + env(safe-area-inset-bottom)); }
+}

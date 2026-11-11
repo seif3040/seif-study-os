@@ -744,3 +744,70 @@ export async function chatWithAssistant(userId: number, messages: { role: "user"
   const response = await invokeLLM({ messages: [{ role: "system", content: `أنت صاحب مذاكرة مصري مشجع. ساعد الطالب بخطوات عملية قصيرة. هذه بياناته الحالية: ${JSON.stringify(metrics)}` }, ...messages] });
   return response.choices[0]?.message?.content ?? "مش قادر أرد دلوقتي، جرّب تاني.";
 }
+
+// Subject metrics use the same saved activity, curriculum, and exam results as the rest of the site.
+export async function subjectAnalytics(userId: number) {
+  const db = await database();
+  const [plan, events, attempts, links] = await Promise.all([
+    listStudyPlan(userId),
+    db.select({
+      subjectId: studyEvents.subjectId, kind: studyEvents.eventType, minutes: studyEvents.durationMinutes,
+      date: studyEvents.occurredAt, reason: coinTransactions.reason,
+    }).from(studyEvents).leftJoin(coinTransactions, and(eq(coinTransactions.userId, userId), eq(coinTransactions.referenceKey, studyEvents.referenceId)))
+      .where(eq(studyEvents.userId, userId)).orderBy(studyEvents.occurredAt),
+    db.select({ examId: examAttempts.examId, subjectId: exams.subjectId, score: examAttempts.score, comprehension: examAttempts.comprehensionScore })
+      .from(examAttempts).innerJoin(exams, eq(examAttempts.examId, exams.id))
+      .where(and(eq(examAttempts.userId, userId), eq(exams.userId, userId))),
+    db.select({ examId: examLessons.examId, subjectId: subjects.id }).from(examLessons)
+      .innerJoin(exams, eq(examLessons.examId, exams.id)).innerJoin(lessons, eq(examLessons.lessonId, lessons.id))
+      .innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id))
+      .where(and(eq(exams.userId, userId), eq(subjects.userId, userId))),
+  ]);
+  function row(id: number | null, title: string) {
+    return { id, title, chapters: 0, lessons: 0, completed: 0, trackedMinutes: 0, allocatedMinutes: 0, focusSessions: 0, reviews: 0, attempts: 0, scoreTotal: 0, comprehensionTotal: 0, bestScore: null as number | null, activeDays: new Set<string>(), chapterIds: new Set<number>(), lessonIds: new Set<number>() };
+  }
+  const subjectsById = new Map<number, ReturnType<typeof row>>();
+  const unassigned = row(null, "بدون مادة");
+  for (const item of plan.rows) {
+    const stats = subjectsById.get(item.subject.id) ?? row(item.subject.id, item.subject.title);
+    subjectsById.set(item.subject.id, stats);
+    if (item.chapter) stats.chapterIds.add(item.chapter.id);
+    if (item.lesson && !stats.lessonIds.has(item.lesson.id)) {
+      stats.lessonIds.add(item.lesson.id);
+      if (item.progress?.status === "completed") stats.completed++;
+    }
+  }
+  const cairo = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" });
+  for (const event of events) {
+    const stats = (event.subjectId === null ? null : subjectsById.get(event.subjectId)) ?? unassigned;
+    const allocated = event.kind === "pomodoro_complete" && Boolean(event.reason?.startsWith("Pomodoro — تسجيل مذاكرة سابقة (")) && stats.id !== null;
+    if (allocated) stats.allocatedMinutes += Number(event.minutes);
+    else stats.trackedMinutes += Number(event.minutes);
+    if (event.kind === "pomodoro_complete") stats.focusSessions++;
+    if (event.kind === "lesson_review") stats.reviews++;
+    stats.activeDays.add(cairo.format(event.date));
+  }
+  const examSubjects = new Map<number, Set<number>>();
+  for (const link of links) {
+    const set = examSubjects.get(link.examId) ?? new Set<number>();
+    set.add(link.subjectId);
+    examSubjects.set(link.examId, set);
+  }
+  for (const attempt of attempts) {
+    const linked = examSubjects.get(attempt.examId);
+    const id = linked?.size === 1 ? [...linked][0] : linked?.size ? null : attempt.subjectId;
+    const stats = (id === null ? null : subjectsById.get(id)) ?? unassigned;
+    stats.attempts++;
+    stats.scoreTotal += Number(attempt.score);
+    stats.comprehensionTotal += Number(attempt.comprehension);
+    stats.bestScore = Math.max(stats.bestScore ?? 0, Number(attempt.score));
+  }
+  return [...subjectsById.values(), unassigned].map(stats => ({
+    id: stats.id, title: stats.title, chapters: stats.chapterIds.size, lessons: stats.lessonIds.size, completed: stats.completed,
+    minutes: stats.trackedMinutes + stats.allocatedMinutes, trackedMinutes: stats.trackedMinutes, allocatedMinutes: stats.allocatedMinutes,
+    focusSessions: stats.focusSessions, reviews: stats.reviews, activeDays: stats.activeDays.size, attempts: stats.attempts,
+    averageScore: stats.attempts ? Math.round(stats.scoreTotal * 10 / stats.attempts) / 10 : null,
+    averageComprehension: stats.attempts ? Math.round(stats.comprehensionTotal * 10 / stats.attempts) / 10 : null,
+    bestScore: stats.bestScore,
+  }));
+}
