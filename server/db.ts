@@ -511,9 +511,24 @@ export async function createExam(userId: number, input: { title: string; subject
 }
 
 export async function listExams(userId: number) {
-  const db = await database(); const cycle = await getActiveCycle(userId);
-  const rows = await db.select({ exam: exams, subject: subjects.title }).from(exams).leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(eq(exams.userId, userId)).orderBy(exams.scheduledAt);
-  return Promise.all(rows.map(async (row: any) => { const scoped = await scopedExamLessons(db, userId, row.exam.id); return { ...row, lessons: scoped, readiness: readinessForLessons(scoped) }; }));
+  const db = await database();
+  const [rows, attempts] = await Promise.all([
+    db.select({ exam: exams, subject: subjects.title }).from(exams)
+      .leftJoin(subjects, eq(exams.subjectId, subjects.id))
+      .where(eq(exams.userId, userId)).orderBy(exams.scheduledAt),
+    db.select({ id: examAttempts.id, examId: examAttempts.examId, score: examAttempts.score, comprehension: examAttempts.comprehensionScore, date: examAttempts.createdAt })
+      .from(examAttempts).where(eq(examAttempts.userId, userId)).orderBy(desc(examAttempts.createdAt), desc(examAttempts.id)),
+  ]);
+  const attemptsByExam = new Map<number, typeof attempts>();
+  for (const attempt of attempts) {
+    const history = attemptsByExam.get(attempt.examId) ?? [];
+    history.push(attempt);
+    attemptsByExam.set(attempt.examId, history);
+  }
+  return Promise.all(rows.map(async row => {
+    const scoped = await scopedExamLessons(db, userId, row.exam.id);
+    return { ...row, lessons: scoped, readiness: readinessForLessons(scoped), attempts: attemptsByExam.get(row.exam.id) ?? [] };
+  }));
 }
 
 export async function analytics(userId: number) {
