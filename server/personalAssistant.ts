@@ -86,7 +86,7 @@ export async function planPersonalAssistantAction(userId: number, request: strin
         { role: "user", content: `تاريخ القاهرة: ${today}\nالصفحة: ${isRoute(page) ? page : ""}\nطلب الطالب: ${request}` },
       ],
       response_format: { type: "json_schema", json_schema: { name: "personal_study_assistant_plan", strict: true, schema: { type: "object", properties: { reply: { type: "string" }, actionType: { type: "string", enum: personalAssistantActionTypes.filter(action => !action.startsWith("delete_")) }, title: { type: "string" }, targetTitle: { type: "string" }, parentTitle: { type: "string" }, value: { type: "integer" }, priority: { type: "string", enum: ["urgent", "medium", "low"] }, scheduledFor: { type: "string" }, frequency: { type: "string", enum: ["daily", "weekly"] }, target: { type: "integer", minimum: 1, maximum: 7 }, route: { type: "string", enum: [...personalAssistantRoutes] }, requiresConfirmation: { type: "boolean" } }, required: ["reply", "actionType", "title", "targetTitle", "parentTitle", "value", "priority", "scheduledFor", "frequency", "target", "route", "requiresConfirmation"], additionalProperties: false } } },
-    }, { openRouter: true });
+    });
     const plan = normalizePersonalAssistantPlan(JSON.parse(String(response.choices[0]?.message?.content ?? "{}")));
     await saveAssistantMessage(userId, "assistant", plan.reply, chatId);
     return plan;
