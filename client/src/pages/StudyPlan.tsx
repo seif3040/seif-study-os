@@ -12,9 +12,10 @@ import { BookOpen, CheckCircle2, ChevronDown, CirclePlus, GraduationCap, Pencil,
 import { toast } from "sonner";
 
 export default function StudyPlan() {
-  const utils = trpc.useUtils(); const { data, isLoading } = trpc.studyPlan.list.useQuery();
+  const utils = trpc.useUtils(); const { data, isLoading, isError, refetch } = trpc.studyPlan.list.useQuery();
   const invalidate = () => Promise.all([utils.studyPlan.list.invalidate(), utils.dashboard.summary.invalidate(), utils.analytics.overview.invalidate(), utils.achievements.list.invalidate()]);
   if (isLoading) return <div className="h-72 animate-pulse rounded-2xl bg-muted" />;
+  if (isError) return <div className="surface space-y-3 p-5" role="alert"><p>تعذّر تحميل خطة المذاكرة. جرّب تاني.</p><Button variant="outline" onClick={() => void refetch()}>إعادة المحاولة</Button></div>;
   const rows = data?.rows ?? []; const subjectMap = new Map<number, any>();
   rows.forEach((row: any) => { if (!subjectMap.has(row.subject.id)) subjectMap.set(row.subject.id, { ...row.subject, chapters: new Map() }); if (row.chapter) { const subject = subjectMap.get(row.subject.id); if (!subject.chapters.has(row.chapter.id)) subject.chapters.set(row.chapter.id, { ...row.chapter, lessons: [] }); if (row.lesson) subject.chapters.get(row.chapter.id).lessons.push({ ...row.lesson, progress: row.progress }); } });
   const subjectList = Array.from(subjectMap.values());

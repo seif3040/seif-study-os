@@ -98,28 +98,31 @@ async function seedCatalogs(db: any) {
   if (Number(achievementCount?.value ?? 0) === 0) await db.insert(achievements).values(achievementCatalog);
 }
 
+// Older database rows still require a cycleId. Reuse an existing row as a
+// storage reference without expiring it or using it to filter study history.
 export async function getActiveCycle(userId: number) {
   const db = await database();
   await seedCatalogs(db);
-  const current = await db.select().from(studyCycles)
-    .where(and(eq(studyCycles.userId, userId), eq(studyCycles.status, "active"))).orderBy(desc(studyCycles.createdAt)).limit(1);
-  if (current[0] && current[0].endAt.getTime() > Date.now()) return current[0];
-  if (current[0]) await db.update(studyCycles).set({ status: "completed" }).where(eq(studyCycles.id, current[0].id));
+  const existing = await db.select().from(studyCycles)
+    .where(eq(studyCycles.userId, userId)).orderBy(desc(studyCycles.id)).limit(1);
+  if (existing[0]) return existing[0];
+
   const startAt = new Date();
-  const endAt = new Date(startAt.getTime() + 90 * DAY_MS);
-  const cycleKey = `cycle-${userId}-${startAt.getTime()}`;
-  await db.insert(studyCycles).values({ userId, cycleKey, startAt, endAt, status: "active" });
-  const created = await db.select().from(studyCycles).where(and(eq(studyCycles.userId, userId), eq(studyCycles.cycleKey, cycleKey))).limit(1);
-  if (!created[0]) throw new Error("تعذر بدء دورة المذاكرة.");
-  return created[0];
+  const cycleKey = "permanent";
+  await db.insert(studyCycles).values({ userId, cycleKey, startAt, endAt: startAt, status: "active" })
+    .onDuplicateKeyUpdate({ set: { cycleKey } });
+  const [created] = await db.select().from(studyCycles)
+    .where(and(eq(studyCycles.userId, userId), eq(studyCycles.cycleKey, cycleKey))).limit(1);
+  if (!created) throw new Error("تعذر تجهيز مساحة المذاكرة.");
+  return created;
 }
 
-async function getCoinSummary(db: any, userId: number, cycleId: number) {
+async function getCoinSummary(db: any, userId: number) {
   const [row] = await db.select({
     balance: sql<number>`coalesce(sum(${coinTransactions.amount}), 0)`,
     earned: sql<number>`coalesce(sum(case when ${coinTransactions.amount} > 0 then ${coinTransactions.amount} else 0 end), 0)`,
     spent: sql<number>`coalesce(sum(case when ${coinTransactions.amount} < 0 then -${coinTransactions.amount} else 0 end), 0)`,
-  }).from(coinTransactions).where(and(eq(coinTransactions.userId, userId), eq(coinTransactions.cycleId, cycleId)));
+  }).from(coinTransactions).where(eq(coinTransactions.userId, userId));
   return { balance: Number(row?.balance ?? 0), earned: Number(row?.earned ?? 0), spent: Number(row?.spent ?? 0) };
 }
 
@@ -128,9 +131,9 @@ async function awardCoins(params: { userId: number; cycleId: number; amount: num
   if (params.amount <= 0) throw new Error("قيمة المكافأة غير صحيحة.");
   return db.transaction(async tx => {
     const already = await tx.select({ id: coinTransactions.id }).from(coinTransactions).where(eq(coinTransactions.referenceKey, params.referenceKey)).limit(1);
-    if (already[0]) return { awarded: false, balance: (await getCoinSummary(tx, params.userId, params.cycleId)).balance };
+    if (already[0]) return { awarded: false, balance: (await getCoinSummary(tx, params.userId)).balance };
     await tx.insert(coinTransactions).values({ ...params, type: "earn" });
-    return { awarded: true, balance: (await getCoinSummary(tx, params.userId, params.cycleId)).balance };
+    return { awarded: true, balance: (await getCoinSummary(tx, params.userId)).balance };
   });
 }
 
@@ -142,7 +145,7 @@ async function recordStudyEvent(params: { userId: number; cycleId: number; subje
   return true;
 }
 
-async function metricSnapshot(db: any, userId: number, cycleId: number) {
+async function metricSnapshot(db: any, userId: number) {
   const [events] = await db.select({
     lessonsCompleted: sql<number>`coalesce(sum(case when ${studyEvents.eventType} = 'lesson_complete' then 1 else 0 end), 0)`,
     reviews: sql<number>`coalesce(sum(case when ${studyEvents.eventType} = 'lesson_review' then 1 else 0 end), 0)`,
@@ -156,16 +159,16 @@ async function metricSnapshot(db: any, userId: number, cycleId: number) {
     videoBlocks: sql<number>`coalesce(sum(case when ${studyEvents.eventType} = 'video_block' then 1 else 0 end), 0)`,
     examsCompleted: sql<number>`coalesce(sum(case when ${studyEvents.eventType} = 'exam_complete' then 1 else 0 end), 0)`,
     activeDays: sql<number>`count(distinct date(${studyEvents.occurredAt}))`,
-  }).from(studyEvents).where(and(eq(studyEvents.userId, userId), eq(studyEvents.cycleId, cycleId)));
-  const [urgent] = await db.select({ value: count() }).from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.cycleId, cycleId), eq(tasks.status, "completed"), eq(tasks.priority, "urgent")));
+  }).from(studyEvents).where(eq(studyEvents.userId, userId));
+  const [urgent] = await db.select({ value: count() }).from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.status, "completed"), eq(tasks.priority, "urgent")));
   const [examSummary] = await db.select({
     best: sql<number>`coalesce(max(${examAttempts.score}), 0)`,
     average: sql<number>`coalesce(avg(${examAttempts.score}), 0)`,
-  }).from(examAttempts).where(and(eq(examAttempts.userId, userId), eq(examAttempts.cycleId, cycleId)));
-  const coins = await getCoinSummary(db, userId, cycleId);
+  }).from(examAttempts).where(eq(examAttempts.userId, userId));
+  const coins = await getCoinSummary(db, userId);
   const eventDay = sql<string>`date(\`studyEvents\`.\`occurredAt\`)`;
   const activityRows = await db.select({ day: eventDay }).from(studyEvents)
-    .where(and(eq(studyEvents.userId, userId), eq(studyEvents.cycleId, cycleId))).groupBy(eventDay).orderBy(desc(eventDay));
+    .where(eq(studyEvents.userId, userId)).groupBy(eventDay).orderBy(desc(eventDay));
   let streak = 0;
   let cursor = new Date(`${dateKey()}T00:00:00.000Z`).getTime();
   for (const row of activityRows) {
@@ -186,13 +189,18 @@ async function metricSnapshot(db: any, userId: number, cycleId: number) {
 
 export async function evaluateAchievements(userId: number, cycleId: number) {
   const db = await database();
-  const metrics = await metricSnapshot(db, userId, cycleId) as Record<AchievementMetric, number>;
+  const metrics = await metricSnapshot(db, userId) as Record<AchievementMetric, number>;
   const streakRewards: Record<number, number> = { 3: 25, 7: 75, 14: 150, 30: 400, 60: 800, 90: 1500 };
   const milestone = Object.keys(streakRewards).map(Number).filter(days => metrics.currentStreak >= days).sort((a, b) => b - a)[0];
-  if (milestone) await awardCoins({ userId, cycleId, amount: streakRewards[milestone], reason: `مكافأة سلسلة ${milestone} يوم`, referenceKey: `streak:${cycleId}:${milestone}` });
+  if (milestone) {
+    const reason = `مكافأة سلسلة ${milestone} يوم`;
+    const [previous] = await db.select({ id: coinTransactions.id }).from(coinTransactions)
+      .where(and(eq(coinTransactions.userId, userId), eq(coinTransactions.reason, reason))).limit(1);
+    if (!previous) await awardCoins({ userId, cycleId, amount: streakRewards[milestone], reason, referenceKey: `streak:lifetime:${userId}:${milestone}` });
+  }
   const catalog = await db.select().from(achievements);
   const unlocked = await db.select({ achievementId: userAchievements.achievementId }).from(userAchievements)
-    .where(and(eq(userAchievements.userId, userId), eq(userAchievements.cycleId, cycleId)));
+    .where(eq(userAchievements.userId, userId));
   const unlockedIds = new Set(unlocked.map((row: any) => row.achievementId));
   const newUnlocks = selectAchievementUnlocks(catalog as any[], unlockedIds, metrics);
   if (newUnlocks.length) await db.insert(userAchievements).values(newUnlocks.map((item: any) => ({ userId, cycleId, achievementId: item.id })));
@@ -210,15 +218,16 @@ async function ownedLesson(db: any, userId: number, lessonId: number) {
 export async function dashboard(userId: number) {
   const db = await database();
   const cycle = await getActiveCycle(userId);
-  const metrics = await metricSnapshot(db, userId, cycle.id);
-  const coins = await getCoinSummary(db, userId, cycle.id);
+  const metrics = await metricSnapshot(db, userId);
+  const coins = await getCoinSummary(db, userId);
   const today = dateKey();
-  const todaysTasks = await db.select().from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.cycleId, cycle.id), eq(tasks.scheduledFor, today))).orderBy(desc(tasks.priority));
+  const todaysTasks = await db.select().from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.scheduledFor, today))).orderBy(desc(tasks.priority));
   const upcomingExams = await db.select({ id: exams.id, title: exams.title, scheduledAt: exams.scheduledAt, subject: subjects.title }).from(exams)
-    .leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(and(eq(exams.userId, userId), eq(exams.cycleId, cycle.id), gte(exams.scheduledAt, new Date()))).orderBy(exams.scheduledAt).limit(4);
-  const activeGoals = await db.select().from(goals).where(and(eq(goals.userId, userId), eq(goals.cycleId, cycle.id), eq(goals.status, "active"))).orderBy(desc(goals.progress)).limit(4);
-  const ongoingPomodoro = await db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.cycleId, cycle.id), inArray(pomodoroSessions.state, ["running", "paused"]))).orderBy(desc(pomodoroSessions.createdAt)).limit(1);
-  return { cycle, metrics, coins, todaysTasks, upcomingExams, activeGoals, ongoingPomodoro: ongoingPomodoro[0] ?? null };
+    .leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(and(eq(exams.userId, userId), gte(exams.scheduledAt, new Date()))).orderBy(exams.scheduledAt).limit(4);
+  const activeGoals = await db.select().from(goals).where(and(eq(goals.userId, userId), eq(goals.status, "active"))).orderBy(desc(goals.progress)).limit(4);
+  const [latestPomodoro] = await db.select().from(pomodoroSessions).where(eq(pomodoroSessions.userId, userId)).orderBy(desc(pomodoroSessions.createdAt), desc(pomodoroSessions.id)).limit(1);
+  const ongoingPomodoro = latestPomodoro && (latestPomodoro.state === "running" || latestPomodoro.state === "paused") ? latestPomodoro : null;
+  return { cycle, metrics, coins, todaysTasks, upcomingExams, activeGoals, ongoingPomodoro };
 }
 
 export async function listStudyPlan(userId: number) {
@@ -227,7 +236,7 @@ export async function listStudyPlan(userId: number) {
   const rows = await db.select({ subject: subjects, chapter: chapters, lesson: lessons, progress: lessonProgress })
     .from(subjects).leftJoin(chapters, eq(chapters.subjectId, subjects.id)).leftJoin(lessons, eq(lessons.chapterId, chapters.id))
     .leftJoin(lessonProgress, and(eq(lessonProgress.lessonId, lessons.id), eq(lessonProgress.userId, userId)))
-    .where(and(eq(subjects.userId, userId), eq(subjects.cycleId, cycle.id))).orderBy(subjects.createdAt, chapters.sortOrder, lessons.sortOrder);
+    .where(eq(subjects.userId, userId)).orderBy(subjects.createdAt, chapters.sortOrder, lessons.sortOrder);
   return { cycle, rows };
 }
 
@@ -283,7 +292,7 @@ export async function reviewLesson(userId: number, lessonId: number) {
   return { ...reward, unlocks: await evaluateAchievements(userId, lesson.cycleId) };
 }
 
-export async function listTasks(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); return db.select().from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.cycleId, cycle.id))).orderBy(tasks.status, tasks.scheduledFor, desc(tasks.createdAt)); }
+export async function listTasks(userId: number) { const db = await database(); return db.select().from(tasks).where(eq(tasks.userId, userId)).orderBy(tasks.status, tasks.scheduledFor, desc(tasks.createdAt)); }
 export async function createTask(userId: number, input: { title: string; description?: string; scheduledFor?: string; deadline?: Date; priority: "urgent" | "medium" | "low"; category?: string }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(tasks).values({ userId, cycleId: cycle.id, title: input.title, description: input.description ?? null, scheduledFor: input.scheduledFor ?? dateKey(), deadline: input.deadline ?? null, priority: input.priority, category: input.category ?? "دراسة" }); }
 export async function completeTask(userId: number, taskId: number) {
   const db = await database(); const item = await db.select().from(tasks).where(and(eq(tasks.id, taskId), eq(tasks.userId, userId))).limit(1); if (!item[0]) throw new Error("المهمة غير موجودة.");
@@ -374,10 +383,10 @@ export async function getDailyStudySummary(userId: number) {
   const db = await database(); const cycle = await getActiveCycle(userId); const today = dateKey();
   const existing = await db.select().from(dailyStudySummaries).where(and(eq(dailyStudySummaries.userId, userId), eq(dailyStudySummaries.summaryDate, today))).limit(1);
   if (existing[0]) return { ...existing[0], isNew: false };
-  const openTasks = await db.select().from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.cycleId, cycle.id), eq(tasks.status, "open"), lte(tasks.scheduledFor, today))).orderBy(desc(tasks.priority), tasks.scheduledFor).limit(6);
+  const openTasks = await db.select().from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.status, "open"), lte(tasks.scheduledFor, today))).orderBy(desc(tasks.priority), tasks.scheduledFor).limit(6);
   const dueToday = openTasks.filter(task => task.scheduledFor === today);
   const urgent = openTasks.filter(task => task.priority === "urgent");
-  const upcoming = await db.select({ title: exams.title, scheduledAt: exams.scheduledAt }).from(exams).where(and(eq(exams.userId, userId), eq(exams.cycleId, cycle.id), gte(exams.scheduledAt, new Date()))).orderBy(exams.scheduledAt).limit(1);
+  const upcoming = await db.select({ title: exams.title, scheduledAt: exams.scheduledAt }).from(exams).where(and(eq(exams.userId, userId), gte(exams.scheduledAt, new Date()))).orderBy(exams.scheduledAt).limit(1);
   const names = openTasks.slice(0, 3).map(task => `«${task.title}»`).join("، ");
   const content = `صباح الفل يا سيف. النهاردة عندك ${dueToday.length} مهمة متخططلها${urgent.length ? `، منهم ${urgent.length} مهم` : ""}. ${openTasks.length ? `ابدأ بـ ${names}.` : "جدولك فاضي حاليًا؛ حط مهمة صغيرة ونكسب اليوم."}${upcoming[0]?.scheduledAt ? ` والامتحان الجاي «${upcoming[0].title}» يوم ${upcoming[0].scheduledAt.toLocaleDateString("ar-EG")}.` : ""}`;
   await db.insert(dailyStudySummaries).values({ userId, cycleId: cycle.id, summaryDate: today, content }).onDuplicateKeyUpdate({ set: { userId } });
@@ -385,27 +394,32 @@ export async function getDailyStudySummary(userId: number) {
   return { ...stored[0], isNew: true };
 }
 
-export async function listHabits(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); const items = await db.select().from(habits).where(and(eq(habits.userId, userId), eq(habits.cycleId, cycle.id))); const todays = await db.select().from(habitCompletions).where(and(eq(habitCompletions.userId, userId), eq(habitCompletions.cycleId, cycle.id), eq(habitCompletions.completedOn, dateKey()))); return { items, completedIds: todays.map((x: any) => x.habitId) }; }
+export async function listHabits(userId: number) { const db = await database(); const items = await db.select().from(habits).where(eq(habits.userId, userId)); const todays = await db.select().from(habitCompletions).where(and(eq(habitCompletions.userId, userId), eq(habitCompletions.completedOn, dateKey()))); return { items, completedIds: todays.map((x: any) => x.habitId) }; }
 export async function createHabit(userId: number, input: { name: string; frequency: "daily" | "weekly"; target: number }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(habits).values({ userId, cycleId: cycle.id, ...input }); }
 export async function completeHabit(userId: number, habitId: number, completedOn = dateKey()) { const db = await database(); const item = await db.select().from(habits).where(and(eq(habits.id, habitId), eq(habits.userId, userId))).limit(1); if (!item[0]) throw new Error("العادة غير موجودة."); const prior = await db.select().from(habitCompletions).where(and(eq(habitCompletions.habitId, habitId), eq(habitCompletions.completedOn, completedOn))).limit(1); if (prior[0]) return { alreadyCompleted: true, awarded: false, unlocks: [] }; await db.insert(habitCompletions).values({ userId, habitId, cycleId: item[0].cycleId, completedOn }); const ref = `habit:${habitId}:${completedOn}`; await recordStudyEvent({ userId, cycleId: item[0].cycleId, eventType: "habit_complete", referenceId: ref }); const reward = await awardCoins({ userId, cycleId: item[0].cycleId, amount: 10, reason: `إكمال عادة: ${item[0].name}`, referenceKey: ref }); return { alreadyCompleted: false, ...reward, unlocks: await evaluateAchievements(userId, item[0].cycleId) }; }
 export async function updateHabit(userId: number, habitId: number, input: { name: string; frequency: "daily" | "weekly"; target: number }) { const db = await database(); return db.update(habits).set(input).where(and(eq(habits.id, habitId), eq(habits.userId, userId))); }
 export async function deleteHabit(userId: number, habitId: number) { const db = await database(); return db.delete(habits).where(and(eq(habits.id, habitId), eq(habits.userId, userId))); }
 
-export async function listGoals(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); return db.select().from(goals).where(and(eq(goals.userId, userId), eq(goals.cycleId, cycle.id))).orderBy(goals.status, desc(goals.progress)); }
-export async function createGoal(userId: number, input: { title: string; description?: string; deadline?: Date; milestones?: Array<{ title: string; targetPercent: number }> }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(goals).values({ userId, cycleId: cycle.id, title: input.title, description: input.description ?? null, deadline: input.deadline ?? null }); const goal = await db.select().from(goals).where(and(eq(goals.userId, userId), eq(goals.cycleId, cycle.id), eq(goals.title, input.title))).orderBy(desc(goals.id)).limit(1); if (goal[0] && input.milestones?.length) await db.insert(goalMilestones).values(input.milestones.map(m => ({ goalId: goal[0].id, ...m }))); }
+export async function listGoals(userId: number) { const db = await database(); return db.select().from(goals).where(eq(goals.userId, userId)).orderBy(goals.status, desc(goals.progress)); }
+export async function createGoal(userId: number, input: { title: string; description?: string; deadline?: Date; milestones?: Array<{ title: string; targetPercent: number }> }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(goals).values({ userId, cycleId: cycle.id, title: input.title, description: input.description ?? null, deadline: input.deadline ?? null }); const goal = await db.select().from(goals).where(and(eq(goals.userId, userId), eq(goals.title, input.title))).orderBy(desc(goals.id)).limit(1); if (goal[0] && input.milestones?.length) await db.insert(goalMilestones).values(input.milestones.map(m => ({ goalId: goal[0].id, ...m }))); }
 export async function updateGoalProgress(userId: number, goalId: number, progress: number) { const db = await database(); const item = await db.select().from(goals).where(and(eq(goals.id, goalId), eq(goals.userId, userId))).limit(1); if (!item[0]) throw new Error("الهدف غير موجود."); const finalProgress = Math.min(100, Math.max(0, progress)); const becomesComplete = finalProgress >= 100 && item[0].status !== "completed"; await db.update(goals).set({ progress: finalProgress, status: finalProgress >= 100 ? "completed" : "active", completedAt: finalProgress >= 100 ? new Date() : null }).where(eq(goals.id, goalId)); await db.update(goalMilestones).set({ completedAt: new Date() }).where(and(eq(goalMilestones.goalId, goalId), lte(goalMilestones.targetPercent, finalProgress))); if (!becomesComplete) return { completedNow: false, awarded: false, unlocks: [] }; const ref = `goal:${goalId}:complete`; await recordStudyEvent({ userId, cycleId: item[0].cycleId, eventType: "goal_complete", referenceId: ref }); const reward = await awardCoins({ userId, cycleId: item[0].cycleId, amount: 50, reason: `إكمال هدف: ${item[0].title}`, referenceKey: ref }); return { completedNow: true, ...reward, unlocks: await evaluateAchievements(userId, item[0].cycleId) }; }
 export async function updateGoal(userId: number, goalId: number, input: { title: string; description?: string; deadline?: Date }) { const db = await database(); return db.update(goals).set({ title: input.title, description: input.description ?? null, deadline: input.deadline ?? null }).where(and(eq(goals.id, goalId), eq(goals.userId, userId))); }
 export async function deleteGoal(userId: number, goalId: number) { const db = await database(); return db.delete(goals).where(and(eq(goals.id, goalId), eq(goals.userId, userId))); }
 
-export async function listPomodoros(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); return db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.cycleId, cycle.id))).orderBy(desc(pomodoroSessions.createdAt)).limit(30); }
-export async function startPomodoro(userId: number, input: { plannedMinutes: 15 | 25 | 45 | 60; subjectId?: number }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(pomodoroSessions).values({ userId, cycleId: cycle.id, plannedMinutes: input.plannedMinutes, subjectId: input.subjectId ?? null, state: "running" }); const created = await db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.cycleId, cycle.id), eq(pomodoroSessions.state, "running"))).orderBy(desc(pomodoroSessions.id)).limit(1); return created[0]; }
+export async function listPomodoros(userId: number) { const db = await database(); return db.select().from(pomodoroSessions).where(eq(pomodoroSessions.userId, userId)).orderBy(desc(pomodoroSessions.createdAt)); }
+export async function startPomodoro(userId: number, input: { plannedMinutes: 15 | 25 | 45 | 60; subjectId?: number }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(pomodoroSessions).values({ userId, cycleId: cycle.id, plannedMinutes: input.plannedMinutes, subjectId: input.subjectId ?? null, state: "running" }); const created = await db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "running"))).orderBy(desc(pomodoroSessions.id)).limit(1); return created[0]; }
 export async function completePomodoro(userId: number, sessionId: number) { const db = await database(); const session = await db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.id, sessionId), eq(pomodoroSessions.userId, userId))).limit(1); if (!session[0]) throw new Error("جلسة Pomodoro غير موجودة."); if (session[0].state === "completed") return { alreadyCompleted: true, awarded: false, unlocks: [] }; if (session[0].state !== "running") throw new Error("استأنف الجلسة قبل إكمالها."); const elapsed = Date.now() - session[0].startedAt.getTime() - session[0].pausedSeconds * 1000; if (elapsed < session[0].plannedMinutes * 60_000 * 0.9) throw new Error("لا يمكن منح المكافأة قبل إكمال الجلسة بالكامل."); await db.update(pomodoroSessions).set({ state: "completed", completedMinutes: session[0].plannedMinutes, completedAt: new Date(), pausedAt: null }).where(eq(pomodoroSessions.id, sessionId)); const ref = `pomodoro:${sessionId}:complete`; await recordStudyEvent({ userId, cycleId: session[0].cycleId, subjectId: session[0].subjectId, eventType: "pomodoro_complete", referenceId: ref, durationMinutes: session[0].plannedMinutes }); const reward = await awardCoins({ userId, cycleId: session[0].cycleId, amount: coinRewardForPomodoro(session[0].plannedMinutes), reason: `Pomodoro مكتمل — ${session[0].plannedMinutes} دقيقة`, referenceKey: ref }); return { alreadyCompleted: false, ...reward, unlocks: await evaluateAchievements(userId, session[0].cycleId) }; }
 export async function pausePomodoro(userId: number, sessionId: number, paused: boolean) { const db = await database(); const rows = await db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.id, sessionId), eq(pomodoroSessions.userId, userId))).limit(1); const session = rows[0]; if (!session || !["running", "paused"].includes(session.state)) throw new Error("لا يمكن تعديل هذه الجلسة."); if (paused && session.state === "running") return db.update(pomodoroSessions).set({ state: "paused", pausedAt: new Date() }).where(eq(pomodoroSessions.id, sessionId)); if (!paused && session.state === "paused") { const pauseSeconds = session.pausedAt ? Math.max(0, Math.floor((Date.now() - session.pausedAt.getTime()) / 1000)) : 0; return db.update(pomodoroSessions).set({ state: "running", pausedAt: null, pausedSeconds: session.pausedSeconds + pauseSeconds }).where(eq(pomodoroSessions.id, sessionId)); } return { rowsAffected: 0 }; }
 
-export async function startVideoSession(userId: number, input: { videoUrl: string; lessonTitle?: string; subject: "arabic" | "history" | "english" | "programming_ai" | "german" | "other"; requestedMode: "auto" | "embedded" | "external" }) { const db = await database(); const cycle = await getActiveCycle(userId); const detected = classifyStudySource(input.videoUrl); if (detected === "invalid") throw new Error("رابط الدرس غير صالح."); const sourceMode = input.requestedMode === "external" || detected === "external" ? "external" : "embedded"; await db.insert(studyVideoSessions).values({ userId, cycleId: cycle.id, videoUrl: input.videoUrl, lessonTitle: input.lessonTitle || null, subject: input.subject, sourceMode, manualProgress: "started", timerRunning: false, lastPlaybackAt: null, phase: "watching" }); const created = await db.select().from(studyVideoSessions).where(and(eq(studyVideoSessions.userId, userId), eq(studyVideoSessions.cycleId, cycle.id))).orderBy(desc(studyVideoSessions.id)).limit(1); return created[0]; }
+export async function startVideoSession(userId: number, input: { videoUrl: string; lessonTitle?: string; subject: "arabic" | "history" | "english" | "programming_ai" | "german" | "other"; requestedMode: "auto" | "embedded" | "external" }) { const db = await database(); const cycle = await getActiveCycle(userId); const detected = classifyStudySource(input.videoUrl); if (detected === "invalid") throw new Error("رابط الدرس غير صالح."); const sourceMode = input.requestedMode === "external" || detected === "external" ? "external" : "embedded"; await db.insert(studyVideoSessions).values({ userId, cycleId: cycle.id, videoUrl: input.videoUrl, lessonTitle: input.lessonTitle || null, subject: input.subject, sourceMode, manualProgress: "started", timerRunning: false, lastPlaybackAt: null, phase: "watching" }); const created = await db.select().from(studyVideoSessions).where(eq(studyVideoSessions.userId, userId)).orderBy(desc(studyVideoSessions.id)).limit(1); return created[0]; }
 export async function endVideoSession(userId: number, sessionId: number) { const db = await database(); const rows = await db.select().from(studyVideoSessions).where(and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId))).limit(1); const item = rows[0]; if (!item) throw new Error("جلسة الفيديو غير موجودة."); const now = new Date(); const addedSeconds = item.sourceMode === "external" && item.timerRunning && item.lastPlaybackAt ? Math.min(10_800, Math.max(0, Math.floor((now.getTime() - item.lastPlaybackAt.getTime()) / 1000))) : 0; const activeSeconds = item.activeSeconds + addedSeconds; const previousBlocks = Math.floor(item.activeSeconds / 2700); const completedBlocks = Math.floor(activeSeconds / 2700); await db.update(studyVideoSessions).set({ phase: "completed", lastPlaybackAt: null, timerRunning: false, activeSeconds, completedBlocks }).where(eq(studyVideoSessions.id, sessionId)); if (completedBlocks > previousBlocks) { const ref = `video:${sessionId}:block:${completedBlocks}`; await recordStudyEvent({ userId, cycleId: item.cycleId, eventType: "video_block", referenceId: ref, durationMinutes: 45 }); await awardCoins({ userId, cycleId: item.cycleId, amount: 25, reason: "فيديو مذاكرة — 45 دقيقة", referenceKey: ref }); await evaluateAchievements(userId, item.cycleId); } return { ended: true, activeSeconds }; }
-export async function currentVideoSession(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); const rows = await db.select().from(studyVideoSessions).where(and(eq(studyVideoSessions.userId, userId), eq(studyVideoSessions.cycleId, cycle.id), inArray(studyVideoSessions.phase, ["watching", "break"]))).orderBy(desc(studyVideoSessions.updatedAt)).limit(1); return rows[0] ?? null; }
-export async function listVideoSessions(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); const sessions = await db.select().from(studyVideoSessions).where(and(eq(studyVideoSessions.userId, userId), eq(studyVideoSessions.cycleId, cycle.id))).orderBy(desc(studyVideoSessions.updatedAt)).limit(50); return Promise.all(sessions.map(async session => ({ ...session, notes: await db.select().from(videoNotes).where(and(eq(videoNotes.userId, userId), eq(videoNotes.sessionId, session.id))).orderBy(desc(videoNotes.updatedAt)) }))); }
+export async function currentVideoSession(userId: number) {
+  const db = await database();
+  const [latest] = await db.select().from(studyVideoSessions).where(eq(studyVideoSessions.userId, userId))
+    .orderBy(desc(studyVideoSessions.updatedAt), desc(studyVideoSessions.id)).limit(1);
+  return latest && (latest.phase === "watching" || latest.phase === "break") ? latest : null;
+}
+export async function listVideoSessions(userId: number) { const db = await database(); const sessions = await db.select().from(studyVideoSessions).where(eq(studyVideoSessions.userId, userId)).orderBy(desc(studyVideoSessions.updatedAt)); return Promise.all(sessions.map(async session => ({ ...session, notes: await db.select().from(videoNotes).where(and(eq(videoNotes.userId, userId), eq(videoNotes.sessionId, session.id))).orderBy(desc(videoNotes.updatedAt)) }))); }
 export async function createVideoNote(userId: number, input: { sessionId: number; title: string; content: string; timestampSeconds?: number }) { const db = await database(); const session = await db.select({ id: studyVideoSessions.id }).from(studyVideoSessions).where(and(eq(studyVideoSessions.id, input.sessionId), eq(studyVideoSessions.userId, userId))).limit(1); if (!session[0]) throw new Error("جلسة الفيديو غير موجودة."); await db.insert(videoNotes).values({ userId, sessionId: input.sessionId, title: input.title, content: input.content, timestampSeconds: input.timestampSeconds ?? null }); }
 export async function updateVideoNote(userId: number, noteId: number, input: { title: string; content: string; timestampSeconds?: number }) { const db = await database(); const result = await db.update(videoNotes).set({ title: input.title, content: input.content, timestampSeconds: input.timestampSeconds ?? null }).where(and(eq(videoNotes.id, noteId), eq(videoNotes.userId, userId))); if (!result) throw new Error("الملاحظة غير موجودة."); }
 export async function deleteVideoNote(userId: number, noteId: number) { const db = await database(); return db.delete(videoNotes).where(and(eq(videoNotes.id, noteId), eq(videoNotes.userId, userId))); }
@@ -421,20 +435,38 @@ export async function setExternalVideoTimer(userId: number, sessionId: number, r
 export function fallbackComprehension(score: number, difficulty: "easy" | "medium" | "hard", priorAverage: number) { return deriveFallbackComprehension(score, difficulty, priorAverage); }
 async function estimateComprehension(input: { score: number; correctAnswers: number; incorrectAnswers: number; difficulty: "easy" | "medium" | "hard"; missedTopics: string[]; priorAverage: number }) { const fallback = fallbackComprehension(input.score, input.difficulty, input.priorAverage); try { const { data } = await listLLMModels(); const model = data[0]?.id; const response = await invokeLLM({ model, messages: [{ role: "system", content: "You are a careful study analyst. Return only a JSON object with a whole-number comprehensionScore from 0 to 100. Use exam score, errors, difficulty, missed topics, and previous average. Never award coins." }, { role: "user", content: JSON.stringify(input) }], response_format: { type: "json_schema", json_schema: { name: "comprehension", strict: true, schema: { type: "object", properties: { comprehensionScore: { type: "integer", minimum: 0, maximum: 100 } }, required: ["comprehensionScore"], additionalProperties: false } } } }); const content = response.choices[0]?.message?.content; const parsed = typeof content === "string" ? JSON.parse(content) : null; return Math.max(0, Math.min(100, Number(parsed?.comprehensionScore ?? fallback))); } catch { return fallback; }
 }
-export async function listExamsLegacy(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); return db.select({ exam: exams, subject: subjects.title }).from(exams).leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(and(eq(exams.userId, userId), eq(exams.cycleId, cycle.id))).orderBy(exams.scheduledAt); }
+export async function listExamsLegacy(userId: number) { const db = await database(); return db.select({ exam: exams, subject: subjects.title }).from(exams).leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(eq(exams.userId, userId)).orderBy(exams.scheduledAt); }
 export async function createExamLegacy(userId: number, input: { title: string; subjectId?: number; chapterId?: number; lessonId?: number; scheduledAt?: Date }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(exams).values({ userId, cycleId: cycle.id, ...input, subjectId: input.subjectId ?? null, chapterId: input.chapterId ?? null, lessonId: input.lessonId ?? null, scheduledAt: input.scheduledAt ?? null }); }
-export async function completeExamAttempt(userId: number, input: { examId: number; totalQuestions: number; correctAnswers: number; difficulty: "easy" | "medium" | "hard"; missedTopics: string[] }) { const db = await database(); const exam = await db.select().from(exams).where(and(eq(exams.id, input.examId), eq(exams.userId, userId))).limit(1); if (!exam[0]) throw new Error("الامتحان غير موجود."); if (input.correctAnswers > input.totalQuestions) throw new Error("عدد الإجابات الصحيحة غير صحيح."); const incorrectAnswers = input.totalQuestions - input.correctAnswers; const score = Math.round((input.correctAnswers / input.totalQuestions) * 100); const [prior] = await db.select({ average: sql<number>`coalesce(avg(${examAttempts.score}), 0)` }).from(examAttempts).where(and(eq(examAttempts.userId, userId), eq(examAttempts.cycleId, exam[0].cycleId))); const comprehensionScore = await estimateComprehension({ score, correctAnswers: input.correctAnswers, incorrectAnswers, difficulty: input.difficulty, missedTopics: input.missedTopics, priorAverage: Number(prior?.average ?? 0) }); await db.insert(examAttempts).values({ userId, cycleId: exam[0].cycleId, examId: input.examId, totalQuestions: input.totalQuestions, correctAnswers: input.correctAnswers, incorrectAnswers, score, difficulty: input.difficulty, missedTopics: input.missedTopics, comprehensionScore, completionRewarded: true }); const attempt = await db.select().from(examAttempts).where(and(eq(examAttempts.examId, input.examId), eq(examAttempts.userId, userId))).orderBy(desc(examAttempts.id)).limit(1); const ref = `examAttempt:${attempt[0].id}`; await recordStudyEvent({ userId, cycleId: exam[0].cycleId, eventType: "exam_complete", referenceId: ref }); const completion = await awardCoins({ userId, cycleId: exam[0].cycleId, amount: 15, reason: `إكمال امتحان: ${exam[0].title}`, referenceKey: `${ref}:completion` }); const bonusAmount = examBonusForComprehension(comprehensionScore); const bonus = bonusAmount ? await awardCoins({ userId, cycleId: exam[0].cycleId, amount: bonusAmount, reason: `مكافأة الاستيعاب: ${comprehensionScore}%`, referenceKey: `${ref}:comprehension` }) : { awarded: false }; return { attempt: attempt[0], score, comprehensionScore, completion, bonus, bonusAmount, unlocks: await evaluateAchievements(userId, exam[0].cycleId) }; }
+export async function completeExamAttempt(userId: number, input: { examId: number; totalQuestions: number; correctAnswers: number; difficulty: "easy" | "medium" | "hard"; missedTopics: string[] }) { const db = await database(); const exam = await db.select().from(exams).where(and(eq(exams.id, input.examId), eq(exams.userId, userId))).limit(1); if (!exam[0]) throw new Error("الامتحان غير موجود."); if (input.correctAnswers > input.totalQuestions) throw new Error("عدد الإجابات الصحيحة غير صحيح."); const incorrectAnswers = input.totalQuestions - input.correctAnswers; const score = Math.round((input.correctAnswers / input.totalQuestions) * 100); const [prior] = await db.select({ average: sql<number>`coalesce(avg(${examAttempts.score}), 0)` }).from(examAttempts).where(eq(examAttempts.userId, userId)); const comprehensionScore = await estimateComprehension({ score, correctAnswers: input.correctAnswers, incorrectAnswers, difficulty: input.difficulty, missedTopics: input.missedTopics, priorAverage: Number(prior?.average ?? 0) }); await db.insert(examAttempts).values({ userId, cycleId: exam[0].cycleId, examId: input.examId, totalQuestions: input.totalQuestions, correctAnswers: input.correctAnswers, incorrectAnswers, score, difficulty: input.difficulty, missedTopics: input.missedTopics, comprehensionScore, completionRewarded: true }); const attempt = await db.select().from(examAttempts).where(and(eq(examAttempts.examId, input.examId), eq(examAttempts.userId, userId))).orderBy(desc(examAttempts.id)).limit(1); const ref = `examAttempt:${attempt[0].id}`; await recordStudyEvent({ userId, cycleId: exam[0].cycleId, eventType: "exam_complete", referenceId: ref }); const completion = await awardCoins({ userId, cycleId: exam[0].cycleId, amount: 15, reason: `إكمال امتحان: ${exam[0].title}`, referenceKey: `${ref}:completion` }); const bonusAmount = examBonusForComprehension(comprehensionScore); const bonus = bonusAmount ? await awardCoins({ userId, cycleId: exam[0].cycleId, amount: bonusAmount, reason: `مكافأة الاستيعاب: ${comprehensionScore}%`, referenceKey: `${ref}:comprehension` }) : { awarded: false }; return { attempt: attempt[0], score, comprehensionScore, completion, bonus, bonusAmount, unlocks: await evaluateAchievements(userId, exam[0].cycleId) }; }
 
 
-export async function listCalendar(userId: number, from: Date, to: Date) { const db = await database(); const cycle = await getActiveCycle(userId); const [taskItems, examItems, goalItems, customItems, sessions] = await Promise.all([db.select().from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.cycleId, cycle.id), gte(tasks.deadline, from), lte(tasks.deadline, to))), db.select().from(exams).where(and(eq(exams.userId, userId), eq(exams.cycleId, cycle.id), gte(exams.scheduledAt, from), lte(exams.scheduledAt, to))), db.select().from(goals).where(and(eq(goals.userId, userId), eq(goals.cycleId, cycle.id), gte(goals.deadline, from), lte(goals.deadline, to))), db.select().from(calendarEvents).where(and(eq(calendarEvents.userId, userId), eq(calendarEvents.cycleId, cycle.id), gte(calendarEvents.startsAt, from), lte(calendarEvents.startsAt, to))), db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.cycleId, cycle.id), eq(pomodoroSessions.state, "completed"), gte(pomodoroSessions.completedAt, from), lte(pomodoroSessions.completedAt, to)))]); return { tasks: taskItems, exams: examItems, goals: goalItems, events: customItems, sessions }; }
+export async function listCalendar(userId: number, from: Date, to: Date) { const db = await database(); const [taskItems, examItems, goalItems, customItems, sessions] = await Promise.all([db.select().from(tasks).where(and(eq(tasks.userId, userId), gte(tasks.deadline, from), lte(tasks.deadline, to))), db.select().from(exams).where(and(eq(exams.userId, userId), gte(exams.scheduledAt, from), lte(exams.scheduledAt, to))), db.select().from(goals).where(and(eq(goals.userId, userId), gte(goals.deadline, from), lte(goals.deadline, to))), db.select().from(calendarEvents).where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startsAt, from), lte(calendarEvents.startsAt, to))), db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "completed"), gte(pomodoroSessions.completedAt, from), lte(pomodoroSessions.completedAt, to)))]); return { tasks: taskItems, exams: examItems, goals: goalItems, events: customItems, sessions }; }
 export async function createCalendarEvent(userId: number, input: { title: string; startsAt: Date; endsAt?: Date; eventType: "important_date" | "custom" }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(calendarEvents).values({ userId, cycleId: cycle.id, title: input.title, startsAt: input.startsAt, endsAt: input.endsAt ?? null, eventType: input.eventType }); }
 
-export async function listRewards(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); const [items, coins, purchases] = await Promise.all([db.select().from(rewards).where(eq(rewards.active, true)).orderBy(rewards.catalogId), getCoinSummary(db, userId, cycle.id), db.select({ rewardId: rewardPurchases.rewardId, purchasedAt: rewardPurchases.purchasedAt }).from(rewardPurchases).where(and(eq(rewardPurchases.userId, userId), eq(rewardPurchases.cycleId, cycle.id))).orderBy(desc(rewardPurchases.purchasedAt))]); return { items, coins, purchases }; }
-export async function purchaseReward(userId: number, rewardId: number, referenceKey: string) { const db = await database(); const cycle = await getActiveCycle(userId); return db.transaction(async tx => { const purchased = await tx.select({ id: rewardPurchases.id }).from(rewardPurchases).where(eq(rewardPurchases.referenceKey, referenceKey)).limit(1); const priorBalance = (await getCoinSummary(tx, userId, cycle.id)).balance; if (purchased[0] || decideRewardPurchase({ hasPriorReference: Boolean(purchased[0]), balance: priorBalance, cost: 0 }) === "duplicate") return { purchased: false, reason: "already_purchased", balance: priorBalance }; await tx.execute(sql`select ${coinTransactions.id} from ${coinTransactions} where ${coinTransactions.userId} = ${userId} and ${coinTransactions.cycleId} = ${cycle.id} for update`); const reward = await tx.select().from(rewards).where(and(eq(rewards.id, rewardId), eq(rewards.active, true))).limit(1); if (!reward[0]) throw new Error("المكافأة غير متاحة."); const coins = await getCoinSummary(tx, userId, cycle.id); if (decideRewardPurchase({ hasPriorReference: false, balance: coins.balance, cost: reward[0].cost }) !== "approved") throw new Error("لا توجد Coins كافية لشراء هذه المكافأة."); await tx.insert(rewardPurchases).values({ userId, cycleId: cycle.id, rewardId, cost: reward[0].cost, referenceKey }); await tx.insert(coinTransactions).values({ userId, cycleId: cycle.id, amount: -reward[0].cost, type: "spend", reason: `شراء مكافأة: ${reward[0].title}`, referenceKey: `purchase:${referenceKey}` }); return { purchased: true, reward: reward[0].title, balance: coins.balance - reward[0].cost }; }); }
+export async function listRewards(userId: number) { const db = await database(); await seedCatalogs(db); const [items, coins, purchases] = await Promise.all([db.select().from(rewards).where(eq(rewards.active, true)).orderBy(rewards.catalogId), getCoinSummary(db, userId), db.select({ rewardId: rewardPurchases.rewardId, purchasedAt: rewardPurchases.purchasedAt }).from(rewardPurchases).where(eq(rewardPurchases.userId, userId)).orderBy(desc(rewardPurchases.purchasedAt))]); return { items, coins, purchases }; }
+export async function purchaseReward(userId: number, rewardId: number, referenceKey: string) { const db = await database(); const cycle = await getActiveCycle(userId); return db.transaction(async tx => { await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update"); const purchased = await tx.select({ id: rewardPurchases.id }).from(rewardPurchases).where(eq(rewardPurchases.referenceKey, referenceKey)).limit(1); const priorBalance = (await getCoinSummary(tx, userId)).balance; if (purchased[0] || decideRewardPurchase({ hasPriorReference: Boolean(purchased[0]), balance: priorBalance, cost: 0 }) === "duplicate") return { purchased: false, reason: "already_purchased", balance: priorBalance }; const reward = await tx.select().from(rewards).where(and(eq(rewards.id, rewardId), eq(rewards.active, true))).limit(1); if (!reward[0]) throw new Error("المكافأة غير متاحة."); const coins = await getCoinSummary(tx, userId); if (decideRewardPurchase({ hasPriorReference: false, balance: coins.balance, cost: reward[0].cost }) !== "approved") throw new Error("لا توجد Coins كافية لشراء هذه المكافأة."); await tx.insert(rewardPurchases).values({ userId, cycleId: cycle.id, rewardId, cost: reward[0].cost, referenceKey }); await tx.insert(coinTransactions).values({ userId, cycleId: cycle.id, amount: -reward[0].cost, type: "spend", reason: `شراء مكافأة: ${reward[0].title}`, referenceKey: `purchase:${referenceKey}` }); return { purchased: true, reward: reward[0].title, balance: coins.balance - reward[0].cost }; }); }
 
-export async function listAchievements(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); const metrics = await metricSnapshot(db, userId, cycle.id) as Record<string, number>; const rows = await db.select({ achievement: achievements, unlockedAt: userAchievements.unlockedAt }).from(achievements).leftJoin(userAchievements, and(eq(userAchievements.achievementId, achievements.id), eq(userAchievements.userId, userId), eq(userAchievements.cycleId, cycle.id))).orderBy(achievements.catalogId); return { items: rows.map((row: any) => ({ ...row.achievement, unlockedAt: row.unlockedAt, current: Math.min(row.achievement.target, metrics[row.achievement.metric] ?? 0), percent: Math.min(100, Math.round(((metrics[row.achievement.metric] ?? 0) / row.achievement.target) * 100)) })), unlocked: rows.filter((row: any) => row.unlockedAt).length }; }
+export async function listAchievements(userId: number) {
+  const db = await database();
+  await seedCatalogs(db);
+  const metrics = await metricSnapshot(db, userId) as Record<string, number>;
+  const [catalog, awards] = await Promise.all([
+    db.select().from(achievements).orderBy(achievements.catalogId),
+    db.select({ id: userAchievements.achievementId, unlockedAt: userAchievements.unlockedAt })
+      .from(userAchievements).where(eq(userAchievements.userId, userId)).orderBy(userAchievements.unlockedAt),
+  ]);
+  const firstAwards = new Map<number, Date>();
+  for (const award of awards) {
+    if (!firstAwards.has(award.id)) firstAwards.set(award.id, award.unlockedAt);
+  }
+  const items = catalog.map(achievement => {
+    const current = Math.min(achievement.target, metrics[achievement.metric] ?? 0);
+    return { ...achievement, unlockedAt: firstAwards.get(achievement.id) ?? null, current, percent: Math.round((current / achievement.target) * 100) };
+  });
+  return { items, unlocked: items.filter(item => item.unlockedAt).length };
+}
 
-export async function coinLedger(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); const [summary, entries] = await Promise.all([getCoinSummary(db, userId, cycle.id), db.select().from(coinTransactions).where(and(eq(coinTransactions.userId, userId), eq(coinTransactions.cycleId, cycle.id))).orderBy(desc(coinTransactions.createdAt)).limit(100)]); return { cycle, summary, entries }; }
+export async function coinLedger(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); const [summary, entries] = await Promise.all([getCoinSummary(db, userId), db.select().from(coinTransactions).where(eq(coinTransactions.userId, userId)).orderBy(desc(coinTransactions.createdAt))]); return { cycle, summary, entries }; }
 
 
 type ExamLessonInput = { title: string; chapterTitle: string; subjectTitle: string; progress: number; status: "not_started" | "in_progress" | "completed"; lastReviewedAt: Date | null };
@@ -473,34 +505,34 @@ export async function createExam(userId: number, input: { title: string; subject
     if (owned.length !== lessonIds.length) throw new Error("اختر دروسًا موجودة ضمن خطتك فقط.");
   }
   await db.insert(exams).values({ userId, cycleId: cycle.id, title: input.title, subjectId: input.subjectId ?? null, chapterId: input.chapterId ?? null, lessonId: input.lessonId ?? null, scheduledAt: input.scheduledAt ?? null });
-  const created = await db.select().from(exams).where(and(eq(exams.userId, userId), eq(exams.cycleId, cycle.id), eq(exams.title, input.title))).orderBy(desc(exams.id)).limit(1);
+  const created = await db.select().from(exams).where(and(eq(exams.userId, userId), eq(exams.title, input.title))).orderBy(desc(exams.id)).limit(1);
   if (created[0] && lessonIds.length) await db.insert(examLessons).values(lessonIds.map(lessonId => ({ examId: created[0].id, lessonId })));
   return created[0];
 }
 
 export async function listExams(userId: number) {
   const db = await database(); const cycle = await getActiveCycle(userId);
-  const rows = await db.select({ exam: exams, subject: subjects.title }).from(exams).leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(and(eq(exams.userId, userId), eq(exams.cycleId, cycle.id))).orderBy(exams.scheduledAt);
+  const rows = await db.select({ exam: exams, subject: subjects.title }).from(exams).leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(eq(exams.userId, userId)).orderBy(exams.scheduledAt);
   return Promise.all(rows.map(async (row: any) => { const scoped = await scopedExamLessons(db, userId, row.exam.id); return { ...row, lessons: scoped, readiness: readinessForLessons(scoped) }; }));
 }
 
 export async function analytics(userId: number) {
-  const db = await database(); const cycle = await getActiveCycle(userId); const metrics = await metricSnapshot(db, userId, cycle.id); const coins = await getCoinSummary(db, userId, cycle.id);
+  const db = await database(); const cycle = await getActiveCycle(userId); const metrics = await metricSnapshot(db, userId); const coins = await getCoinSummary(db, userId);
   const eventDay = sql<string>`date(\`studyEvents\`.\`occurredAt\`)`;
   const subjectName = sql<string>`coalesce(${subjects.title}, 'بدون مادة')`;
   const [daily, bySubject, completion, comprehension, purchases] = await Promise.all([
-    db.select({ day: eventDay, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)`, events: count() }).from(studyEvents).where(and(eq(studyEvents.userId, userId), eq(studyEvents.cycleId, cycle.id))).groupBy(eventDay).orderBy(eventDay),
-    db.select({ subject: subjectName, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)` }).from(studyEvents).leftJoin(subjects, eq(studyEvents.subjectId, subjects.id)).where(and(eq(studyEvents.userId, userId), eq(studyEvents.cycleId, cycle.id))).groupBy(studyEvents.subjectId, subjectName),
-    db.select({ open: sql<number>`coalesce(sum(case when ${tasks.status} = 'open' then 1 else 0 end), 0)`, completed: sql<number>`coalesce(sum(case when ${tasks.status} = 'completed' then 1 else 0 end), 0)` }).from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.cycleId, cycle.id))),
-    db.select({ date: sql<string>`date(${examAttempts.createdAt})`, score: examAttempts.score, comprehension: examAttempts.comprehensionScore }).from(examAttempts).where(and(eq(examAttempts.userId, userId), eq(examAttempts.cycleId, cycle.id))).orderBy(examAttempts.createdAt),
-    db.select({ value: count() }).from(rewardPurchases).where(and(eq(rewardPurchases.userId, userId), eq(rewardPurchases.cycleId, cycle.id))),
+    db.select({ day: eventDay, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)`, events: count() }).from(studyEvents).where(eq(studyEvents.userId, userId)).groupBy(eventDay).orderBy(eventDay),
+    db.select({ subject: subjectName, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)` }).from(studyEvents).leftJoin(subjects, eq(studyEvents.subjectId, subjects.id)).where(eq(studyEvents.userId, userId)).groupBy(studyEvents.subjectId, subjectName),
+    db.select({ open: sql<number>`coalesce(sum(case when ${tasks.status} = 'open' then 1 else 0 end), 0)`, completed: sql<number>`coalesce(sum(case when ${tasks.status} = 'completed' then 1 else 0 end), 0)` }).from(tasks).where(eq(tasks.userId, userId)),
+    db.select({ date: sql<string>`date(${examAttempts.createdAt})`, score: examAttempts.score, comprehension: examAttempts.comprehensionScore }).from(examAttempts).where(eq(examAttempts.userId, userId)).orderBy(examAttempts.createdAt),
+    db.select({ value: count() }).from(rewardPurchases).where(eq(rewardPurchases.userId, userId)),
   ]);
   return { cycle, metrics, coins, daily, bySubject, completion: completion[0] ?? { open: 0, completed: 0 }, comprehension, rewardsPurchased: Number(purchases[0]?.value ?? 0) };
 }
 
 export async function listFlashcardDecks(userId: number) {
   const db = await database(); const cycle = await getActiveCycle(userId);
-  const decks = await db.select().from(flashcardDecks).where(and(eq(flashcardDecks.userId, userId), eq(flashcardDecks.cycleId, cycle.id))).orderBy(desc(flashcardDecks.updatedAt));
+  const decks = await db.select().from(flashcardDecks).where(eq(flashcardDecks.userId, userId)).orderBy(desc(flashcardDecks.updatedAt));
   return Promise.all(decks.map(async deck => {
     const cards = await db.select().from(flashcards).where(eq(flashcards.deckId, deck.id)).orderBy(desc(flashcards.updatedAt));
     return { ...deck, cards, stats: { total: cards.length, new: cards.filter(card => card.state === "new").length, learning: cards.filter(card => card.state === "learning").length, mastered: cards.filter(card => card.state === "mastered").length } };
@@ -534,11 +566,11 @@ export async function deleteFlashcard(userId: number, cardId: number) {
 }
 
 export async function searchStudyWorkspace(userId: number, query: string) {
-  const db = await database(); const cycle = await getActiveCycle(userId); const pattern = `%${query.trim()}%`;
+  const db = await database(); const pattern = `%${query.trim()}%`;
   const [noteRows, lessonRows, cardRows] = await Promise.all([
-    db.select({ id: notes.id, title: notes.title, excerpt: notes.content, notebook: notebooks.title }).from(notes).innerJoin(notebooks, eq(notes.notebookId, notebooks.id)).where(and(eq(notebooks.userId, userId), eq(notebooks.cycleId, cycle.id), or(like(notes.title, pattern), like(notes.content, pattern)))).limit(20),
+    db.select({ id: notes.id, title: notes.title, excerpt: notes.content, notebook: notebooks.title }).from(notes).innerJoin(notebooks, eq(notes.notebookId, notebooks.id)).where(and(eq(notebooks.userId, userId), or(like(notes.title, pattern), like(notes.content, pattern)))).limit(20),
     db.select({ id: lessons.id, title: lessons.title, excerpt: lessons.description, subject: subjects.title, chapter: chapters.title }).from(lessons).innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id)).where(and(eq(subjects.userId, userId), or(like(lessons.title, pattern), like(lessons.description, pattern), like(lessons.notes, pattern)))).limit(20),
-    db.select({ id: flashcards.id, prompt: flashcards.prompt, answer: flashcards.answer, deck: flashcardDecks.title }).from(flashcards).innerJoin(flashcardDecks, eq(flashcards.deckId, flashcardDecks.id)).where(and(eq(flashcardDecks.userId, userId), eq(flashcardDecks.cycleId, cycle.id), or(like(flashcards.prompt, pattern), like(flashcards.answer, pattern)))).limit(20),
+    db.select({ id: flashcards.id, prompt: flashcards.prompt, answer: flashcards.answer, deck: flashcardDecks.title }).from(flashcards).innerJoin(flashcardDecks, eq(flashcards.deckId, flashcardDecks.id)).where(and(eq(flashcardDecks.userId, userId), or(like(flashcards.prompt, pattern), like(flashcards.answer, pattern)))).limit(20),
   ]);
   return { notes: noteRows, lessons: lessonRows, flashcards: cardRows };
 }
@@ -549,7 +581,7 @@ async function ownedNotebook(db: any, userId: number, notebookId: number) {
   if (!owner[0]) throw new Error("دفتر الملاحظات غير موجود."); return owner[0];
 }
 
-export async function listNotebooks(userId: number) { const db = await database(); const cycle = await getActiveCycle(userId); return db.select({ notebook: notebooks, noteCount: count(notes.id) }).from(notebooks).leftJoin(notes, eq(notes.notebookId, notebooks.id)).where(and(eq(notebooks.userId, userId), eq(notebooks.cycleId, cycle.id))).groupBy(notebooks.id).orderBy(desc(notebooks.updatedAt)); }
+export async function listNotebooks(userId: number) { const db = await database(); return db.select({ notebook: notebooks, noteCount: count(notes.id) }).from(notebooks).leftJoin(notes, eq(notes.notebookId, notebooks.id)).where(eq(notebooks.userId, userId)).groupBy(notebooks.id).orderBy(desc(notebooks.updatedAt)); }
 export async function createNotebook(userId: number, title: string) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(notebooks).values({ userId, cycleId: cycle.id, title }); }
 export async function listNotes(userId: number, notebookId: number) { const db = await database(); await ownedNotebook(db, userId, notebookId); return db.select().from(notes).where(eq(notes.notebookId, notebookId)).orderBy(desc(notes.updatedAt)); }
 export async function createNote(userId: number, input: { notebookId: number; title: string; content: string }) { const db = await database(); await ownedNotebook(db, userId, input.notebookId); await db.insert(notes).values(input); }
@@ -589,7 +621,7 @@ export async function saveNotebookQuiz(userId: number, input: { notebookId: numb
   const [owner, cycle] = await Promise.all([ownedNotebook(db, userId, input.notebookId), getActiveCycle(userId)]);
   const title = `اختبار Notebook AI — ${owner.title}`.slice(0, 200);
   await db.insert(exams).values({ userId, cycleId: cycle.id, title, origin: "notebook_ai", notebookId: input.notebookId, quizPayload: input.quiz, subjectId: null, chapterId: null, lessonId: null, scheduledAt: null });
-  const [exam] = await db.select().from(exams).where(and(eq(exams.userId, userId), eq(exams.cycleId, cycle.id), eq(exams.notebookId, input.notebookId), eq(exams.origin, "notebook_ai"))).orderBy(desc(exams.id)).limit(1);
+  const [exam] = await db.select().from(exams).where(and(eq(exams.userId, userId), eq(exams.notebookId, input.notebookId), eq(exams.origin, "notebook_ai"))).orderBy(desc(exams.id)).limit(1);
   return exam;
 }
 
@@ -632,7 +664,7 @@ export async function notebookAI(userId: number, input: { notebookId: number; mo
 }
 
 export async function chatWithAssistant(userId: number, messages: { role: "user" | "assistant"; content: string }[]) {
-  const db = await database(); const cycle = await getActiveCycle(userId); const metrics = await metricSnapshot(db, userId, cycle.id);
+  const db = await database(); const metrics = await metricSnapshot(db, userId);
   const response = await invokeLLM({ messages: [{ role: "system", content: `أنت صاحب مذاكرة مصري مشجع. ساعد الطالب بخطوات عملية قصيرة. هذه بياناته الحالية: ${JSON.stringify(metrics)}` }, ...messages] });
   return response.choices[0]?.message?.content ?? "مش قادر أرد دلوقتي، جرّب تاني.";
 }
