@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNull, like, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   achievements, calendarEvents, chapters, coinTransactions, examAttempts, examLessons, exams, goalMilestones,
@@ -223,7 +223,7 @@ export async function dashboard(userId: number) {
   const today = dateKey();
   const todaysTasks = await db.select().from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.scheduledFor, today))).orderBy(desc(tasks.priority));
   const upcomingExams = await db.select({ id: exams.id, title: exams.title, scheduledAt: exams.scheduledAt, subject: subjects.title }).from(exams)
-    .leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(and(eq(exams.userId, userId), gte(exams.scheduledAt, new Date()))).orderBy(exams.scheduledAt).limit(4);
+    .leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(and(eq(exams.userId, userId), isNull(exams.archivedAt), gte(exams.scheduledAt, new Date()))).orderBy(exams.scheduledAt).limit(4);
   const activeGoals = await db.select().from(goals).where(and(eq(goals.userId, userId), eq(goals.status, "active"))).orderBy(desc(goals.progress)).limit(4);
   const [latestPomodoro] = await db.select().from(pomodoroSessions).where(eq(pomodoroSessions.userId, userId)).orderBy(desc(pomodoroSessions.createdAt), desc(pomodoroSessions.id)).limit(1);
   const ongoingPomodoro = latestPomodoro && (latestPomodoro.state === "running" || latestPomodoro.state === "paused") ? latestPomodoro : null;
@@ -386,7 +386,7 @@ export async function getDailyStudySummary(userId: number) {
   const openTasks = await db.select().from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.status, "open"), lte(tasks.scheduledFor, today))).orderBy(desc(tasks.priority), tasks.scheduledFor).limit(6);
   const dueToday = openTasks.filter(task => task.scheduledFor === today);
   const urgent = openTasks.filter(task => task.priority === "urgent");
-  const upcoming = await db.select({ title: exams.title, scheduledAt: exams.scheduledAt }).from(exams).where(and(eq(exams.userId, userId), gte(exams.scheduledAt, new Date()))).orderBy(exams.scheduledAt).limit(1);
+  const upcoming = await db.select({ title: exams.title, scheduledAt: exams.scheduledAt }).from(exams).where(and(eq(exams.userId, userId), isNull(exams.archivedAt), gte(exams.scheduledAt, new Date()))).orderBy(exams.scheduledAt).limit(1);
   const names = openTasks.slice(0, 3).map(task => `«${task.title}»`).join("، ");
   const content = `صباح الفل يا سيف. النهاردة عندك ${dueToday.length} مهمة متخططلها${urgent.length ? `، منهم ${urgent.length} مهم` : ""}. ${openTasks.length ? `ابدأ بـ ${names}.` : "جدولك فاضي حاليًا؛ حط مهمة صغيرة ونكسب اليوم."}${upcoming[0]?.scheduledAt ? ` والامتحان الجاي «${upcoming[0].title}» يوم ${upcoming[0].scheduledAt.toLocaleDateString("ar-EG")}.` : ""}`;
   await db.insert(dailyStudySummaries).values({ userId, cycleId: cycle.id, summaryDate: today, content }).onDuplicateKeyUpdate({ set: { userId } });
@@ -437,10 +437,10 @@ async function estimateComprehension(input: { score: number; correctAnswers: num
 }
 export async function listExamsLegacy(userId: number) { const db = await database(); return db.select({ exam: exams, subject: subjects.title }).from(exams).leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(eq(exams.userId, userId)).orderBy(exams.scheduledAt); }
 export async function createExamLegacy(userId: number, input: { title: string; subjectId?: number; chapterId?: number; lessonId?: number; scheduledAt?: Date }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(exams).values({ userId, cycleId: cycle.id, ...input, subjectId: input.subjectId ?? null, chapterId: input.chapterId ?? null, lessonId: input.lessonId ?? null, scheduledAt: input.scheduledAt ?? null }); }
-export async function completeExamAttempt(userId: number, input: { examId: number; totalQuestions: number; correctAnswers: number; difficulty: "easy" | "medium" | "hard"; missedTopics: string[] }) { const db = await database(); const exam = await db.select().from(exams).where(and(eq(exams.id, input.examId), eq(exams.userId, userId))).limit(1); if (!exam[0]) throw new Error("الامتحان غير موجود."); if (input.correctAnswers > input.totalQuestions) throw new Error("عدد الإجابات الصحيحة غير صحيح."); const incorrectAnswers = input.totalQuestions - input.correctAnswers; const score = Math.round((input.correctAnswers / input.totalQuestions) * 100); const [prior] = await db.select({ average: sql<number>`coalesce(avg(${examAttempts.score}), 0)` }).from(examAttempts).where(eq(examAttempts.userId, userId)); const comprehensionScore = await estimateComprehension({ score, correctAnswers: input.correctAnswers, incorrectAnswers, difficulty: input.difficulty, missedTopics: input.missedTopics, priorAverage: Number(prior?.average ?? 0) }); await db.insert(examAttempts).values({ userId, cycleId: exam[0].cycleId, examId: input.examId, totalQuestions: input.totalQuestions, correctAnswers: input.correctAnswers, incorrectAnswers, score, difficulty: input.difficulty, missedTopics: input.missedTopics, comprehensionScore, completionRewarded: true }); const attempt = await db.select().from(examAttempts).where(and(eq(examAttempts.examId, input.examId), eq(examAttempts.userId, userId))).orderBy(desc(examAttempts.id)).limit(1); const ref = `examAttempt:${attempt[0].id}`; await recordStudyEvent({ userId, cycleId: exam[0].cycleId, eventType: "exam_complete", referenceId: ref }); const completion = await awardCoins({ userId, cycleId: exam[0].cycleId, amount: 15, reason: `إكمال امتحان: ${exam[0].title}`, referenceKey: `${ref}:completion` }); const bonusAmount = examBonusForComprehension(comprehensionScore); const bonus = bonusAmount ? await awardCoins({ userId, cycleId: exam[0].cycleId, amount: bonusAmount, reason: `مكافأة الاستيعاب: ${comprehensionScore}%`, referenceKey: `${ref}:comprehension` }) : { awarded: false }; return { attempt: attempt[0], score, comprehensionScore, completion, bonus, bonusAmount, unlocks: await evaluateAchievements(userId, exam[0].cycleId) }; }
+export async function completeExamAttempt(userId: number, input: { examId: number; totalQuestions: number; correctAnswers: number; difficulty: "easy" | "medium" | "hard"; missedTopics: string[] }) { const db = await database(); const exam = await db.select().from(exams).where(and(eq(exams.id, input.examId), eq(exams.userId, userId), isNull(exams.archivedAt))).limit(1); if (!exam[0]) throw new Error("الامتحان غير موجود."); if (input.correctAnswers > input.totalQuestions) throw new Error("عدد الإجابات الصحيحة غير صحيح."); const incorrectAnswers = input.totalQuestions - input.correctAnswers; const score = Math.round((input.correctAnswers / input.totalQuestions) * 100); const [prior] = await db.select({ average: sql<number>`coalesce(avg(${examAttempts.score}), 0)` }).from(examAttempts).where(eq(examAttempts.userId, userId)); const comprehensionScore = await estimateComprehension({ score, correctAnswers: input.correctAnswers, incorrectAnswers, difficulty: input.difficulty, missedTopics: input.missedTopics, priorAverage: Number(prior?.average ?? 0) }); await db.insert(examAttempts).values({ userId, cycleId: exam[0].cycleId, examId: input.examId, totalQuestions: input.totalQuestions, correctAnswers: input.correctAnswers, incorrectAnswers, score, difficulty: input.difficulty, missedTopics: input.missedTopics, comprehensionScore, completionRewarded: true }); const attempt = await db.select().from(examAttempts).where(and(eq(examAttempts.examId, input.examId), eq(examAttempts.userId, userId))).orderBy(desc(examAttempts.id)).limit(1); const ref = `examAttempt:${attempt[0].id}`; await recordStudyEvent({ userId, cycleId: exam[0].cycleId, eventType: "exam_complete", referenceId: ref }); const completion = await awardCoins({ userId, cycleId: exam[0].cycleId, amount: 15, reason: `إكمال امتحان: ${exam[0].title}`, referenceKey: `${ref}:completion` }); const bonusAmount = examBonusForComprehension(comprehensionScore); const bonus = bonusAmount ? await awardCoins({ userId, cycleId: exam[0].cycleId, amount: bonusAmount, reason: `مكافأة الاستيعاب: ${comprehensionScore}%`, referenceKey: `${ref}:comprehension` }) : { awarded: false }; return { attempt: attempt[0], score, comprehensionScore, completion, bonus, bonusAmount, unlocks: await evaluateAchievements(userId, exam[0].cycleId) }; }
 
 
-export async function listCalendar(userId: number, from: Date, to: Date) { const db = await database(); const [taskItems, examItems, goalItems, customItems, sessions] = await Promise.all([db.select().from(tasks).where(and(eq(tasks.userId, userId), gte(tasks.deadline, from), lte(tasks.deadline, to))), db.select().from(exams).where(and(eq(exams.userId, userId), gte(exams.scheduledAt, from), lte(exams.scheduledAt, to))), db.select().from(goals).where(and(eq(goals.userId, userId), gte(goals.deadline, from), lte(goals.deadline, to))), db.select().from(calendarEvents).where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startsAt, from), lte(calendarEvents.startsAt, to))), db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "completed"), gte(pomodoroSessions.completedAt, from), lte(pomodoroSessions.completedAt, to)))]); return { tasks: taskItems, exams: examItems, goals: goalItems, events: customItems, sessions }; }
+export async function listCalendar(userId: number, from: Date, to: Date) { const db = await database(); const [taskItems, examItems, goalItems, customItems, sessions] = await Promise.all([db.select().from(tasks).where(and(eq(tasks.userId, userId), gte(tasks.deadline, from), lte(tasks.deadline, to))), db.select().from(exams).where(and(eq(exams.userId, userId), isNull(exams.archivedAt), gte(exams.scheduledAt, from), lte(exams.scheduledAt, to))), db.select().from(goals).where(and(eq(goals.userId, userId), gte(goals.deadline, from), lte(goals.deadline, to))), db.select().from(calendarEvents).where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startsAt, from), lte(calendarEvents.startsAt, to))), db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "completed"), gte(pomodoroSessions.completedAt, from), lte(pomodoroSessions.completedAt, to)))]); return { tasks: taskItems, exams: examItems, goals: goalItems, events: customItems, sessions }; }
 export async function createCalendarEvent(userId: number, input: { title: string; startsAt: Date; endsAt?: Date; eventType: "important_date" | "custom" }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(calendarEvents).values({ userId, cycleId: cycle.id, title: input.title, startsAt: input.startsAt, endsAt: input.endsAt ?? null, eventType: input.eventType }); }
 
 export async function listRewards(userId: number, canManage = false) {
@@ -510,8 +510,9 @@ function readinessForLessons(items: ExamLessonInput[]) {
   return { score, level, completed, reviewed, weakLessons: items.filter(item => item.status !== "completed" || !item.lastReviewedAt) };
 }
 
-async function scopedExamLessons(db: any, userId: number, examId: number): Promise<ExamLessonInput[]> {
+async function scopedExamLessons(db: any, userId: number, examId: number): Promise<(ExamLessonInput & { id: number })[]> {
   const rows = await db.select({
+    id: lessons.id,
     title: lessons.title,
     chapterTitle: chapters.title,
     subjectTitle: subjects.title,
@@ -524,7 +525,7 @@ async function scopedExamLessons(db: any, userId: number, examId: number): Promi
     .innerJoin(subjects, eq(chapters.subjectId, subjects.id))
     .leftJoin(lessonProgress, and(eq(lessonProgress.lessonId, lessons.id), eq(lessonProgress.userId, userId)))
     .where(and(eq(examLessons.examId, examId), eq(subjects.userId, userId)));
-  return rows.map((row: any) => ({ title: row.title, chapterTitle: row.chapterTitle, subjectTitle: row.subjectTitle, progress: Number(row.progress ?? 0), status: row.status ?? "not_started", lastReviewedAt: row.lastReviewedAt ?? null }));
+  return rows.map((row: any) => ({ id: row.id, title: row.title, chapterTitle: row.chapterTitle, subjectTitle: row.subjectTitle, progress: Number(row.progress ?? 0), status: row.status ?? "not_started", lastReviewedAt: row.lastReviewedAt ?? null }));
 }
 
 export async function createExam(userId: number, input: { title: string; subjectId?: number; chapterId?: number; lessonId?: number; scheduledAt?: Date; lessonIds?: number[] }) {
@@ -537,6 +538,37 @@ export async function createExam(userId: number, input: { title: string; subject
   const created = await db.select().from(exams).where(and(eq(exams.userId, userId), eq(exams.title, input.title))).orderBy(desc(exams.id)).limit(1);
   if (created[0] && lessonIds.length) await db.insert(examLessons).values(lessonIds.map(lessonId => ({ examId: created[0].id, lessonId })));
   return created[0];
+}
+
+export async function updateExam(userId: number, input: { examId: number; title: string; scheduledAt?: Date | null; lessonIds?: number[] }) {
+  const db = await database();
+  return db.transaction(async tx => {
+    const owned = and(eq(exams.id, input.examId), eq(exams.userId, userId));
+    const [exam] = await tx.select({ id: exams.id }).from(exams).where(owned).for("update");
+    if (!exam) throw new Error("الامتحان غير موجود.");
+    const lessonIds = input.lessonIds === undefined ? undefined : [...new Set(input.lessonIds)];
+    if (lessonIds?.length) {
+      const valid = await tx.select({ id: lessons.id }).from(lessons)
+        .innerJoin(chapters, eq(lessons.chapterId, chapters.id))
+        .innerJoin(subjects, eq(chapters.subjectId, subjects.id))
+        .where(and(eq(subjects.userId, userId), inArray(lessons.id, lessonIds)));
+      if (valid.length !== lessonIds.length) throw new Error("اختر دروسًا موجودة ضمن خطتك فقط.");
+    }
+    await tx.update(exams).set({ title: input.title, scheduledAt: input.scheduledAt, ...(lessonIds === undefined ? {} : { lessonId: null, chapterId: null, subjectId: null }) }).where(owned);
+    if (lessonIds !== undefined) {
+      await tx.delete(examLessons).where(eq(examLessons.examId, input.examId));
+      if (lessonIds.length) await tx.insert(examLessons).values(lessonIds.map(lessonId => ({ examId: input.examId, lessonId })));
+    }
+    return { success: true };
+  });
+}
+
+export async function setExamArchived(userId: number, examId: number, archived: boolean) {
+  const db = await database();
+  const [result] = await db.update(exams).set({ archivedAt: archived ? new Date() : null })
+    .where(and(eq(exams.userId, userId), eq(exams.id, examId)));
+  if (!result.affectedRows) throw new Error("الامتحان غير موجود.");
+  return { success: true };
 }
 
 export async function listExams(userId: number) {
