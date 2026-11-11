@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { BarChart3, BookOpen, CalendarDays, CheckSquare, CircleDollarSign, Clock3, Flame, Gift, GraduationCap, LayoutDashboard, LogOut, Menu, Settings, Timer, Users, Video } from "lucide-react";
+import { BarChart3, BookOpen, CalendarDays, CheckSquare, CircleDollarSign, Clock3, Flame, Gift, GraduationCap, LayoutDashboard, LogOut, Menu, Settings, Timer, Users, Video, Sparkles } from "lucide-react";
 import { useLocation } from "wouter";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Input } from "@/components/ui/input";
