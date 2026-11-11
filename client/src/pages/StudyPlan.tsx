@@ -180,8 +180,8 @@ function LessonRow({ lesson, onDone, onEdit }: { lesson: Lesson; onDone: () => P
     {(lesson.progress?.progress ?? 0) > 0 && <Progress value={lesson.progress?.progress ?? 0} className="h-1.5" aria-label="تقدّم الدرس" />}
     <div className="flex flex-wrap items-center gap-2">
       {status === "completed"
-        ? <Button size="sm" variant="outline" disabled={review.isPending} onClick={() => review.mutate({ lessonId: lesson.id })}><RefreshCw />مراجعة +15</Button>
-        : <Button size="sm" disabled={complete.isPending} onClick={() => complete.mutate({ lessonId: lesson.id })}><CheckCircle2 />إكمال +75</Button>}
+        ? <Button size="sm" variant="outline" disabled={review.isPending} onClick={() => review.mutate({ lessonId: lesson.id })}><RefreshCw />مراجعة</Button>
+        : <Button size="sm" disabled={complete.isPending} onClick={() => complete.mutate({ lessonId: lesson.id })}><CheckCircle2 />إكمال</Button>}
       <ResourceButtons title={lesson.title} onEdit={onEdit} />
     </div>
   </article>;

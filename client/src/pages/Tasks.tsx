@@ -100,7 +100,7 @@ export function TaskDialog({ task, day, onClose, onDone }: {
         </dl>
         <DialogFooter>
           <Button variant="outline" onClick={() => setEditing(true)}><Pencil />تعديل المهمة</Button>
-          {task.status !== "completed" && <Button disabled={pending} onClick={() => void finish()}><CheckCircle2 />إكمال +{priorities[task.priority].coins}</Button>}
+          {task.status !== "completed" && <Button disabled={pending} onClick={() => void finish()}><CheckCircle2 />إكمال</Button>}
         </DialogFooter>
       </>}
     </DialogContent>

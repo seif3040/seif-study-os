@@ -1,3 +1,4 @@
+import { coinRateKeys } from "../shared/coinRates.js";
 import { z } from "zod";
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies.js";
@@ -133,6 +134,13 @@ export const appRouter = router({
   calendar: router({
     list: protectedProcedure.input(z.object({ from: date, to: date })).query(({ ctx, input }) => db.listCalendar(ctx.user.id, input.from, input.to)),
     create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), startsAt: date, endsAt: date.optional(), eventType: z.enum(["important_date", "custom"]) })).mutation(({ ctx, input }) => db.createCalendarEvent(ctx.user.id, input)),
+  }),
+  economy: router({
+    rates: protectedProcedure.query(() => db.listCoinRates()),
+    setRate: adminProcedure.input(z.object({ key: z.enum(coinRateKeys), amount: z.number().int().min(0).max(1_000_000) }))
+      .mutation(({ input }) => db.setCoinRate(input.key, input.amount)),
+    setRewardPrice: adminProcedure.input(z.object({ rewardId: id, cost: z.number().int().positive().max(1_000_000) }))
+      .mutation(({ input }) => db.setRewardPrice(input.rewardId, input.cost)),
   }),
   rewards: router({
     list: protectedProcedure.query(({ ctx }) => db.listRewards(ctx.user.id, ctx.user.role === "admin")),

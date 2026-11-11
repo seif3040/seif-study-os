@@ -351,6 +351,11 @@ export const userAchievements = mysqlTable("userAchievements", {
   unlockedAt: timestamp("unlockedAt").defaultNow().notNull(),
 }, table => [uniqueIndex("userAchievements_cycle_achievement_unique").on(table.userId, table.cycleId, table.achievementId)]);
 
+export const coinRateSettings = mysqlTable("coinRateSettings", {
+  rateKey: varchar("rateKey", { length: 60 }).primaryKey(),
+  amount: int("amount").notNull(),
+});
+
 export const coinTransactions = mysqlTable("coinTransactions", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),

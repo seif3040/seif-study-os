@@ -7,7 +7,7 @@ describe("Seif Study OS reward rules", () => {
     expect(coinRewardForPomodoro(15)).toBe(8);
     expect(coinRewardForPomodoro(25)).toBe(12);
     expect(coinRewardForPomodoro(45)).toBe(22);
-    expect(coinRewardForPomodoro(60)).toBe(30);
+    expect(coinRewardForPomodoro(60)).toBe(100);
     expect(coinRewardForPomodoro(30)).toBe(0);
   });
 
