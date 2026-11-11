@@ -1,0 +1,19 @@
+{
+  "framework": "vite",
+  "buildCommand": "pnpm exec vite build",
+  "outputDirectory": "dist/public",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "/api/index?__seif_api_path=:path*"
+    },
+    {
+      "source": "/manus-storage/:path*",
+      "destination": "/api/index?__seif_storage_path=:path*"
+    },
+    {
+      "source": "/((?!api/|manus-storage/|assets/|__manus__/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
