@@ -22,6 +22,8 @@
     const latest = await store.get("snapshot");
     if (latest?.ownerId === snapshot.ownerId) snapshot = latest;
     renderTasks(items);
+    renderStudy(items);
+    renderConflicts(items);
   }
 
   function renderTasks(items) {
@@ -38,7 +40,7 @@
         button.addEventListener("click", async () => {
           button.disabled = true;
           try {
-            await store.completeTask(snapshot.ownerId, task.id);
+            await store.completeTask(snapshot.ownerId, task);
             await refreshPending();
             await store.background().catch(() => undefined);
             await sync();
@@ -55,6 +57,73 @@
       list.append(entry);
     }
     if (!snapshot.tasks.length && !additions.length) list.textContent = "مفيش مهام في الجدول المحفوظ.";
+  }
+
+  function renderConflicts(items) {
+    const section = byId("task-conflicts");
+    const list = byId("task-conflict-items");
+    const conflicts = items.filter(item => item.kind === "task" && item.conflict);
+    section.hidden = !conflicts.length;
+    list.replaceChildren();
+    for (const item of conflicts) {
+      const line = document.createElement("li");
+      const latest = item.conflict;
+      const description = document.createElement("p");
+      description.textContent = "على الجهاز: " + (item.localTitle ?? "المهمة") + (item.localDay ? "، " + item.localDay : "") + " — مكتملة";
+      const server = document.createElement("p");
+      server.textContent = latest.missing ? "على الخادم: المهمة اتحذفت أو اتنقلت للسلة."
+        : "على الخادم: " + latest.title + (latest.day ? "، " + latest.day : "") + " — لسه مفتوحة";
+      line.append(description, server);
+      const choices = [
+        [true, latest.missing ? "جرّب تاني بعد الاسترجاع" : "علّم نسخة الخادم كمكتملة"],
+        [false, "احتفظ بنسخة الخادم"],
+      ];
+      for (const [apply, label] of choices) {
+        const button = document.createElement("button");
+        button.textContent = label;
+        button.className = apply ? "" : "secondary";
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try {
+            await store.resolveTaskConflict(item, apply);
+            await refreshPending();
+            if (apply) await sync();
+          } catch { showError(); button.disabled = false; }
+        });
+        line.append(button, " ");
+      }
+      list.append(line);
+    }
+  }
+
+  function setOptions(id, rows) {
+    const select = byId(id);
+    const last = select.value;
+    select.replaceChildren(new Option("اختار من القائمة", ""));
+    for (const row of rows) select.add(new Option(row.label, row.id));
+    if (rows.some(row => String(row.id) === last)) select.value = last;
+    select.disabled = !rows.length;
+  }
+
+  function renderStudy(items) {
+    byId("offline-study").hidden = false;
+    const lessons = (snapshot.lessons ?? []).filter(lesson => !lesson.completed &&
+      !items.some(item => item.kind === "lesson" && item.lessonId === lesson.id));
+    const exams = snapshot.exams ?? [];
+    setOptions("lesson-choice", lessons.map(lesson => ({ id: lesson.id, label: lesson.subject + " · " + lesson.title })));
+    setOptions("exam-choice", exams.map(exam => ({ id: exam.id, label: exam.title })));
+    byId("lesson-submit").disabled = !lessons.length;
+    byId("exam-submit").disabled = !exams.length;
+    const list = byId("offline-study-pending");
+    list.replaceChildren();
+    for (const item of items) {
+      const source = item.kind === "lesson" ? snapshot.lessons?.find(lesson => lesson.id === item.lessonId)
+        : item.kind === "exam" ? exams.find(exam => exam.id === item.examId) : null;
+      if (item.kind !== "lesson" && item.kind !== "exam") continue;
+      const line = document.createElement("li");
+      line.textContent = (source?.title ?? (item.kind === "lesson" ? "درس" : "امتحان")) + " — مستني المزامنة";
+      list.append(line);
+    }
   }
 
   async function sync() {
@@ -121,6 +190,42 @@
       await sync();
     } catch { showError(); }
     finally { submit.disabled = false; }
+  });
+
+  byId("lesson-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const id = Number(byId("lesson-choice").value);
+    if (!snapshot || !id) return;
+    byId("lesson-submit").disabled = true;
+    try {
+      await store.completeLesson(snapshot.ownerId, id);
+      await refreshPending();
+      await store.background().catch(() => undefined);
+      await sync();
+    } catch { showError(); }
+  });
+
+  byId("exam-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const examId = Number(byId("exam-choice").value);
+    const totalQuestions = Number(byId("exam-total").value);
+    const correctAnswers = Number(byId("exam-correct").value);
+    const missedTopics = byId("exam-missed").value.split(/\r?\n/).map(topic => topic.trim()).filter(Boolean);
+    if (!snapshot || !examId) return;
+    if (correctAnswers > totalQuestions || missedTopics.length > 40 || missedTopics.some(topic => topic.length > 120)) {
+      status.textContent = "راجع عدد الإجابات الصح والموضوعات. كل موضوع حتى ١٢٠ حرف والحد ٤٠ موضوع.";
+      return;
+    }
+    byId("exam-submit").disabled = true;
+    try {
+      await store.saveExam(snapshot.ownerId, {
+        examId, totalQuestions, correctAnswers, difficulty: byId("exam-difficulty").value, missedTopics,
+      });
+      event.target.reset();
+      await refreshPending();
+      await store.background().catch(() => undefined);
+      await sync();
+    } catch { showError(); }
   });
 
   minutes.addEventListener("change", () => void render());

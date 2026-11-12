@@ -92,15 +92,58 @@
     });
   }
 
-  function completeTask(ownerId, taskId) {
+  function completeTask(ownerId, task) {
     return transaction(["queue"], "readwrite", tx => {
       tx.objectStore("queue").put({
-        key: "task:" + ownerId + ":" + taskId,
+        key: "task:" + ownerId + ":" + task.id,
         kind: "task",
         ownerId,
-        taskId,
+        taskId: task.id, expectedUpdatedAt: task.updatedAt, localTitle: task.title, localDay: task.day,
         completedAt: Date.now(),
       });
+    });
+  }
+
+  function completeLesson(ownerId, lessonId) {
+    return transaction(["queue"], "readwrite", tx => {
+      tx.objectStore("queue").put({
+        key: "lesson:" + ownerId + ":" + lessonId, kind: "lesson", ownerId, lessonId, completedAt: Date.now(),
+      });
+    });
+  }
+
+  function saveExam(ownerId, details) {
+    return transaction(["queue"], "readwrite", tx => {
+      tx.objectStore("queue").put({
+        ...details, key: crypto.randomUUID(), kind: "exam", ownerId, completedAt: Date.now(),
+      });
+    });
+  }
+
+  function resolveTaskConflict(item, apply) {
+    return transaction(["queue", "state"], "readwrite", tx => {
+      const queue = tx.objectStore("queue");
+      const request = queue.get(item.key);
+      request.onsuccess = () => {
+        const current = request.result;
+        if (!current?.conflict || current.ownerId !== item.ownerId) return;
+        if (!apply) {
+          queue.delete(item.key);
+          const state = tx.objectStore("state");
+          const snapshot = state.get("snapshot");
+          snapshot.onsuccess = () => {
+            const currentSnapshot = snapshot.result;
+            if (currentSnapshot?.ownerId !== item.ownerId) return;
+            const latest = current.conflict;
+            currentSnapshot.tasks = currentSnapshot.tasks.flatMap(task => task.id !== item.taskId ? [task]
+              : latest.missing ? [] : [{ ...task, title: latest.title, day: latest.day, updatedAt: latest.updatedAt }]);
+            state.put(currentSnapshot, "snapshot");
+          };
+          return;
+        }
+        const { conflict, ...retry } = current;
+        queue.put({ ...retry, expectedUpdatedAt: conflict.updatedAt ?? retry.expectedUpdatedAt });
+      };
     });
   }
 
@@ -116,15 +159,18 @@
     if (!snapshot) return 0;
     const active = await get("timer:" + snapshot.ownerId);
     if (active) await finish(snapshot.ownerId, active.key);
-    const pending = (await queue()).filter(item => item.ownerId === snapshot.ownerId)
+    const pending = (await queue()).filter(item => item.ownerId === snapshot.ownerId && !item.conflict)
       .sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0));
     let count = 0;
     for (const item of pending) {
-      const isTask = item.kind === "task";
-      const isCreate = item.kind === "task-create";
-      const route = isCreate ? "tasks.syncCreate" : isTask ? "tasks.syncCompletion" : "pomodoro.syncOffline";
-      const payload = isCreate ? { ownerId: item.ownerId, key: item.key, title: item.title, day: item.day }
-        : isTask ? { ownerId: item.ownerId, taskId: item.taskId, completedAt: item.completedAt } : item;
+      const { kind, ...payload } = item;
+      const routes = {
+        "task-create": ["tasks.syncCreate", "alreadySynced"],
+        task: ["tasks.syncCompletion", "alreadyCompleted"],
+        lesson: ["studyPlan.syncCompletion", "alreadyCompleted"],
+        exam: ["exams.syncAttempt", "alreadySynced"],
+      };
+      const [route, receipt] = routes[kind] ?? ["pomodoro.syncOffline", "alreadySynced"];
       const response = await fetch("/api/trpc/" + route, {
         method: "POST",
         credentials: "same-origin",
@@ -136,18 +182,23 @@
       if (!response.ok) throw new Error("جلسة مستنية المزامنة (" + response.status + ").");
       const output = await response.json();
       const saved = output.result?.data?.json;
-      if (typeof saved?.[isTask ? "alreadyCompleted" : "alreadySynced"] !== "boolean" || (isCreate && !Number.isSafeInteger(saved.taskId))) throw new Error("تعذّر تأكيد حفظ الجلسة.");
+      if (kind === "task" && saved?.conflict) {
+        await transaction(["queue"], "readwrite", tx => tx.objectStore("queue").put({ ...item, conflict: saved.conflict }));
+        continue;
+      }
+      if (typeof saved?.[receipt] !== "boolean" || (kind === "task-create" && !Number.isSafeInteger(saved.taskId))) throw new Error("تعذّر تأكيد حفظ الجلسة.");
       await transaction(["queue", "state"], "readwrite", tx => {
         tx.objectStore("queue").delete(item.key);
-        if (!isTask && !isCreate) return;
+        if (!["task", "task-create", "lesson"].includes(kind)) return;
         const state = tx.objectStore("state");
         const request = state.get("snapshot");
         request.onsuccess = () => {
           const current = request.result;
           if (current?.ownerId !== item.ownerId) return;
-          if (isTask) current.tasks = current.tasks.map(task => task.id === item.taskId ? { ...task, completed: true } : task);
+          if (kind === "lesson") current.lessons = (current.lessons ?? []).map(lesson => lesson.id === item.lessonId ? { ...lesson, completed: true } : lesson);
+          else if (kind === "task") current.tasks = current.tasks.map(task => task.id === item.taskId ? { ...task, completed: true } : task);
           else if (!current.tasks.some(task => task.id === saved.taskId)) {
-            current.tasks.push({ id: saved.taskId, title: item.title, completed: false, day: item.day });
+            current.tasks.push({ id: saved.taskId, title: item.title, completed: false, day: item.day, updatedAt: saved.updatedAt });
           }
           state.put(current, "snapshot");
         };
@@ -168,5 +219,5 @@
     if (registration?.sync) await registration.sync.register(SYNC_TAG);
   }
 
-  globalThis.StudyOffline = { get, remember, forget, start, finish, cancel, createTask, completeTask, queue, sync, background, SYNC_TAG };
+  globalThis.StudyOffline = { get, remember, forget, start, finish, cancel, createTask, completeTask, completeLesson, saveExam, resolveTaskConflict, queue, sync, background, SYNC_TAG };
 })();

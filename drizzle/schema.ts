@@ -400,3 +400,12 @@ export const savedStudyBackups = mysqlTable("savedStudyBackups", {
   archive: longtext("archive").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => [uniqueIndex("savedStudyBackups_user_day").on(table.userId, table.backupDay)]);
+
+
+export const offlineExamWrites = mysqlTable("offlineExamWrites", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  requestKey: varchar("requestKey", { length: 36 }).notNull(),
+  attemptId: int("attemptId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => [uniqueIndex("offlineExamWrites_user_request").on(table.userId, table.requestKey)]);

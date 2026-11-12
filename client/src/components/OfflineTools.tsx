@@ -8,8 +8,10 @@ import { trpc } from "@/lib/trpc";
 type Snapshot = {
   ownerId: number;
   savedAt: number;
-  tasks: { id: number; title: string; completed: boolean }[];
+  tasks: { id: number; title: string; completed: boolean; day: string | null; updatedAt: number }[];
   exam?: string;
+  lessons?: { id: number; title: string; subject: string; completed: boolean }[];
+  exams?: { id: number; title: string }[];
 };
 declare global {
   interface Window {
@@ -26,6 +28,8 @@ declare global {
 export default function OfflineTools({ ownerId }: { ownerId: number }) {
   const utils = trpc.useUtils();
   const { mutateAsync: saveDaily } = trpc.backup.keepDaily.useMutation();
+  const plan = trpc.studyPlan.list.useQuery();
+  const exams = trpc.exams.list.useQuery();
   const summary = trpc.dashboard.summary.useQuery();
   const [updateOpen, setUpdateOpen] = useState(false);
   const [deferUpdate, setDeferUpdate] = useState(false);
@@ -60,13 +64,17 @@ export default function OfflineTools({ ownerId }: { ownerId: number }) {
 
   useEffect(() => {
     if (!summary.data || !window.StudyOffline) return;
+    const lessons = plan.data?.rows.flatMap(row => row.lesson ? [{
+      id: row.lesson.id, title: row.lesson.title, subject: row.subject.title, completed: row.progress?.status === "completed",
+    }] : []);
+    const examChoices = exams.data?.filter(row => !row.exam.archivedAt).map(row => ({ id: row.exam.id, title: row.exam.title }));
     const { todaysTasks, upcomingExams } = summary.data;
     void window.StudyOffline.remember({
       ownerId, savedAt: summary.dataUpdatedAt,
-      tasks: todaysTasks.map(task => ({ id: task.id, title: task.title, completed: task.status === "completed" })),
-      exam: upcomingExams[0]?.title,
+      tasks: todaysTasks.map(task => ({ id: task.id, title: task.title, completed: task.status === "completed", day: task.scheduledFor, updatedAt: +new Date(task.updatedAt) })),
+      exam: upcomingExams[0]?.title, lessons, exams: examChoices,
     }).catch(() => undefined);
-  }, [ownerId, summary.data, summary.dataUpdatedAt]);
+  }, [ownerId, summary.data, summary.dataUpdatedAt, plan.data, exams.data]);
 
   useEffect(() => {
     let live = true;

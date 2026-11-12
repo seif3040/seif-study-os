@@ -36,6 +36,29 @@
       </form>
       <p id="exam"></p>
     </section>
+    <section id="task-conflicts" hidden><h2>مهام محتاجة اختيارك</h2><ul id="task-conflict-items"></ul></section>
+    <section id="offline-study" hidden>
+      <h2>الدروس والامتحانات</h2>
+      <form id="lesson-form">
+        <label for="lesson-choice">درس خلصته</label>
+        <select id="lesson-choice" required></select>
+        <button id="lesson-submit">سجّل الإكمال</button>
+      </form>
+      <form id="exam-form">
+        <label for="exam-choice">امتحان حلّيته</label>
+        <select id="exam-choice" required></select>
+        <label for="exam-total">عدد الأسئلة</label>
+        <input id="exam-total" type="number" min="1" max="500" required>
+        <label for="exam-correct">عدد الصح</label>
+        <input id="exam-correct" type="number" min="0" max="500" required>
+        <label for="exam-difficulty">الصعوبة</label>
+        <select id="exam-difficulty"><option value="easy">سهل</option><option value="medium" selected>متوسط</option><option value="hard">صعب</option></select>
+        <label for="exam-missed">موضوعات الغلط، كل موضوع في سطر</label>
+        <textarea id="exam-missed" maxlength="4800" rows="2"></textarea>
+        <button id="exam-submit">سجّل النتيجة</button>
+      </form>
+      <ul id="offline-study-pending"></ul>
+    </section>
   </main>
 </body>
 </html>

@@ -3,7 +3,7 @@ import { and, count, desc, eq, gte, inArray, isNotNull, isNull, like, lte, or, s
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   achievements, calendarEvents, chapters, coinTransactions, examAttempts, examLessons, exams, goalMilestones,
-  offlineTaskWrites, coinRateSettings, assistantChats, assistantMessages, dailyStudySummaries, goals, habitCompletions, habits, lessonProgress, lessons, flashcardDecks, flashcards, notebooks, notebookSources, notes, pomodoroSessions,
+  offlineExamWrites, offlineTaskWrites, coinRateSettings, assistantChats, assistantMessages, dailyStudySummaries, goals, habitCompletions, habits, lessonProgress, lessons, flashcardDecks, flashcards, notebooks, notebookSources, notes, pomodoroSessions,
   rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks, lessonSources,
   userAchievements, users, type InsertUser,
 } from "../drizzle/schema.js";
@@ -300,16 +300,39 @@ export async function updateLessonProgress(userId: number, lessonId: number, pro
   if (prior[0]) await db.update(lessonProgress).set({ status: value ? "in_progress" : "not_started", progress: value }).where(eq(lessonProgress.id, prior[0].id));
   else await db.insert(lessonProgress).values({ userId, lessonId, status: value ? "in_progress" : "not_started", progress: value });
 }
-export async function completeLesson(userId: number, lessonId: number) {
-  const db = await database(); const lesson = await ownedLesson(db, userId, lessonId);
-  const prior = await db.select().from(lessonProgress).where(and(eq(lessonProgress.userId, userId), eq(lessonProgress.lessonId, lessonId))).limit(1);
-  if (prior[0]?.status === "completed") return { alreadyCompleted: true, awarded: false, unlocks: [] };
-  if (prior[0]) await db.update(lessonProgress).set({ status: "completed", progress: 100, completedAt: new Date() }).where(eq(lessonProgress.id, prior[0].id));
-  else await db.insert(lessonProgress).values({ userId, lessonId, status: "completed", progress: 100, completedAt: new Date() });
-  await recordStudyEvent({ userId, cycleId: lesson.cycleId, subjectId: lesson.subjectId, eventType: "lesson_complete", referenceId: `lesson:${lessonId}:complete` });
-  const reward = await awardCoins({ userId, cycleId: lesson.cycleId, amount: 75, rateKey: "lesson_complete", reason: `إكمال درس: ${lesson.title}`, referenceKey: `lesson:${lessonId}:complete` });
-  return { alreadyCompleted: false, ...reward, unlocks: await evaluateAchievements(userId, lesson.cycleId) };
+export async function completeLesson(userId: number, lessonId: number, completedAt = new Date()) {
+  const db = await database();
+  const result = await db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const lesson = await ownedLesson(tx, userId, lessonId);
+    const [prior] = await tx.select().from(lessonProgress)
+      .where(and(eq(lessonProgress.userId, userId), eq(lessonProgress.lessonId, lessonId))).for("update");
+    if (prior?.status === "completed") return { alreadyCompleted: true, awarded: false, amount: 0, cycleId: lesson.cycleId };
+
+    const reference = "lesson:" + lessonId + ":complete";
+    if (prior) await tx.update(lessonProgress).set({ status: "completed", progress: 100, completedAt }).where(eq(lessonProgress.id, prior.id));
+    else await tx.insert(lessonProgress).values({ userId, lessonId, status: "completed", progress: 100, completedAt });
+    const [event] = await tx.select({ id: studyEvents.id }).from(studyEvents)
+      .where(and(eq(studyEvents.userId, userId), eq(studyEvents.referenceId, reference))).limit(1);
+    if (!event) await tx.insert(studyEvents).values({
+      userId, cycleId: lesson.cycleId, subjectId: lesson.subjectId, eventType: "lesson_complete", referenceId: reference, occurredAt: completedAt,
+    });
+    const [priorReward] = await tx.select({ id: coinTransactions.id }).from(coinTransactions)
+      .where(eq(coinTransactions.referenceKey, reference)).limit(1);
+    const [rate] = await tx.select({ amount: coinRateSettings.amount }).from(coinRateSettings)
+      .where(eq(coinRateSettings.rateKey, "lesson_complete")).limit(1);
+    const amount = priorReward ? 0 : rate?.amount ?? 75;
+    if (amount > 0) await tx.insert(coinTransactions).values({
+      userId, cycleId: lesson.cycleId, amount, type: "earn", referenceKey: reference,
+      reason: "إكمال درس: " + lesson.title, createdAt: completedAt,
+    });
+    return { alreadyCompleted: false, awarded: amount > 0, amount, cycleId: lesson.cycleId, balance: (await getCoinSummary(tx, userId)).balance };
+  });
+  const { cycleId, ...completion } = result;
+  const unlocks = result.alreadyCompleted ? [] : await evaluateAchievements(userId, cycleId).catch(() => []);
+  return { ...completion, unlocks };
 }
+
 export async function reviewLesson(userId: number, lessonId: number) {
   const db = await database(); const lesson = await ownedLesson(db, userId, lessonId);
   const prior = await db.select().from(lessonProgress).where(and(eq(lessonProgress.userId, userId), eq(lessonProgress.lessonId, lessonId))).limit(1);
@@ -323,14 +346,23 @@ export async function reviewLesson(userId: number, lessonId: number) {
 
 export async function listTasks(userId: number) { const db = await database(); return db.select().from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt))).orderBy(tasks.status, tasks.scheduledFor, desc(tasks.createdAt)); }
 export async function createTask(userId: number, input: { title: string; description?: string; scheduledFor?: string; deadline?: Date; priority: "urgent" | "medium" | "low"; category?: string }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(tasks).values({ userId, cycleId: cycle.id, title: input.title, description: input.description ?? null, scheduledFor: input.scheduledFor ?? dateKey(), deadline: input.deadline ?? null, priority: input.priority, category: input.category ?? "دراسة" }); }
-export async function completeTask(userId: number, taskId: number, completedAt = new Date()) {
+export async function completeTask(userId: number, taskId: number, completedAt = new Date(), expectedUpdatedAt?: number) {
   const db = await database();
   const result = await db.transaction(async tx => {
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
     const ownerTask = and(eq(tasks.id, taskId), eq(tasks.userId, userId), isNull(tasks.deletedAt));
     const [item] = await tx.select().from(tasks).where(ownerTask).for("update");
+    if (!item && expectedUpdatedAt !== undefined) return {
+      alreadyCompleted: false, awarded: false, amount: 0, cycleId: null,
+      conflict: { missing: true as const },
+    };
     if (!item) throw new Error("المهمة غير موجودة.");
     if (!isFirstCompletion(item.status)) return { alreadyCompleted: true, awarded: false, amount: 0, cycleId: item.cycleId };
+
+    if (expectedUpdatedAt !== undefined && +item.updatedAt !== expectedUpdatedAt) return {
+      alreadyCompleted: false, awarded: false, amount: 0, cycleId: item.cycleId,
+      conflict: { missing: false as const, title: item.title, day: item.scheduledFor, updatedAt: +item.updatedAt },
+    };
 
     const reference = `task:${taskId}:complete`;
     await tx.update(tasks).set({ status: "completed", completedAt }).where(ownerTask);
@@ -351,7 +383,7 @@ export async function completeTask(userId: number, taskId: number, completedAt =
     return { alreadyCompleted: false, awarded: amount > 0, amount, cycleId: item.cycleId, balance: (await getCoinSummary(tx, userId)).balance };
   });
   const { cycleId, ...completion } = result;
-  const unlocks = result.alreadyCompleted ? [] : await evaluateAchievements(userId, cycleId).catch(() => []);
+  const unlocks = result.alreadyCompleted || result.conflict || cycleId === null ? [] : await evaluateAchievements(userId, cycleId).catch(() => []);
   return { ...completion, unlocks };
 }
 export async function updateTask(userId: number, taskId: number, input: { title: string; description?: string; scheduledFor?: string; deadline?: Date; priority: "urgent" | "medium" | "low"; category?: string }) { const db = await database(); return db.update(tasks).set({ title: input.title, description: input.description ?? null, scheduledFor: input.scheduledFor ?? null, deadline: input.deadline ?? null, priority: input.priority, category: input.category ?? "دراسة" }).where(and(eq(tasks.id, taskId), eq(tasks.userId, userId), isNull(tasks.deletedAt))); }
@@ -1221,12 +1253,17 @@ export async function syncOfflineTask(userId: number, input: { key: string; titl
     const requestKey = input.key.toLowerCase();
     const [existing] = await tx.select().from(offlineTaskWrites)
       .where(and(eq(offlineTaskWrites.userId, userId), eq(offlineTaskWrites.requestKey, requestKey))).limit(1);
-    if (existing) return { taskId: existing.taskId, alreadySynced: true };
+    if (existing) {
+      const [saved] = await tx.select({ updatedAt: tasks.updatedAt }).from(tasks)
+        .where(and(eq(tasks.userId, userId), eq(tasks.id, existing.taskId))).limit(1);
+      return { taskId: existing.taskId, alreadySynced: true, updatedAt: saved ? +saved.updatedAt : undefined };
+    }
     const [task] = await tx.insert(tasks).values({
       userId, cycleId: cycle.id, title: input.title, scheduledFor: input.day, priority: "medium",
     });
     await tx.insert(offlineTaskWrites).values({ userId, requestKey, taskId: task.insertId });
-    return { taskId: task.insertId, alreadySynced: false };
+    const [saved] = await tx.select({ updatedAt: tasks.updatedAt }).from(tasks).where(eq(tasks.id, task.insertId)).limit(1);
+    return { taskId: task.insertId, alreadySynced: false, updatedAt: saved ? +saved.updatedAt : undefined };
   });
 }
 
@@ -1258,4 +1295,58 @@ export async function restoreStudyTrash(userId: number, kind: "tasks" | "chats" 
       .where(and(eq(lessons.id, id), inArray(lessons.chapterId, ownedChapters), isNotNull(lessons.deletedAt)));
   }
   return { ok: true };
+}
+
+
+export async function syncOfflineExam(userId: number, input: {
+  key: string; examId: number; totalQuestions: number; correctAnswers: number;
+  difficulty: "easy" | "medium" | "hard"; missedTopics: string[]; completedAt: Date;
+}) {
+  const db = await database();
+  const result = await db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const requestKey = input.key.toLowerCase();
+    const [priorWrite] = await tx.select({ attemptId: offlineExamWrites.attemptId }).from(offlineExamWrites)
+      .where(and(eq(offlineExamWrites.userId, userId), eq(offlineExamWrites.requestKey, requestKey))).limit(1);
+    if (priorWrite) return { alreadySynced: true, attemptId: priorWrite.attemptId, cycleId: null };
+
+    const [exam] = await tx.select().from(exams)
+      .where(and(eq(exams.userId, userId), eq(exams.id, input.examId), isNull(exams.archivedAt))).for("update");
+    if (!exam) throw new Error("الامتحان مش موجود أو متأرشف.");
+    const score = Math.round(input.correctAnswers * 100 / input.totalQuestions);
+    const [prior] = await tx.select({ average: sql<number>`coalesce(avg(${examAttempts.score}), 0)` })
+      .from(examAttempts).where(eq(examAttempts.userId, userId));
+    const comprehensionScore = fallbackComprehension(score, input.difficulty, Number(prior?.average ?? 0));
+    const [attempt] = await tx.insert(examAttempts).values({
+      userId, cycleId: exam.cycleId, examId: exam.id, score, comprehensionScore,
+      totalQuestions: input.totalQuestions, correctAnswers: input.correctAnswers,
+      incorrectAnswers: input.totalQuestions - input.correctAnswers, missedTopics: input.missedTopics,
+      difficulty: input.difficulty, completionRewarded: true, createdAt: input.completedAt,
+    });
+    const reference = "examAttempt:" + attempt.insertId;
+    await tx.insert(studyEvents).values({
+      userId, cycleId: exam.cycleId, eventType: "exam_complete", referenceId: reference, occurredAt: input.completedAt,
+    });
+    const threshold = [95, 90, 80, 70, 60].find(value => comprehensionScore >= value);
+    const payouts: { key: CoinRateKey; amount: number; suffix: string; reason: string }[] = [
+      { key: "exam_complete", amount: 15, suffix: "completion", reason: "إكمال امتحان: " + exam.title },
+    ];
+    if (threshold) payouts.push({
+      key: ("exam_bonus_" + threshold) as CoinRateKey, amount: examBonusForComprehension(comprehensionScore),
+      suffix: "comprehension", reason: "مكافأة الاستيعاب: " + comprehensionScore + "%",
+    });
+    for (const payout of payouts) {
+      const [rate] = await tx.select({ amount: coinRateSettings.amount }).from(coinRateSettings)
+        .where(eq(coinRateSettings.rateKey, payout.key)).limit(1);
+      const amount = rate?.amount ?? payout.amount;
+      if (amount > 0) await tx.insert(coinTransactions).values({
+        userId, cycleId: exam.cycleId, amount, type: "earn", referenceKey: reference + ":" + payout.suffix,
+        reason: payout.reason, createdAt: input.completedAt,
+      });
+    }
+    await tx.insert(offlineExamWrites).values({ userId, requestKey, attemptId: attempt.insertId });
+    return { alreadySynced: false, attemptId: attempt.insertId, cycleId: exam.cycleId };
+  });
+  if (result.cycleId !== null) await evaluateAchievements(userId, result.cycleId).catch(() => []);
+  return { alreadySynced: result.alreadySynced, attemptId: result.attemptId };
 }

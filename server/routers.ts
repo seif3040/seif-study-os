@@ -10,6 +10,13 @@ import * as db from "./db.js";
 import * as personalAssistant from "./personalAssistant.js";
 import { safeStudyUrl } from "../client/src/lib/videoSources.js";
 
+function validateOfflineTimestamp(userId: number, ownerId: number, timestamp: number) {
+  if (userId !== ownerId) throw new TRPCError({ code: "FORBIDDEN" });
+  if (timestamp < Date.UTC(2020, 0, 1) || timestamp > Date.now() + 300_000) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "راجع تاريخ وساعة الجهاز." });
+  }
+}
+
 const id = z.number().int().positive();
 const date = z.coerce.date();
 const priority = z.enum(["urgent", "medium", "low"]);
@@ -58,6 +65,11 @@ export const appRouter = router({
   }),
   dashboard: router({ summary: protectedProcedure.query(({ ctx }) => db.dashboard(ctx.user.id)) }),
   studyPlan: router({
+    syncCompletion: protectedProcedure.input(z.object({ ownerId: id, lessonId: id, completedAt: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => {
+        validateOfflineTimestamp(ctx.user.id, input.ownerId, input.completedAt);
+        return db.completeLesson(ctx.user.id, input.lessonId, new Date(input.completedAt));
+      }),
     reviews: protectedProcedure.query(({ ctx }) => db.lessonReviewSchedule(ctx.user.id)),
     list: protectedProcedure.query(({ ctx }) => db.listStudyPlan(ctx.user.id)),
     createSubject: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(160), color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional() })).mutation(({ ctx, input }) => db.createSubject(ctx.user.id, input)),
@@ -85,13 +97,13 @@ export const appRouter = router({
       priority, startsOn: z.string().date(), weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
       weeks: z.number().int().min(1).max(52),
     })).mutation(({ ctx, input }) => db.createRecurringTasks(ctx.user.id, input)),
-    syncCompletion: protectedProcedure.input(z.object({ ownerId: id, taskId: id, completedAt: z.number().int().positive() }))
+    syncCompletion: protectedProcedure.input(z.object({ ownerId: id, taskId: id, completedAt: z.number().int().positive(), expectedUpdatedAt: z.number().int().positive().optional() }))
       .mutation(async ({ ctx, input }) => {
         if (input.ownerId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
         if (input.completedAt < Date.UTC(2020, 0, 1) || input.completedAt > Date.now() + 300_000) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "راجع تاريخ وساعة الجهاز." });
         }
-        return db.completeTask(ctx.user.id, input.taskId, new Date(input.completedAt));
+        return db.completeTask(ctx.user.id, input.taskId, new Date(input.completedAt), input.expectedUpdatedAt);
       }),
     list: protectedProcedure.query(({ ctx }) => db.listTasks(ctx.user.id)),
     create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), description: z.string().max(2000).optional(), scheduledFor: z.string().date().optional(), deadline: date.optional(), priority, category: z.string().trim().min(1).max(80).optional() })).mutation(({ ctx, input }) => db.createTask(ctx.user.id, input)),
@@ -159,6 +171,14 @@ export const appRouter = router({
     setProgress: protectedProcedure.input(z.object({ sessionId: id, progress: z.enum(["started", "middle", "finished", "reviewed"]) })).mutation(({ ctx, input }) => db.setVideoManualProgress(ctx.user.id, input.sessionId, input.progress)),
   }),
   exams: router({
+    syncAttempt: protectedProcedure.input(z.object({
+      ownerId: id, key: z.string().uuid(), examId: id, totalQuestions: z.number().int().min(1).max(500),
+      correctAnswers: z.number().int().min(0).max(500), difficulty, missedTopics: z.array(z.string().trim().min(1).max(120)).max(40),
+      completedAt: z.number().int().positive(),
+    }).refine(input => input.correctAnswers <= input.totalQuestions)).mutation(({ ctx, input }) => {
+      validateOfflineTimestamp(ctx.user.id, input.ownerId, input.completedAt);
+      return db.syncOfflineExam(ctx.user.id, { ...input, completedAt: new Date(input.completedAt) });
+    }),
     list: protectedProcedure.query(({ ctx }) => db.listExams(ctx.user.id)),
     create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), subjectId: id.optional(), chapterId: id.optional(), lessonId: id.optional(), lessonIds: z.array(id).max(250).optional(), scheduledAt: date.optional() })).mutation(({ ctx, input }) => db.createExam(ctx.user.id, input)),
     update: protectedProcedure.input(z.object({ examId: id, title: z.string().trim().min(1).max(200), scheduledAt: date.nullable().optional(), lessonIds: z.array(id).max(250).optional() })).mutation(({ ctx, input }) => db.updateExam(ctx.user.id, input)),
