@@ -5,6 +5,7 @@ import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies.js";
 import { systemRouter } from "./_core/systemRouter.js";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc.js";
+import { restoreStudyBackup, signedStudyBackup } from "./studyBackup.js";
 import * as db from "./db.js";
 import * as personalAssistant from "./personalAssistant.js";
 import { safeStudyUrl } from "../client/src/lib/videoSources.js";
@@ -43,7 +44,9 @@ export const appRouter = router({
         priority: z.enum(["urgent", "medium", "low"]),
       })).min(1).max(250),
     })).mutation(({ ctx, input }) => db.importStudyCsv(ctx.user.id, input.kind, input.rows, input.preview)),
-    export: protectedProcedure.mutation(({ ctx }) => db.exportStudyBackup(ctx.user.id, ctx.user.role === "admin")),
+    export: protectedProcedure.mutation(({ ctx }) => signedStudyBackup(ctx.user.id, ctx.user.role === "admin")),
+    restore: protectedProcedure.input(z.object({ raw: z.string().min(1).max(2_500_000), preview: z.boolean() }))
+      .mutation(({ ctx, input }) => restoreStudyBackup(ctx.user.id, input.raw, input.preview)),
   }),
   dashboard: router({ summary: protectedProcedure.query(({ ctx }) => db.dashboard(ctx.user.id)) }),
   studyPlan: router({
