@@ -47,7 +47,7 @@ export default function Seify() {
   const [recording, setRecording] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [voiceError, setVoiceError] = useState("");
-  const [plan, setPlan] = useState<Plan | null>(null);
+  const [plans, setPlans] = useState<{ id: number; plan: Plan }[]>([]);
   const [outgoing, setOutgoing] = useState("");
   const recorder = useRef<MediaRecorder | undefined>(undefined);
   const stream = useRef<MediaStream | undefined>(undefined);
@@ -77,10 +77,10 @@ export default function Seify() {
       window.speechSynthesis?.cancel();
     };
   }, []);
-  useEffect(() => { bottom.current?.scrollIntoView({ block: "nearest" }); }, [messages.data, outgoing, plan]);
+  useEffect(() => { bottom.current?.scrollIntoView({ block: "nearest" }); }, [messages.data, outgoing, plans]);
 
   function switchChat(id?: number) {
-    setChat(id); setDraft(""); setPlan(null); setVoiceError(""); setShareHistory(false);
+    setChat(id); setDraft(""); setPlans([]); setVoiceError(""); setShareHistory(false);
     window.speechSynthesis?.cancel();
   }
 
@@ -95,10 +95,11 @@ export default function Seify() {
   async function send(value: string, speakReply: boolean) {
     const request = value.trim();
     if (!request || !shareText || ask.isPending) return;
-    setOutgoing(request); setPlan(null); setDraft("");
+    setOutgoing(request); setPlans([]); setDraft("");
     try {
-      const result = await ask.mutateAsync({ request, page: from, shareWithOpenRouter: true, chatId: chat, includeChatHistory: shareHistory });
-      setPlan(result);
+      const result = await ask.mutateAsync({ request, page: from, shareWithOpenRouter: true, chatId: chat, includeChatHistory: shareHistory, multiple: true });
+      const proposed = result.actions?.length ? result.actions : result.actionType === "none" ? [] : [result];
+      setPlans(proposed.map((plan, id) => ({ id, plan })));
       if (speakReply) {
         const playback = speak(result.reply);
         if (!playback.played) setVoiceError(playback.message);
@@ -191,11 +192,11 @@ export default function Seify() {
     });
   }
 
-  async function apply() {
-    if (!plan || execute.isPending) return;
+  async function apply(id: number, plan: Plan) {
+    if (execute.isPending) return;
     try {
       const result = await execute.mutateAsync({ plan: plan as Parameters<typeof execute.mutateAsync>[0]["plan"], confirmed: true, chatId: chat });
-      setPlan(null);
+      discard(id);
       if (mode === "live") speak(result.message);
       await utils.invalidate();
     } catch (error) { toast.error(errorText(error)); }
@@ -222,6 +223,14 @@ export default function Seify() {
     } catch (error) {
       toast.error(errorText(error));
     }
+  }
+
+  function discard(id: number) {
+    setPlans(previous => previous.filter(item => item.id !== id));
+  }
+
+  function editPlan(id: number, changes: Partial<Plan>) {
+    setPlans(previous => previous.map(item => item.id === id ? { ...item, plan: { ...item.plan, ...changes } } : item));
   }
 
   const selectedChat = chats.data?.find(item => item.id === chat);
@@ -277,7 +286,17 @@ export default function Seify() {
         {messages.data?.map(message => <p key={message.id} className={"max-w-[90%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm " + (message.role === "user" ? "ms-auto bg-primary text-primary-foreground" : "me-auto bg-muted")}>{message.content}</p>)}
         {outgoing && <p className="ms-auto max-w-[90%] whitespace-pre-wrap rounded-2xl bg-primary px-4 py-3 text-sm text-primary-foreground">{outgoing}</p>}
         {ask.isPending && <p className="text-sm text-muted-foreground">جارفيس بيجهّز الرد…</p>}
-        {plan && <ActionPreview plan={plan} loading={execute.isPending} onConfirm={() => void apply()} onNavigate={() => { if (plan.route) navigate(plan.route); setPlan(null); }} />}
+        {plans.map(({ id, plan }) => {
+          const editable = plan.actionType === "add_task" || plan.actionType === "add_exam";
+          return <div key={id} className="space-y-2 rounded-xl border p-3">
+            {editable && <div className="grid gap-2 sm:grid-cols-2">
+              <label className="text-sm">العنوان<Input maxLength={200} value={plan.title} onChange={event => editPlan(id, { title: event.target.value })} disabled={execute.isPending} /></label>
+              <label className="text-sm">التاريخ<Input type="date" value={plan.scheduledFor} onChange={event => editPlan(id, { scheduledFor: event.target.value })} disabled={execute.isPending} /></label>
+            </div>}
+            <ActionPreview plan={plan} loading={execute.isPending || (editable && !plan.title.trim())} onConfirm={() => void apply(id, plan)} onNavigate={() => { if (plan.route) navigate(plan.route); discard(id); }} />
+            <Button variant="ghost" size="sm" disabled={execute.isPending} onClick={() => discard(id)}>استبعاد الطلب</Button>
+          </div>;
+        })}
         <div ref={bottom} />
       </div>
       <div className="space-y-3 border-t p-4">

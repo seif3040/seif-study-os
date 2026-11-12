@@ -129,7 +129,7 @@ export const appRouter = router({
     chat: protectedProcedure.input(z.object({ messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().trim().min(1).max(5000) })).min(1).max(12) })).mutation(({ ctx, input }) => db.chatWithAssistant(ctx.user.id, input.messages)),
   }),
   personalAssistant: router({
-    plan: protectedProcedure.input(z.object({ request: z.string().trim().min(1).max(1200), page: z.string().max(100).optional(), shareWithOpenRouter: z.boolean().default(false), chatId: id.optional(), includeChatHistory: z.boolean().default(false) })).mutation(({ ctx, input }) => personalAssistant.planPersonalAssistantAction(ctx.user.id, input.request, input.page, input.shareWithOpenRouter, input.chatId, input.includeChatHistory)),
+    plan: protectedProcedure.input(z.object({ request: z.string().trim().min(1).max(1200), page: z.string().max(100).optional(), shareWithOpenRouter: z.boolean().default(false), chatId: id.optional(), includeChatHistory: z.boolean().default(false), multiple: z.boolean().default(false) })).mutation(({ ctx, input }) => personalAssistant.planPersonalAssistantAction(ctx.user.id, input.request, input.page, input.shareWithOpenRouter, input.chatId, input.includeChatHistory, input.multiple)),
     chats: protectedProcedure.query(({ ctx }) => db.listAssistantChats(ctx.user.id)),
     createChat: protectedProcedure.mutation(({ ctx }) => db.createAssistantChat(ctx.user.id)),
     renameChat: protectedProcedure.input(z.object({ chatId: id.optional(), title: z.string().trim().min(1).max(100) }))

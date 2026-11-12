@@ -57,7 +57,7 @@ export function normalizePersonalAssistantPlan(input: unknown): PersonalAssistan
   };
 }
 
-export async function planPersonalAssistantAction(userId: number, request: string, page = "", shareWithOpenRouter = false, chatId?: number, includeChatHistory = false): Promise<PersonalAssistantPlan> {
+export async function planPersonalAssistantAction(userId: number, request: string, page = "", shareWithOpenRouter = false, chatId?: number, includeChatHistory = false, multiple = false): Promise<PersonalAssistantPlan & { actions?: PersonalAssistantPlan[] }> {
   if (!hasStudyAI()) return { ...FALLBACK_PLAN, reply: "جارفيس محتاج إعداد OpenRouter عشان يرد." };
   if (chatId !== undefined) await ownedAssistantChat(userId, chatId);
   const history = shareWithOpenRouter && includeChatHistory && chatId !== undefined ? await listAssistantMessages(userId, 8, chatId) : [];
@@ -78,18 +78,33 @@ export async function planPersonalAssistantAction(userId: number, request: strin
     }
     if (!shareWithOpenRouter) return { ...FALLBACK_PLAN, reply: "فعّل إرسال الرسالة إلى OpenRouter عشان جارفيس يقدر يرد." };
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo" }).format(new Date());
+    const actionSchema = { type: "object", properties: { reply: { type: "string" }, actionType: { type: "string", enum: personalAssistantActionTypes.filter(action => !action.startsWith("delete_")) }, title: { type: "string" }, targetTitle: { type: "string" }, parentTitle: { type: "string" }, value: { type: "integer" }, priority: { type: "string", enum: ["urgent", "medium", "low"] }, scheduledFor: { type: "string" }, frequency: { type: "string", enum: ["daily", "weekly"] }, target: { type: "integer", minimum: 1, maximum: 7 }, route: { type: "string", enum: [...personalAssistantRoutes] }, requiresConfirmation: { type: "boolean" } }, required: ["reply", "actionType", "title", "targetTitle", "parentTitle", "value", "priority", "scheduledFor", "frequency", "target", "route", "requiresConfirmation"], additionalProperties: false };
     const response = await invokeLLM({
-      maxTokens: 600,
+      maxTokens: multiple ? 1600 : 600,
       messages: [
-        { role: "system", content: "You are Jarvis (جارفيس), a personal study assistant for Seif Study OS. Reply in Egyptian Arabic. When asked to create a task or exam, use add_task or add_exam so the user can confirm and save it. Propose at most one action; only a user confirmation in the app executes it. Never claim anything was saved before confirmation. You receive the current page and the student's current message. Previous messages may be included when explicitly authorized. Do not invent record titles, costs, dates or results. Ask for the exact title when uncertain. Use title for the requested record or new name, targetTitle for the original name when updating, and parentTitle for the subject when creating a chapter or the chapter when creating a lesson. For complete_lesson, parentTitle can identify the chapter. scheduledFor is YYYY-MM-DD (Cairo); for add_task and add_exam it can be blank. For start_focus, value must be 15, 25, 45 or 60 minutes. For add_lesson, value is duration or 0 for 30 minutes. For add_reward, value is the confirmed price in Coins. Don't award arbitrary Coins, purchase, permanently delete, change account settings or send data anywhere else. Use archive_exam, restore_exam, hide_reward and restore_reward for reversible changes. For unsupported requests explain the limit and help navigate. For normal questions use actionType none. Return a JSON object with keys reply, actionType, title, targetTitle, parentTitle, value, priority, scheduledFor, frequency, target, route, requiresConfirmation." },
+        { role: "system", content: "You are Jarvis (جارفيس), a personal study assistant for Seif Study OS. Reply in Egyptian Arabic. When asked to create a task or exam, use add_task or add_exam so the user can confirm and save it. Only a user confirmation in the app executes an action. Never claim anything was saved before confirmation. You receive the current page and the student's current message. Previous messages may be included when explicitly authorized. Do not invent record titles, costs, dates or results. Ask for the exact title when uncertain. Use title for the requested record or new name, targetTitle for the original name when updating, and parentTitle for the subject when creating a chapter or the chapter when creating a lesson. For complete_lesson, parentTitle can identify the chapter. scheduledFor is YYYY-MM-DD (Cairo); for add_task and add_exam it can be blank. For start_focus, value must be 15, 25, 45 or 60 minutes. For add_lesson, value is duration or 0 for 30 minutes. For add_reward, value is the confirmed price in Coins. Don't award arbitrary Coins, purchase, permanently delete, change account settings or send data anywhere else. Use archive_exam, restore_exam, hide_reward and restore_reward for reversible changes. For unsupported requests explain the limit and help navigate. For normal questions use actionType none. Return a JSON object with keys reply, actionType, title, targetTitle, parentTitle, value, priority, scheduledFor, frequency, target, route, requiresConfirmation." + (multiple ? " Wrap the result in an object with reply and actions. Put each explicitly requested action in the actions array (up to 5). If a detail is missing, ask for it in the reply and omit that action. For normal questions use an empty array." : " Propose at most one action.") },
         ...history.map(message => ({ role: message.role, content: message.content.slice(0, 1200) })),
         { role: "user", content: `تاريخ القاهرة: ${today}\nالصفحة: ${isRoute(page) ? page : ""}\nطلب الطالب: ${request}` },
       ],
-      response_format: { type: "json_schema", json_schema: { name: "personal_study_assistant_plan", strict: true, schema: { type: "object", properties: { reply: { type: "string" }, actionType: { type: "string", enum: personalAssistantActionTypes.filter(action => !action.startsWith("delete_")) }, title: { type: "string" }, targetTitle: { type: "string" }, parentTitle: { type: "string" }, value: { type: "integer" }, priority: { type: "string", enum: ["urgent", "medium", "low"] }, scheduledFor: { type: "string" }, frequency: { type: "string", enum: ["daily", "weekly"] }, target: { type: "integer", minimum: 1, maximum: 7 }, route: { type: "string", enum: [...personalAssistantRoutes] }, requiresConfirmation: { type: "boolean" } }, required: ["reply", "actionType", "title", "targetTitle", "parentTitle", "value", "priority", "scheduledFor", "frequency", "target", "route", "requiresConfirmation"], additionalProperties: false } } },
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "personal_study_assistant_plan", strict: true,
+          schema: multiple ? {
+            type: "object", additionalProperties: false, required: ["reply", "actions"],
+            properties: { reply: { type: "string" }, actions: { type: "array", maxItems: 5, items: actionSchema } },
+          } : actionSchema,
+        },
+      },
     });
-    const plan = normalizePersonalAssistantPlan(JSON.parse(String(response.choices[0]?.message?.content ?? "{}")));
+    const raw = JSON.parse(String(response.choices[0]?.message?.content ?? "{}"));
+    const plan = normalizePersonalAssistantPlan(raw);
+    const actions = multiple && Array.isArray(raw?.actions)
+      ? raw.actions.slice(0, 5).map(normalizePersonalAssistantPlan)
+          .filter((action: PersonalAssistantPlan) => action.actionType !== "none")
+      : undefined;
     await saveAssistantMessage(userId, "assistant", plan.reply, chatId);
-    return plan;
+    return { ...plan, actions };
   } catch {
     const reply = "OpenRouter مش قادر يرد دلوقتي. جرّب تاني بعد شوية.";
     await saveAssistantMessage(userId, "assistant", reply, chatId).catch(() => undefined);
