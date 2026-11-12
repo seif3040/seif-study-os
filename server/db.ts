@@ -876,16 +876,20 @@ export async function subjectAnalytics(userId: number) {
       date: studyEvents.occurredAt, reason: coinTransactions.reason,
     }).from(studyEvents).leftJoin(coinTransactions, and(eq(coinTransactions.userId, userId), eq(coinTransactions.referenceKey, studyEvents.referenceId)))
       .where(eq(studyEvents.userId, userId)).orderBy(studyEvents.occurredAt),
-    db.select({ examId: examAttempts.examId, subjectId: exams.subjectId, score: examAttempts.score, comprehension: examAttempts.comprehensionScore })
+    db.select({ examId: examAttempts.examId, subjectId: exams.subjectId, score: examAttempts.score, comprehension: examAttempts.comprehensionScore,
+      attemptId: examAttempts.id, examTitle: exams.title, date: examAttempts.createdAt, missed: examAttempts.missedTopics })
       .from(examAttempts).innerJoin(exams, eq(examAttempts.examId, exams.id))
-      .where(and(eq(examAttempts.userId, userId), eq(exams.userId, userId))),
+      .where(and(eq(examAttempts.userId, userId), eq(exams.userId, userId)))
+      .orderBy(desc(examAttempts.createdAt), desc(examAttempts.id)),
     db.select({ examId: examLessons.examId, subjectId: subjects.id }).from(examLessons)
       .innerJoin(exams, eq(examLessons.examId, exams.id)).innerJoin(lessons, eq(examLessons.lessonId, lessons.id))
       .innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id))
       .where(and(eq(exams.userId, userId), eq(subjects.userId, userId))),
   ]);
   function row(id: number | null, title: string) {
-    return { id, title, chapters: 0, lessons: 0, completed: 0, trackedMinutes: 0, allocatedMinutes: 0, focusSessions: 0, reviews: 0, attempts: 0, scoreTotal: 0, comprehensionTotal: 0, bestScore: null as number | null, activeDays: new Set<string>(), chapterIds: new Set<number>(), lessonIds: new Set<number>() };
+    return { id, title, chapters: 0, lessons: 0, completed: 0, trackedMinutes: 0, allocatedMinutes: 0, focusSessions: 0, reviews: 0, attempts: 0, scoreTotal: 0, comprehensionTotal: 0, bestScore: null as number | null, activeDays: new Set<string>(), chapterIds: new Set<number>(), lessonIds: new Set<number>(),
+      mistakes: new Map<string, { topic: string; count: number }>(),
+      recentAttempts: [] as { id: number; exam: string; score: number; date: string }[] };
   }
   const subjectsById = new Map<number, ReturnType<typeof row>>();
   const unassigned = row(null, "بدون مادة");
@@ -901,7 +905,7 @@ export async function subjectAnalytics(userId: number) {
   const cairo = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" });
   for (const event of events) {
     const stats = (event.subjectId === null ? null : subjectsById.get(event.subjectId)) ?? unassigned;
-    const allocated = event.kind === "pomodoro_complete" && Boolean(event.reason?.startsWith("Pomodoro — تسجيل مذاكرة سابقة (")) && stats.id !== null;
+    const allocated = event.kind === "pomodoro_complete" && Boolean(event.reason?.startsWith("Pomodoro — تسجيل مذاكرة سابقة (") || event.reason?.startsWith("Pomodoro — تسجيل يدوي")) && stats.id !== null;
     if (allocated) stats.allocatedMinutes += Number(event.minutes);
     else stats.trackedMinutes += Number(event.minutes);
     if (event.kind === "pomodoro_complete") stats.focusSessions++;
@@ -919,6 +923,19 @@ export async function subjectAnalytics(userId: number) {
     const id = linked?.size === 1 ? [...linked][0] : linked?.size ? null : attempt.subjectId;
     const stats = (id === null ? null : subjectsById.get(id)) ?? unassigned;
     stats.attempts++;
+    if (stats.recentAttempts.length < 10) stats.recentAttempts.push({
+      id: attempt.attemptId, exam: attempt.examTitle, score: Number(attempt.score), date: cairo.format(attempt.date),
+    });
+    const seenTopics = new Set<string>();
+    for (const label of Array.isArray(attempt.missed) ? attempt.missed : []) {
+      if (typeof label !== "string") continue;
+      const topic = label.trim().replace(/\s+/g, " ");
+      const key = topic.toLocaleLowerCase("ar-EG");
+      if (!key || seenTopics.has(key)) continue;
+      seenTopics.add(key);
+      const previous = stats.mistakes.get(key);
+      stats.mistakes.set(key, { topic: previous?.topic ?? topic, count: (previous?.count ?? 0) + 1 });
+    }
     stats.scoreTotal += Number(attempt.score);
     stats.comprehensionTotal += Number(attempt.comprehension);
     stats.bestScore = Math.max(stats.bestScore ?? 0, Number(attempt.score));
@@ -930,6 +947,8 @@ export async function subjectAnalytics(userId: number) {
     averageScore: stats.attempts ? Math.round(stats.scoreTotal * 10 / stats.attempts) / 10 : null,
     averageComprehension: stats.attempts ? Math.round(stats.comprehensionTotal * 10 / stats.attempts) / 10 : null,
     bestScore: stats.bestScore,
+    recentAttempts: stats.recentAttempts,
+    missedTopics: [...stats.mistakes.values()].sort((a, b) => b.count - a.count || a.topic.localeCompare(b.topic, "ar-EG")).slice(0, 12),
   }));
 }
 

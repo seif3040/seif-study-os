@@ -43,13 +43,25 @@ function SubjectReport() {
         </div>}
         <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
           <div><dt className="text-xs text-muted-foreground">وقت منسوب مباشرة</dt><dd className="font-semibold">{hours(subject.trackedMinutes)}</dd></div>
-          <div><dt className="text-xs text-muted-foreground">وقت موزّع تقديريًا</dt><dd className="font-semibold">{hours(subject.allocatedMinutes)}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">وقت تاريخي موزّع</dt><dd className="font-semibold">{hours(subject.allocatedMinutes)}</dd></div>
           <div><dt className="text-xs text-muted-foreground">محاولات الامتحانات</dt><dd className="font-semibold">{format.format(subject.attempts)}</dd></div>
           <div><dt className="text-xs text-muted-foreground">متوسط النتيجة</dt><dd className="font-semibold">{percent(subject.averageScore)}</dd></div>
           <div><dt className="text-xs text-muted-foreground">أفضل نتيجة</dt><dd className="font-semibold">{percent(subject.bestScore)}</dd></div>
           <div><dt className="text-xs text-muted-foreground">متوسط الاستيعاب</dt><dd className="font-semibold">{percent(subject.averageComprehension)}</dd></div>
           <div><dt className="text-xs text-muted-foreground">مراجعات الدروس</dt><dd className="font-semibold">{format.format(subject.reviews)}</dd></div>
         </dl>
+        {!!subject.recentAttempts.length && <details className="mt-4 border-t pt-3">
+          <summary className="cursor-pointer text-sm font-semibold">آخر محاولات الامتحانات</summary>
+          <ul className="mt-2 divide-y">{subject.recentAttempts.map(attempt => <li key={attempt.id} className="flex justify-between gap-2 py-2 text-sm">
+            <span>{attempt.exam}<small className="block text-muted-foreground">{attempt.date}</small></span><b>{percent(attempt.score)}</b>
+          </li>)}</ul>
+        </details>}
+        {!!subject.missedTopics.length && <details className="mt-3 border-t pt-3">
+          <summary className="cursor-pointer text-sm font-semibold">موضوعات الغلط المتكررة</summary>
+          <ul className="mt-2 divide-y">{subject.missedTopics.map(item => <li key={item.topic} className="flex justify-between gap-2 py-2 text-sm">
+            <span>{item.topic}</span><b>{format.format(item.count)} محاولة</b>
+          </li>)}</ul>
+        </details>}
       </article>)}
     </div>
     <p className="mt-3 text-xs text-muted-foreground">الساعات القديمة اللي اتسجلت من غير مواد اتوزّعت بالترتيب على مواد الخطة. الامتحانات المشتركة بين مواد بتظهر في «بدون مادة» عشان النتيجة ما تتحسبش مرتين.</p>
