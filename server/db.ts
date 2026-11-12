@@ -3,7 +3,7 @@ import { and, count, desc, eq, gte, inArray, isNull, like, lte, or, sql } from "
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   achievements, calendarEvents, chapters, coinTransactions, examAttempts, examLessons, exams, goalMilestones,
-  coinRateSettings, assistantChats, assistantMessages, dailyStudySummaries, goals, habitCompletions, habits, lessonProgress, lessons, flashcardDecks, flashcards, notebooks, notebookSources, notes, pomodoroSessions,
+  offlineTaskWrites, coinRateSettings, assistantChats, assistantMessages, dailyStudySummaries, goals, habitCompletions, habits, lessonProgress, lessons, flashcardDecks, flashcards, notebooks, notebookSources, notes, pomodoroSessions,
   rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks, lessonSources,
   userAchievements, users, type InsertUser,
 } from "../drizzle/schema.js";
@@ -1187,4 +1187,47 @@ export async function syncOfflineFocus(userId: number, input: {
   });
   if (!result.alreadySynced) await evaluateAchievements(userId, cycle.id).catch(error => console.warn("Offline focus achievements failed", error instanceof Error ? error.name : "unknown"));
   return result;
+}
+
+
+export async function createRecurringTasks(userId: number, input: {
+  title: string; description?: string; category?: string; priority: "urgent" | "medium" | "low";
+  startsOn: string; weekdays: number[]; weeks: number;
+}) {
+  const db = await database();
+  const cycle = await getActiveCycle(userId);
+  const weekdays = new Set(input.weekdays);
+  const start = Date.parse(input.startsOn + "T00:00:00Z");
+  const days = Array.from({ length: input.weeks * 7 }, (_, index) => new Date(start + index * 86_400_000))
+    .filter(day => weekdays.has(day.getUTCDay())).map(day => day.toISOString().slice(0, 10));
+  return db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const existing = await tx.select({ day: tasks.scheduledFor }).from(tasks)
+      .where(and(eq(tasks.userId, userId), eq(tasks.title, input.title), inArray(tasks.scheduledFor, days)));
+    const seen = new Set(existing.map(row => row.day));
+    const fresh = days.filter(day => !seen.has(day));
+    if (fresh.length) await tx.insert(tasks).values(fresh.map(day => ({
+      userId, cycleId: cycle.id, title: input.title, description: input.description ?? null,
+      category: input.category ?? "دراسة", priority: input.priority, scheduledFor: day,
+    })));
+    return { added: fresh.length, skipped: days.length - fresh.length };
+  });
+}
+
+
+export async function syncOfflineTask(userId: number, input: { key: string; title: string; day: string }) {
+  const db = await database();
+  const cycle = await getActiveCycle(userId);
+  return db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const requestKey = input.key.toLowerCase();
+    const [existing] = await tx.select().from(offlineTaskWrites)
+      .where(and(eq(offlineTaskWrites.userId, userId), eq(offlineTaskWrites.requestKey, requestKey))).limit(1);
+    if (existing) return { taskId: existing.taskId, alreadySynced: true };
+    const [task] = await tx.insert(tasks).values({
+      userId, cycleId: cycle.id, title: input.title, scheduledFor: input.day, priority: "medium",
+    });
+    await tx.insert(offlineTaskWrites).values({ userId, requestKey, taskId: task.insertId });
+    return { taskId: task.insertId, alreadySynced: false };
+  });
 }

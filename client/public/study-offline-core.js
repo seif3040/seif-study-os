@@ -86,6 +86,12 @@
     });
   }
 
+  function createTask(ownerId, title, day) {
+    return transaction(["queue"], "readwrite", tx => {
+      tx.objectStore("queue").put({ key: crypto.randomUUID(), kind: "task-create", ownerId, title, day, completedAt: Date.now() });
+    });
+  }
+
   function completeTask(ownerId, taskId) {
     return transaction(["queue"], "readwrite", tx => {
       tx.objectStore("queue").put({
@@ -115,8 +121,10 @@
     let count = 0;
     for (const item of pending) {
       const isTask = item.kind === "task";
-      const route = isTask ? "tasks.syncCompletion" : "pomodoro.syncOffline";
-      const payload = isTask ? { ownerId: item.ownerId, taskId: item.taskId, completedAt: item.completedAt } : item;
+      const isCreate = item.kind === "task-create";
+      const route = isCreate ? "tasks.syncCreate" : isTask ? "tasks.syncCompletion" : "pomodoro.syncOffline";
+      const payload = isCreate ? { ownerId: item.ownerId, key: item.key, title: item.title, day: item.day }
+        : isTask ? { ownerId: item.ownerId, taskId: item.taskId, completedAt: item.completedAt } : item;
       const response = await fetch("/api/trpc/" + route, {
         method: "POST",
         credentials: "same-origin",
@@ -127,16 +135,20 @@
       if (response.status === 401 || response.status === 403) return count;
       if (!response.ok) throw new Error("جلسة مستنية المزامنة (" + response.status + ").");
       const output = await response.json();
-      if (typeof output.result?.data?.json?.[isTask ? "alreadyCompleted" : "alreadySynced"] !== "boolean") throw new Error("تعذّر تأكيد حفظ الجلسة.");
+      const saved = output.result?.data?.json;
+      if (typeof saved?.[isTask ? "alreadyCompleted" : "alreadySynced"] !== "boolean" || (isCreate && !Number.isSafeInteger(saved.taskId))) throw new Error("تعذّر تأكيد حفظ الجلسة.");
       await transaction(["queue", "state"], "readwrite", tx => {
         tx.objectStore("queue").delete(item.key);
-        if (!isTask) return;
+        if (!isTask && !isCreate) return;
         const state = tx.objectStore("state");
         const request = state.get("snapshot");
         request.onsuccess = () => {
           const current = request.result;
           if (current?.ownerId !== item.ownerId) return;
-          current.tasks = current.tasks.map(task => task.id === item.taskId ? { ...task, completed: true } : task);
+          if (isTask) current.tasks = current.tasks.map(task => task.id === item.taskId ? { ...task, completed: true } : task);
+          else if (!current.tasks.some(task => task.id === saved.taskId)) {
+            current.tasks.push({ id: saved.taskId, title: item.title, completed: false, day: item.day });
+          }
           state.put(current, "snapshot");
         };
       });
@@ -156,5 +168,5 @@
     if (registration?.sync) await registration.sync.register(SYNC_TAG);
   }
 
-  globalThis.StudyOffline = { get, remember, forget, start, finish, cancel, completeTask, queue, sync, background, SYNC_TAG };
+  globalThis.StudyOffline = { get, remember, forget, start, finish, cancel, createTask, completeTask, queue, sync, background, SYNC_TAG };
 })();

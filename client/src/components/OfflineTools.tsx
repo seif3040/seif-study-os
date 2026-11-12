@@ -25,10 +25,38 @@ declare global {
 
 export default function OfflineTools({ ownerId }: { ownerId: number }) {
   const utils = trpc.useUtils();
+  const { mutateAsync: saveDaily } = trpc.backup.keepDaily.useMutation();
   const summary = trpc.dashboard.summary.useQuery();
   const [updateOpen, setUpdateOpen] = useState(false);
   const [deferUpdate, setDeferUpdate] = useState(false);
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    async function backup() {
+      if (!navigator.onLine) return;
+      try {
+        const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+        const key = "seif-last-daily-backup:" + ownerId;
+        if (sessionStorage.getItem(key) === day) return;
+        await saveDaily();
+        if (alive) {
+          sessionStorage.setItem(key, day);
+          await utils.backup.daily.invalidate();
+        }
+      } catch { /* Keep the next automatic attempt available. */ }
+    }
+    void backup();
+    window.addEventListener("online", backup);
+    window.addEventListener("focus", backup);
+    const timer = window.setInterval(backup, 3_600_000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      window.removeEventListener("online", backup);
+      window.removeEventListener("focus", backup);
+    };
+  }, [ownerId, saveDaily, utils]);
 
   useEffect(() => {
     if (!summary.data || !window.StudyOffline) return;

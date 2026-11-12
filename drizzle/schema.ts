@@ -1,4 +1,4 @@
-import { boolean, date, index, int, json, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import { boolean, date, index, int, json, longtext, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -380,3 +380,20 @@ export const studyEvents = mysqlTable("studyEvents", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+
+export const offlineTaskWrites = mysqlTable("offlineTaskWrites", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  requestKey: varchar("requestKey", { length: 36 }).notNull(),
+  taskId: int("taskId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => [uniqueIndex("offlineTaskWrites_user_request").on(table.userId, table.requestKey)]);
+
+export const savedStudyBackups = mysqlTable("savedStudyBackups", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  backupDay: date("backupDay", { mode: "string" }).notNull(),
+  archive: longtext("archive").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => [uniqueIndex("savedStudyBackups_user_day").on(table.userId, table.backupDay)]);

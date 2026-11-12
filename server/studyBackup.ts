@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { getTableColumns, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, sql } from "drizzle-orm";
 import { type MySqlTable } from "drizzle-orm/mysql-core";
 import * as schema from "../drizzle/schema.js";
 import { ENV } from "./_core/env.js";
@@ -108,4 +108,44 @@ export async function restoreStudyBackup(userId: number, raw: string, preview: b
     return count;
   });
   return { summary, restored };
+}
+
+
+function cairoBackupDay() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const fields = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return [fields.year, fields.month, fields.day].join("-");
+}
+
+export async function keepDailyBackup(userId: number, includeCatalog: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("الاتصال بقاعدة البيانات مش متاح.");
+  const backupDay = cairoBackupDay();
+  const [existing] = await db.select({ id: schema.savedStudyBackups.id }).from(schema.savedStudyBackups)
+    .where(and(eq(schema.savedStudyBackups.userId, userId), eq(schema.savedStudyBackups.backupDay, backupDay))).limit(1);
+  if (!existing) {
+    const archive = await signedStudyBackup(userId, includeCatalog);
+    await db.insert(schema.savedStudyBackups).values({ userId, backupDay, archive: JSON.stringify(archive) })
+      .onDuplicateKeyUpdate({ set: { backupDay } });
+  }
+  return { backupDay };
+}
+
+export async function listDailyBackups(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("الاتصال بقاعدة البيانات مش متاح.");
+  return db.select({ id: schema.savedStudyBackups.id, day: schema.savedStudyBackups.backupDay, createdAt: schema.savedStudyBackups.createdAt })
+    .from(schema.savedStudyBackups).where(eq(schema.savedStudyBackups.userId, userId))
+    .orderBy(desc(schema.savedStudyBackups.backupDay)).limit(30);
+}
+
+export async function downloadDailyBackup(userId: number, backupId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("الاتصال بقاعدة البيانات مش متاح.");
+  const [item] = await db.select({ archive: schema.savedStudyBackups.archive, day: schema.savedStudyBackups.backupDay })
+    .from(schema.savedStudyBackups).where(and(eq(schema.savedStudyBackups.id, backupId), eq(schema.savedStudyBackups.userId, userId))).limit(1);
+  if (!item) throw new Error("النسخة مش موجودة.");
+  return item;
 }

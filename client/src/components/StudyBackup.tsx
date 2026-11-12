@@ -36,6 +36,15 @@ const labels: Record<Format, string> = {
 
 export default function StudyBackup() {
   const backup = trpc.backup.export.useMutation();
+  const daily = trpc.backup.daily.useQuery();
+  const savedFile = trpc.backup.downloadDaily.useMutation();
+
+  async function downloadSaved(id: number) {
+    try {
+      const result = await savedFile.mutateAsync({ backupId: id });
+      download("seif-study-backup-" + result.day + ".json", result.archive, "application/json");
+    } catch (error) { toast.error(errorText(error)); }
+  }
 
   async function exportFile(format: Format) {
     try {
@@ -65,6 +74,16 @@ export default function StudyBackup() {
     </div>
     <div className="flex flex-wrap gap-2">
       {formats.map(format => <Button key={format} variant={format === "json" ? "default" : "outline"} disabled={backup.isPending} onClick={() => void exportFile(format)}><Download />{labels[format]}</Button>)}
+    </div>
+    <div className="mt-5 border-t pt-5">
+      <h3 className="font-bold">النسخ التلقائية</h3>
+      <p className="mt-1 text-sm text-muted-foreground">نسخة واحدة يوميًا أول ما تفتح الموقع وإنت متصل. النسخة بتتحفظ على الخادم وتقدر تنزّلها لجهازك.</p>
+      {daily.isError ? <p className="text-sm">تعذّر تحميل النسخ.</p> : daily.data?.length ? <details className="mt-2">
+        <summary className="cursor-pointer text-sm font-medium">آخر نسخة {daily.data[0].day}</summary>
+        <ul className="mt-2 max-h-52 divide-y overflow-auto">{daily.data.map(item => <li key={item.id} className="flex items-center justify-between gap-2 py-2 text-sm">
+          <span>{item.day}</span><Button size="sm" variant="ghost" disabled={savedFile.isPending} onClick={() => void downloadSaved(item.id)}>تنزيل</Button>
+        </li>)}</ul>
+      </details> : <p className="mt-2 text-sm text-muted-foreground">{daily.isLoading ? "جارٍ التحميل…" : "لسه مفيش نسخة تلقائية."}</p>}
     </div>
     <StudyRestore />
     <CsvImport />

@@ -5,7 +5,7 @@ import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies.js";
 import { systemRouter } from "./_core/systemRouter.js";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc.js";
-import { restoreStudyBackup, signedStudyBackup } from "./studyBackup.js";
+import { downloadDailyBackup, keepDailyBackup, listDailyBackups, restoreStudyBackup, signedStudyBackup } from "./studyBackup.js";
 import * as db from "./db.js";
 import * as personalAssistant from "./personalAssistant.js";
 import { safeStudyUrl } from "../client/src/lib/videoSources.js";
@@ -35,6 +35,9 @@ export const appRouter = router({
   workspaceSearch: protectedProcedure.input(z.object({ query: z.string().trim().min(2).max(100) }))
     .query(({ ctx, input }) => db.searchWorkspaceTitles(ctx.user.id, input.query)),
   backup: router({
+    keepDaily: protectedProcedure.mutation(({ ctx }) => keepDailyBackup(ctx.user.id, ctx.user.role === "admin")),
+    daily: protectedProcedure.query(({ ctx }) => listDailyBackups(ctx.user.id)),
+    downloadDaily: protectedProcedure.input(z.object({ backupId: id })).mutation(({ ctx, input }) => downloadDailyBackup(ctx.user.id, input.backupId)),
     importCsv: protectedProcedure.input(z.object({
       kind: z.enum(["tasks", "exams"]),
       preview: z.boolean(),
@@ -66,6 +69,17 @@ export const appRouter = router({
     review: protectedProcedure.input(z.object({ lessonId: id })).mutation(({ ctx, input }) => db.reviewLesson(ctx.user.id, input.lessonId)),
   }),
   tasks: router({
+    syncCreate: protectedProcedure.input(z.object({ ownerId: id, key: z.string().uuid(), title: z.string().trim().min(1).max(200), day: z.string().date() }))
+      .mutation(({ ctx, input }) => {
+        if (ctx.user.id !== input.ownerId) throw new TRPCError({ code: "FORBIDDEN" });
+        return db.syncOfflineTask(ctx.user.id, input);
+      }),
+    createRecurring: protectedProcedure.input(z.object({
+      title: z.string().trim().min(1).max(200),
+      description: z.string().max(2000).optional(), category: z.string().trim().min(1).max(80).optional(),
+      priority, startsOn: z.string().date(), weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
+      weeks: z.number().int().min(1).max(52),
+    })).mutation(({ ctx, input }) => db.createRecurringTasks(ctx.user.id, input)),
     syncCompletion: protectedProcedure.input(z.object({ ownerId: id, taskId: id, completedAt: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         if (input.ownerId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });

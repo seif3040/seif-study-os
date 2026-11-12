@@ -30,7 +30,7 @@
     for (const task of snapshot.tasks) {
       const item = document.createElement("li");
       const pendingTask = items.some(entry => entry.kind === "task" && entry.taskId === task.id);
-      item.textContent = task.title + (pendingTask ? " — مستني المزامنة" : task.completed ? " ✓" : "");
+      item.textContent = task.title + (task.day ? " (" + task.day + ")" : "") + (pendingTask ? " — مستني المزامنة" : task.completed ? " ✓" : "");
       if (task.id && !task.completed && !pendingTask) {
         const button = document.createElement("button");
         button.className = "secondary";
@@ -48,7 +48,13 @@
       }
       list.append(item);
     }
-    if (!snapshot.tasks.length) list.textContent = "مفيش مهام في الجدول المحفوظ.";
+    const additions = items.filter(item => item.kind === "task-create");
+    for (const addition of additions) {
+      const entry = document.createElement("li");
+      entry.textContent = addition.title + " — مهمة جديدة مستنية المزامنة";
+      list.append(entry);
+    }
+    if (!snapshot.tasks.length && !additions.length) list.textContent = "مفيش مهام في الجدول المحفوظ.";
   }
 
   async function sync() {
@@ -94,6 +100,29 @@
     try { if (timer) await store.cancel(snapshot.ownerId, timer.key); await render(); }
     catch { showError(); }
   });
+  byId("new-task-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!snapshot) return;
+    const input = byId("new-task-title");
+    const submit = byId("new-task-submit");
+    const title = input.value.trim();
+    if (!title) return;
+    submit.disabled = true;
+    try {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
+      }).formatToParts(new Date());
+      const fields = Object.fromEntries(parts.map(part => [part.type, part.value]));
+      const day = [fields.year, fields.month, fields.day].join("-");
+      await store.createTask(snapshot.ownerId, title, day);
+      input.value = "";
+      await refreshPending();
+      await store.background().catch(() => undefined);
+      await sync();
+    } catch { showError(); }
+    finally { submit.disabled = false; }
+  });
+
   minutes.addEventListener("change", () => void render());
   window.addEventListener("online", () => void sync().catch(showError));
   window.addEventListener("offline", () => void sync().catch(showError));

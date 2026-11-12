@@ -33,10 +33,14 @@ export function TaskDialog({ task, initialTitle, day, onClose, onDone }: {
   const [deadline, setDeadline] = useState(task?.deadline ? localDateTime(new Date(task.deadline)) : "");
   const [priority, setPriority] = useState<keyof typeof priorities>(task?.priority ?? "medium");
   const [category, setCategory] = useState(task?.category ?? "");
+  const [repeat, setRepeat] = useState(false);
+  const [weekdays, setWeekdays] = useState<number[]>([]);
+  const [weeks, setWeeks] = useState(4);
+  const recurring = trpc.tasks.createRecurring.useMutation();
   const create = trpc.tasks.create.useMutation();
   const update = trpc.tasks.update.useMutation();
   const complete = trpc.tasks.complete.useMutation();
-  const pending = create.isPending || update.isPending || complete.isPending;
+  const pending = recurring.isPending || create.isPending || update.isPending || complete.isPending;
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -50,6 +54,17 @@ export function TaskDialog({ task, initialTitle, day, onClose, onDone }: {
       category: category.trim() || undefined,
     };
     try {
+      if (!task && repeat) {
+        if (!scheduledFor || !weekdays.length || !Number.isInteger(weeks) || weeks < 1 || weeks > 52) return;
+        const result = await recurring.mutateAsync({
+          title: input.title, description: input.description, category: input.category, priority: input.priority,
+          startsOn: scheduledFor, weekdays, weeks,
+        });
+        toast.success("اتضافت " + result.added + " مهمة" + (result.skipped ? " واتخطّينا " + result.skipped + " مكررة." : "."));
+        onClose();
+        await onDone();
+        return;
+      }
       if (task) await update.mutateAsync({ taskId: task.id, ...input });
       else await create.mutateAsync(input);
     } catch (error) {
@@ -97,13 +112,27 @@ export function TaskDialog({ task, initialTitle, day, onClose, onDone }: {
         <label className="block space-y-1"><span>التفاصيل</span><Textarea value={description} onChange={e => setDescription(e.target.value)} maxLength={2000} /></label>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block space-y-1"><span>اليوم المجدول</span><Input type="date" value={scheduledFor} onChange={e => setScheduledFor(e.target.value)} required={!task} /></label>
-          <label className="block space-y-1"><span>آخر موعد</span><Input type="datetime-local" value={deadline} onChange={e => setDeadline(e.target.value)} /></label>
+          <label className="block space-y-1"><span>آخر موعد</span><Input type="datetime-local" disabled={repeat} value={deadline} onChange={e => setDeadline(e.target.value)} /></label>
           <label className="block space-y-1"><span>الأولوية</span><select className="h-10 w-full rounded-md border bg-background px-2" value={priority} onChange={e => setPriority(e.target.value as keyof typeof priorities)}>
             {Object.entries(priorities).map(([value, item]) => <option key={value} value={value}>{item.label}</option>)}
           </select></label>
           <label className="block space-y-1"><span>التصنيف</span><Input value={category} onChange={e => setCategory(e.target.value)} placeholder="دراسة" maxLength={80} /></label>
         </div>
-        <DialogFooter><Button type="button" variant="outline" onClick={onClose} disabled={pending}>إلغاء</Button><Button type="submit" disabled={!title.trim() || pending}>حفظ المهمة</Button></DialogFooter>
+        {!task && <div className="space-y-3 rounded-lg border p-3">
+          <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={repeat} onChange={event => setRepeat(event.target.checked)} />مهمة متكررة</label>
+          {repeat && <>
+            <div className="flex flex-wrap gap-2">{["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"].map((label, index) =>
+              <label key={label} className="flex items-center gap-1 rounded-md border p-2 text-xs">
+                <input type="checkbox" checked={weekdays.includes(index)} onChange={event => {
+                  const checked = event.target.checked;
+                  setWeekdays(previous => checked ? [...previous, index] : previous.filter(day => day !== index));
+                }} />{label}
+              </label>)}</div>
+            <label className="flex items-center gap-2 text-sm">عدد الأسابيع <Input type="number" className="w-20" min={1} max={52} value={weeks} onChange={event => setWeeks(Number(event.target.value))} required /></label>
+            <p className="text-xs text-muted-foreground">هيتعمل سجل منفصل في كل يوم اخترته بدايةً من التاريخ المجدول.</p>
+          </>}
+        </div>}
+        <DialogFooter><Button type="button" variant="outline" onClick={onClose} disabled={pending}>إلغاء</Button><Button type="submit" disabled={!title.trim() || pending || (repeat && !weekdays.length)}>حفظ المهمة</Button></DialogFooter>
       </form> : task && <>
         <div className="flex flex-wrap gap-2">
           <Badge className={priorities[task.priority].tone}>{priorities[task.priority].label}</Badge>
