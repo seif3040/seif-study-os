@@ -1,4 +1,5 @@
 import { ArrowLeft, BookOpen, CalendarDays, Check, CircleDollarSign, Clock3, Flame, GraduationCap, Sparkles, Timer } from "lucide-react";
+import type { CSSProperties } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -40,12 +41,12 @@ export default function Dashboard() {
       <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-6xl">النهارده</h1>
       
       <div className="mt-5 flex flex-wrap gap-2">
-        <Button asChild className="study-hero-action"><Link href="/pomodoro"><Timer />{ongoingPomodoro ? "كمّل جلسة التركيز" : "ابدأ بومودورو"}</Link></Button>
-        <Button asChild variant="outline" className="border-white/50 bg-transparent text-white hover:bg-white/15 hover:text-white"><Link href="/seify"><Sparkles />كلم جارفيس</Link></Button>
+        <Button asChild className="study-hero-action study-interactive"><Link href="/pomodoro"><Timer />{ongoingPomodoro ? "كمّل جلسة التركيز" : "ابدأ بومودورو"}</Link></Button>
+        <Button asChild variant="outline" className="study-interactive border-white/50 bg-transparent text-white hover:bg-white/15 hover:text-white"><Link href="/seify"><Sparkles />كلم جارفيس</Link></Button>
       </div>
       </div>
       <div className="today-progress">
-        <div className="today-progress-ring" style={{ background: "conic-gradient(var(--study-glow) " + progress + "%, #ffffff30 0)" }} aria-hidden>
+        <div className="today-progress-ring" style={{ "--study-progress": progress + "%" } as CSSProperties} aria-hidden>
           <span>{money.format(progress)}٪</span>
         </div>
         <div>
@@ -58,12 +59,12 @@ export default function Dashboard() {
     <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
       <section className="surface overflow-hidden">
         <header className="flex items-center justify-between gap-2 border-b px-5 py-4">
-          <h2 className="font-bold">مهام النهارده</h2>
+          <h2 className="flex items-center gap-2 font-bold"><CalendarDays className="size-4 text-primary" aria-hidden />مهام النهارده</h2>
           <Button variant="ghost" size="sm" asChild><Link href="/calendar">التقويم <ArrowLeft /></Link></Button>
         </header>
         {todaysTasks.length ? <ul className="divide-y">
-          {todaysTasks.map(task => <li key={task.id} className="flex items-center gap-3 px-5 py-3">
-            <Button size="icon" variant={task.status === "completed" ? "secondary" : "outline"} disabled={task.status === "completed" || complete.isPending} aria-label={task.status === "completed" ? "مكتملة" : "إكمال " + task.title} onClick={() => complete.mutate({ taskId: task.id })}><Check /></Button>
+          {todaysTasks.map(task => <li key={task.id} className="study-task-row flex items-center gap-3 px-5 py-3" data-completed={task.status === "completed"}>
+            <Button size="icon" variant={task.status === "completed" ? "secondary" : "outline"} disabled={task.status === "completed" || complete.isPending} aria-label={task.status === "completed" ? "مكتملة" : "إكمال " + task.title} onClick={() => complete.mutate({ taskId: task.id })}><Check className={task.status === "completed" ? "study-check" : undefined} /></Button>
             <span className={task.status === "completed" ? "text-muted-foreground line-through" : "font-medium"}>{task.title}</span>
             {task.status !== "completed" && task.priority === "urgent" && <span className="ms-auto rounded-full bg-rose-100 px-2 py-1 text-xs text-rose-800">عاجلة</span>}
           </li>)}
@@ -82,7 +83,7 @@ export default function Dashboard() {
 
     <section className="surface overflow-hidden">
       <header className="flex items-center justify-between border-b px-5 py-4">
-        <h2 className="font-bold">المراجعات المستحقة</h2>
+        <h2 className="flex items-center gap-2 font-bold"><BookOpen className="size-4 text-primary" aria-hidden />المراجعات المستحقة</h2>
         <Button variant="ghost" size="sm" asChild><Link href="/calendar">التقويم <ArrowLeft /></Link></Button>
       </header>
       {reviews.isLoading ? <p className="p-5 text-sm text-muted-foreground">جارٍ تحميل المراجعات…</p> : reviews.isError ? <p className="p-5 text-sm text-muted-foreground">تعذّر تحميل المراجعات.</p> : due.length ? <ul className="divide-y">{due.slice(0, 6).map(item => <li key={item.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
@@ -98,7 +99,7 @@ export default function Dashboard() {
         { label: "الدروس المكتملة", value: money.format(metrics.lessonsCompleted), Icon: BookOpen, href: "/study-plan" },
         { label: "سلسلة المذاكرة", value: money.format(metrics.currentStreak) + " يوم", Icon: Flame, href: "/analytics" },
         { label: "رصيد Coins", value: money.format(coins.balance), Icon: CircleDollarSign, href: "/coins" },
-      ].map(({ label, value, Icon, href }) => <Link href={href} key={label} className="surface study-stat block p-4 hover:border-primary/40 sm:p-5">
+      ].map(({ label, value, Icon, href }) => <Link href={href} key={label} className="surface study-stat study-interactive block p-4 hover:border-primary/40 sm:p-5">
         <span className="metric-icon bg-primary/10 text-primary"><Icon /></span>
         <p className="mt-3 text-sm text-muted-foreground">{label}</p>
         <p className="mt-1 text-lg font-bold sm:text-xl">{value}</p>

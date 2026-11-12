@@ -265,7 +265,7 @@ export default function Seify() {
     <section className="surface flex min-w-0 flex-col">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
         <div className="flex min-w-0 items-center gap-2">
-          <h1 className="flex items-center gap-2 text-xl font-bold"><Sparkles className="text-primary" />جارفيس</h1>
+          <h1 className="flex items-center gap-2 text-xl font-bold"><span className="study-heading-icon study-jarvis-icon" aria-hidden><Sparkles /></span>جارفيس</h1>
           {canManageChat && <>
             <Button type="button" size="icon" variant="ghost" aria-label="إعادة تسمية المحادثة" title="إعادة تسمية المحادثة" disabled={busy} onClick={() => {
               setChatTitle(selectedChat?.title ?? "المحادثة السابقة");
@@ -283,9 +283,11 @@ export default function Seify() {
         {messages.isLoading && <p className="text-sm text-muted-foreground">جارٍ تحميل الرسائل…</p>}
         {messages.isError && <button className="text-sm text-primary" onClick={() => void messages.refetch()}>تعذّر التحميل. جرّب تاني.</button>}
         {!messages.isLoading && !messages.isError && !messages.data?.length && !outgoing && <p className="text-sm text-muted-foreground">مثلاً «ضيف مهمة حل الواجب بكرة» أو «ضيف امتحان مراجعة الفيزياء».</p>}
-        {messages.data?.map(message => <p key={message.id} className={"max-w-[90%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm " + (message.role === "user" ? "ms-auto bg-primary text-primary-foreground" : "me-auto bg-muted")}>{message.content}</p>)}
+        {messages.data?.map(message => <p key={message.id} className={"study-message max-w-[90%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm " + (message.role === "user" ? "ms-auto bg-primary text-primary-foreground" : "me-auto bg-muted")}>{message.content}</p>)}
         {outgoing && <p className="ms-auto max-w-[90%] whitespace-pre-wrap rounded-2xl bg-primary px-4 py-3 text-sm text-primary-foreground">{outgoing}</p>}
-        {ask.isPending && <p className="text-sm text-muted-foreground">جارفيس بيجهّز الرد…</p>}
+        {ask.isPending && <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+          <span className="study-typing" aria-hidden><i /><i /><i /></span>جارفيس بيجهّز الرد…
+        </p>}
         {plans.map(({ id, plan }) => {
           const editable = plan.actionType === "add_task" || plan.actionType === "add_exam";
           return <div key={id} className="space-y-2 rounded-xl border p-3">

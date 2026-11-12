@@ -32,9 +32,9 @@ function SubjectReport() {
     {report.isLoading && <p className="p-3 text-sm text-muted-foreground">جارٍ تحميل التحليلات…</p>}
     {report.isError && <button className="p-3 text-sm text-primary" onClick={() => void report.refetch()}>تعذّر التحميل. إعادة المحاولة</button>}
     <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
-      {visible.map(subject => <article key={subject.id ?? "none"} className="surface min-w-0 p-5">
+      {visible.map(subject => <article key={subject.id ?? "none"} className="surface study-interactive min-w-0 p-5">
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <div><h2 className="text-lg font-bold">{subject.title}</h2><p className="text-xs text-muted-foreground">{format.format(subject.activeDays)} يوم نشاط · {format.format(subject.focusSessions)} جلسة تركيز</p></div>
+          <div><h2 className="flex items-center gap-2 text-lg font-bold"><BookOpen className="size-4 text-primary" aria-hidden />{subject.title}</h2><p className="text-xs text-muted-foreground">{format.format(subject.activeDays)} يوم نشاط · {format.format(subject.focusSessions)} جلسة تركيز</p></div>
           <span className="rounded-lg bg-primary/10 px-2 py-1 text-sm font-bold text-primary">{hours(subject.minutes)}</span>
         </div>
         {subject.lessons > 0 && <div className="mt-4">
