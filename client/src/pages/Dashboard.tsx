@@ -12,7 +12,12 @@ const cairoDate = new Intl.DateTimeFormat("ar-EG", {
 
 export default function Dashboard() {
   const summary = trpc.dashboard.summary.useQuery();
+  const reviews = trpc.studyPlan.reviews.useQuery();
   const utils = trpc.useUtils();
+  const review = trpc.studyPlan.review.useMutation({
+    onSuccess: async () => { await utils.invalidate(); },
+    onError: error => toast.error(errorText(error)),
+  });
   const complete = trpc.tasks.complete.useMutation({
     onSuccess: async () => { await utils.invalidate(); },
     onError: error => toast.error(errorText(error)),
@@ -23,6 +28,9 @@ export default function Dashboard() {
   const { metrics, coins, todaysTasks, upcomingExams, ongoingPomodoro } = summary.data;
   const finished = todaysTasks.filter(task => task.status === "completed").length;
   const nextExam = upcomingExams[0];
+  const dayParts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()).map(part => [part.type, part.value]));
+  const today = [dayParts.year, dayParts.month, dayParts.day].join("-");
+  const due = reviews.data?.filter(item => item.day <= today) ?? [];
 
   return <div className="space-y-5">
     <section className="study-hero rounded-[2rem] p-6 sm:p-9">
@@ -59,6 +67,18 @@ export default function Dashboard() {
         <Button asChild variant="outline" className="mt-4"><Link href="/exams">كل الامتحانات <ArrowLeft /></Link></Button>
       </section>
     </div>
+
+    <section className="surface overflow-hidden">
+      <header className="flex items-center justify-between border-b px-5 py-4">
+        <h2 className="font-bold">المراجعات المستحقة</h2>
+        <Button variant="ghost" size="sm" asChild><Link href="/calendar">التقويم <ArrowLeft /></Link></Button>
+      </header>
+      {reviews.isLoading ? <p className="p-5 text-sm text-muted-foreground">جارٍ تحميل المراجعات…</p> : reviews.isError ? <p className="p-5 text-sm text-muted-foreground">تعذّر تحميل المراجعات.</p> : due.length ? <ul className="divide-y">{due.slice(0, 6).map(item => <li key={item.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
+        <div className="min-w-0 flex-1"><p className="font-medium">{item.title}</p><p className="text-sm text-muted-foreground">{item.subject}</p></div>
+        <Button variant="outline" size="sm" disabled={review.isPending} onClick={() => review.mutate({ lessonId: item.id })}>راجعت الدرس</Button>
+      </li>)}</ul> : <p className="p-5 text-sm text-muted-foreground">مفيش مراجعات مستحقة النهارده.</p>}
+      {due.length > 6 && <p className="border-t p-4 text-sm text-muted-foreground">{money.format(due.length - 6)} مراجعات إضافية</p>}
+    </section>
 
     <section aria-label="تقدم المذاكرة" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {[

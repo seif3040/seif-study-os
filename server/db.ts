@@ -1097,3 +1097,27 @@ export async function assignFocusSubject(userId: number, eventIds: number[], sub
     return { updated: rows.length };
   });
 }
+
+
+export async function lessonReviewSchedule(userId: number) {
+  const db = await database();
+  const rows = await db.select({
+    id: lessons.id, title: lessons.title, subject: subjects.title,
+    completedAt: lessonProgress.completedAt, reviewedAt: lessonProgress.lastReviewedAt,
+  }).from(lessonProgress).innerJoin(lessons, eq(lessons.id, lessonProgress.lessonId))
+    .innerJoin(chapters, eq(chapters.id, lessons.chapterId))
+    .innerJoin(subjects, eq(subjects.id, chapters.subjectId))
+    .where(and(eq(subjects.userId, userId), eq(lessonProgress.userId, userId), eq(lessonProgress.status, "completed")));
+  const cairo = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" });
+  const toDay = (date: Date) => {
+    const values = Object.fromEntries(cairo.formatToParts(date).map(part => [part.type, part.value]));
+    return [values.year, values.month, values.day].join("-");
+  };
+  return rows.flatMap(row => {
+    const base = row.reviewedAt ?? row.completedAt;
+    if (!base) return [];
+    const day = new Date(toDay(base) + "T00:00:00Z");
+    day.setUTCDate(day.getUTCDate() + (row.reviewedAt ? 7 : 3));
+    return [{ id: row.id, title: row.title, subject: row.subject, day: day.toISOString().slice(0, 10) }];
+  }).sort((a, b) => a.day.localeCompare(b.day) || a.id - b.id);
+}

@@ -20,8 +20,8 @@ function dayKey(date: Date) {
   return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
 }
 
-type Entry = { id: string; label: string; kind: "task" | "deadline" | "exam" | "goal" | "event" | "focus"; task?: CalendarTask };
-const labels = { task: "مهمة", deadline: "آخر موعد", exam: "امتحان", goal: "هدف", event: "تاريخ مهم", focus: "تركيز" };
+type Entry = { id: string; label: string; kind: "task" | "deadline" | "exam" | "goal" | "event" | "focus" | "review"; task?: CalendarTask };
+const labels = { task: "مهمة", deadline: "آخر موعد", exam: "امتحان", goal: "هدف", event: "تاريخ مهم", focus: "تركيز", review: "مراجعة" };
 const colors = {
   task: "bg-teal-100 text-teal-900",
   deadline: "bg-orange-100 text-orange-900",
@@ -29,6 +29,7 @@ const colors = {
   goal: "bg-violet-100 text-violet-900",
   event: "bg-amber-100 text-amber-900",
   focus: "bg-sky-100 text-sky-900",
+  review: "bg-indigo-100 text-indigo-900",
 };
 
 export default function CalendarPage() {
@@ -50,6 +51,7 @@ export default function CalendarPage() {
   }), [dates]);
   const taskQuery = trpc.tasks.list.useQuery();
   const calendar = trpc.calendar.list.useQuery(range);
+  const reviews = trpc.studyPlan.reviews.useQuery();
 
   const entries = useMemo(() => {
     const map = new Map<string, Entry[]>();
@@ -73,6 +75,9 @@ export default function CalendarPage() {
     for (const event of calendar.data?.events ?? []) {
       add(dayKey(new Date(event.startsAt)), { id: "event-" + event.id, label: event.title, kind: "event" });
     }
+    for (const review of reviews.data ?? []) {
+      add(review.day, { id: "review-" + review.id, label: review.title + " · " + review.subject, kind: "review" });
+    }
     const focus = new Map<string, number>();
     for (const session of calendar.data?.sessions ?? []) if (session.completedAt) {
       const date = dayKey(new Date(session.completedAt));
@@ -82,7 +87,7 @@ export default function CalendarPage() {
       add(date, { id: "focus-" + date, label: numbers.format(minutes) + " دقيقة تركيز", kind: "focus" });
     }
     return map;
-  }, [taskQuery.data, calendar.data]);
+  }, [taskQuery.data, calendar.data, reviews.data]);
 
   const refreshTasks = () => Promise.all([
     utils.tasks.list.invalidate(), utils.calendar.list.invalidate(), utils.dashboard.summary.invalidate(),

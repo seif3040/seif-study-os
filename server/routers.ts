@@ -46,6 +46,7 @@ export const appRouter = router({
   }),
   dashboard: router({ summary: protectedProcedure.query(({ ctx }) => db.dashboard(ctx.user.id)) }),
   studyPlan: router({
+    reviews: protectedProcedure.query(({ ctx }) => db.lessonReviewSchedule(ctx.user.id)),
     list: protectedProcedure.query(({ ctx }) => db.listStudyPlan(ctx.user.id)),
     createSubject: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(160), color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional() })).mutation(({ ctx, input }) => db.createSubject(ctx.user.id, input)),
     updateSubject: protectedProcedure.input(z.object({ subjectId: id, title: z.string().trim().min(1).max(160), color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional() })).mutation(({ ctx, input }) => db.updateSubject(ctx.user.id, input.subjectId, input)),
