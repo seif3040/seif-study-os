@@ -956,3 +956,72 @@ export async function exportStudyBackup(userId: number, includeCatalog: boolean)
     return { format: "seif-study-os", version: 1, exportedAt: new Date().toISOString(), records };
   });
 }
+
+
+export async function searchWorkspaceTitles(userId: number, query: string) {
+  const db = await database();
+  const pattern = "%" + query.replace(/[!%_]/g, character => "!" + character) + "%";
+  const [subjectRows, lessonRows, taskRows, examRows, chatRows] = await Promise.all([
+    db.select({ id: subjects.id, title: subjects.title }).from(subjects)
+      .where(and(eq(subjects.userId, userId), sql`${subjects.title} LIKE ${pattern} ESCAPE '!'`)).limit(12),
+    db.select({ id: lessons.id, title: lessons.title, subject: subjects.title }).from(lessons)
+      .innerJoin(chapters, eq(chapters.id, lessons.chapterId)).innerJoin(subjects, eq(subjects.id, chapters.subjectId))
+      .where(and(eq(subjects.userId, userId), or(sql`${lessons.title} LIKE ${pattern} ESCAPE '!'`, sql`${subjects.title} LIKE ${pattern} ESCAPE '!'`))).limit(12),
+    db.select({ id: tasks.id, title: tasks.title, date: tasks.scheduledFor }).from(tasks)
+      .where(and(eq(tasks.userId, userId), sql`${tasks.title} LIKE ${pattern} ESCAPE '!'`)).limit(12),
+    db.select({ id: exams.id, title: exams.title, subject: subjects.title }).from(exams)
+      .leftJoin(subjects, eq(exams.subjectId, subjects.id))
+      .where(and(eq(exams.userId, userId), isNull(exams.archivedAt), or(sql`${exams.title} LIKE ${pattern} ESCAPE '!'`, sql`${subjects.title} LIKE ${pattern} ESCAPE '!'`))).limit(12),
+    db.select({ id: assistantChats.id, title: assistantChats.title }).from(assistantChats)
+      .where(and(eq(assistantChats.userId, userId), sql`${assistantChats.title} LIKE ${pattern} ESCAPE '!'`)).limit(12),
+  ]);
+  return { subjects: subjectRows, lessons: lessonRows, tasks: taskRows, exams: examRows, chats: chatRows };
+}
+
+type ImportRow = { title: string; day?: string; priority: "urgent" | "medium" | "low" };
+
+export async function importStudyCsv(userId: number, kind: "tasks" | "exams", rows: ImportRow[], preview: boolean) {
+  const db = await database();
+  const cycle = preview ? undefined : await getActiveCycle(userId);
+  const dayInCairo = (date: Date) => {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+    const part = (type: string) => parts.find(item => item.type === type)?.value ?? "";
+    return [part("year"), part("month"), part("day")].join("-");
+  };
+  const today = dayInCairo(new Date());
+  const cairoHour = new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hour: "2-digit", hourCycle: "h23" });
+  function noonInCairo(day: string) {
+    const utcNoon = new Date(day + "T12:00:00Z");
+    return new Date(+utcNoon + (12 - Number(cairoHour.format(utcNoon))) * 3_600_000);
+  }
+  return db.transaction(async tx => {
+    if (!preview) await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const existing = kind === "tasks"
+      ? await tx.select({ title: tasks.title, day: tasks.scheduledFor }).from(tasks).where(eq(tasks.userId, userId))
+      : (await tx.select({ title: exams.title, scheduledAt: exams.scheduledAt }).from(exams).where(eq(exams.userId, userId)))
+          .map(row => ({ title: row.title, day: row.scheduledAt ? dayInCairo(row.scheduledAt) : null }));
+    const key = (title: string, day: string | null) => JSON.stringify([title.trim().toLocaleLowerCase("ar-EG"), day]);
+    const seen = new Set(existing.map(row => key(row.title, row.day)));
+    const statuses = rows.map(row => {
+      const day = row.day ?? (kind === "tasks" ? today : null);
+      const fingerprint = key(row.title, day);
+      const duplicate = seen.has(fingerprint);
+      seen.add(fingerprint);
+      return { ...row, day, duplicate };
+    });
+    const fresh = statuses.filter(row => !row.duplicate);
+    if (cycle && fresh.length) {
+      if (kind === "tasks") {
+        await tx.insert(tasks).values(fresh.map(row => ({
+          userId, cycleId: cycle.id, title: row.title, priority: row.priority, scheduledFor: row.day,
+        })));
+      } else {
+        await tx.insert(exams).values(fresh.map(row => ({
+          userId, cycleId: cycle.id, title: row.title,
+          scheduledAt: row.day ? noonInCairo(row.day) : null,
+        })));
+      }
+    }
+    return { rows: statuses, added: cycle ? fresh.length : 0 };
+  });
+}

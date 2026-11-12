@@ -30,7 +30,18 @@ export const appRouter = router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => { ctx.res.clearCookie(COOKIE_NAME, { ...getSessionCookieOptions(ctx.req), maxAge: -1 }); return { success: true } as const; }),
   }),
+  workspaceSearch: protectedProcedure.input(z.object({ query: z.string().trim().min(2).max(100) }))
+    .query(({ ctx, input }) => db.searchWorkspaceTitles(ctx.user.id, input.query)),
   backup: router({
+    importCsv: protectedProcedure.input(z.object({
+      kind: z.enum(["tasks", "exams"]),
+      preview: z.boolean(),
+      rows: z.array(z.object({
+        title: z.string().trim().min(1).max(200),
+        day: z.string().date().optional(),
+        priority: z.enum(["urgent", "medium", "low"]),
+      })).min(1).max(250),
+    })).mutation(({ ctx, input }) => db.importStudyCsv(ctx.user.id, input.kind, input.rows, input.preview)),
     export: protectedProcedure.mutation(({ ctx }) => db.exportStudyBackup(ctx.user.id, ctx.user.role === "admin")),
   }),
   dashboard: router({ summary: protectedProcedure.query(({ ctx }) => db.dashboard(ctx.user.id)) }),

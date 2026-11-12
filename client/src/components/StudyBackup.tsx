@@ -1,3 +1,4 @@
+import CsvImport from "@/components/CsvImport";
 import { DatabaseBackup, Download } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -64,5 +65,6 @@ export default function StudyBackup() {
     <div className="flex flex-wrap gap-2">
       {formats.map(format => <Button key={format} variant={format === "json" ? "default" : "outline"} disabled={backup.isPending} onClick={() => void exportFile(format)}><Download />{labels[format]}</Button>)}
     </div>
+    <CsvImport />
   </section>;
 }

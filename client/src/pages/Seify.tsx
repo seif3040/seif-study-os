@@ -30,8 +30,12 @@ type Mode = "text" | "dictate" | "live";
 export default function Seify() {
   const utils = trpc.useUtils();
   const [, navigate] = useLocation();
-  const from = new URLSearchParams(useSearch()).get("from") ?? "/";
-  const [chat, setChat] = useState<number>();
+  const params = new URLSearchParams(useSearch());
+  const from = params.get("from") ?? "/";
+  const [chat, setChat] = useState<number | undefined>(() => {
+    const id = Number(params.get("chat"));
+    return Number.isSafeInteger(id) && id > 0 ? id : undefined;
+  });
   const [chatDialog, setChatDialog] = useState<"rename" | "delete" | null>(null);
   const [chatTitle, setChatTitle] = useState("");
   const [draft, setDraft] = useState("");
