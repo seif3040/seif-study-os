@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { coinRateKeys } from "../shared/coinRates.js";
 import { z } from "zod";
 import { COOKIE_NAME } from "../shared/const.js";
@@ -90,6 +91,14 @@ export const appRouter = router({
     updateProgress: protectedProcedure.input(z.object({ goalId: id, progress: z.number().int().min(0).max(100) })).mutation(({ ctx, input }) => db.updateGoalProgress(ctx.user.id, input.goalId, input.progress)),
   }),
   pomodoro: router({
+    syncOffline: protectedProcedure.input(z.object({
+      ownerId: id, key: z.string().uuid(),
+      minutes: z.union([z.literal(15), z.literal(25), z.literal(45), z.literal(60)]),
+      startedAt: z.number().int().positive(), completedAt: z.number().int().positive(),
+    })).mutation(({ ctx, input }) => {
+      if (ctx.user.id !== input.ownerId) throw new TRPCError({ code: "FORBIDDEN", message: "افتح الحساب اللي سجّل الجلسة." });
+      return db.syncOfflineFocus(ctx.user.id, input);
+    }),
     assignments: protectedProcedure.query(({ ctx }) => db.listFocusAssignments(ctx.user.id)),
     assignSubject: protectedProcedure.input(z.object({ eventIds: z.array(id).min(1).max(400), subjectId: id.nullable() }))
       .mutation(({ ctx, input }) => db.assignFocusSubject(ctx.user.id, input.eventIds, input.subjectId)),

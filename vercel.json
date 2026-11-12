@@ -12,7 +12,7 @@
       "destination": "/api/index?__seif_storage_path=:path*"
     },
     {
-      "source": "/((?!api/|manus-storage/|assets/|__manus__/|manifest[.]webmanifest$|study-logo[.]svg$|study-icon-[0-9]+[.]png$|study-worker[.]js$).*)",
+      "source": "/((?!api/|manus-storage/|assets/|__manus__/|manifest[.]webmanifest$|study-logo[.]svg$|study-icon-[0-9]+[.]png$|study-worker[.]js$|study-offline[.](html|js|css)$|study-offline-core[.]js$).*)",
       "destination": "/index.html"
     }
   ]

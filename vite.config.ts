@@ -2,6 +2,7 @@ import { jsxLocPlugin } from "@builder.io/vite-plugin-jsx-loc";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
@@ -150,7 +151,23 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+function versionStudyWorker(): Plugin {
+  return {
+    name: "version-study-worker",
+    apply: "build",
+    closeBundle() {
+      const output = path.join(PROJECT_ROOT, "dist", "public");
+      const files = ["index.html", "study-worker.js", "study-offline.html", "study-offline.js", "study-offline-core.js", "study-offline.css", "study-logo.svg"];
+      const hash = createHash("sha256");
+      for (const file of files) hash.update(fs.readFileSync(path.join(output, file)));
+      const worker = path.join(output, "study-worker.js");
+      const contents = fs.readFileSync(worker, "utf8");
+      fs.writeFileSync(worker, contents.replace("__STUDY_BUILD_VERSION__", hash.digest("hex").slice(0, 20)));
+    },
+  };
+}
+
+const plugins = [versionStudyWorker(), react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
 
 export default defineConfig({
   plugins,

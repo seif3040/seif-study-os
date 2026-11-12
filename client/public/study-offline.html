@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#171d3f">
+  <title>المذاكرة بدون نت | Seif Study OS</title>
+  <link rel="stylesheet" href="/study-offline.css">
+  <script src="/study-offline-core.js" defer></script>
+  <script src="/study-offline.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><img alt="" src="/study-logo.svg" width="44" height="44"><a href="/">Seif Study OS</a><span id="connection"></span></header>
+    <section class="hero">
+      <h1>المذاكرة بدون نت</h1>
+      <p id="status" role="status">جارٍ فتح بيانات الجهاز…</p>
+      <p id="pending" aria-live="polite"></p>
+    </section>
+    <section id="focus" hidden>
+      <h2>بومودورو</h2>
+      <p id="clock" dir="ltr">25:00</p>
+      <label for="minutes">مدة الجلسة</label>
+      <select id="minutes"><option value="15">١٥ دقيقة</option><option value="25" selected>٢٥ دقيقة</option><option value="45">٤٥ دقيقة</option><option value="60">٦٠ دقيقة</option></select>
+      <button id="start">ابدأ الجلسة</button>
+      <button id="cancel" class="secondary" hidden>إلغاء المؤقت</button>
+    </section>
+    <section id="schedule" hidden>
+      <h2>آخر جدول محفوظ</h2>
+      <p id="schedule-date"></p>
+      <ul id="tasks"></ul>
+      <p id="exam"></p>
+    </section>
+  </main>
+</body>
+</html>

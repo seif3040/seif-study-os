@@ -1088,7 +1088,7 @@ export async function assignFocusSubject(userId: number, eventIds: number[], sub
     const rows = await tx.select({ id: studyEvents.id, reference: studyEvents.referenceId }).from(studyEvents).where(selected).for("update");
     if (rows.length !== uniqueIds.length) throw new Error("اختار جلسات تركيز موجودة عندك.");
     const sessionIds = rows.flatMap(row => {
-      const id = row.reference?.match(/^pomodoro:(\d+):complete$/)?.[1];
+      const id = row.reference?.match(/^pomodoro:(\d+):complete$/)?.[1] ?? row.reference?.match(/^offline-focus:[a-f0-9-]{36}:(\d+)$/)?.[1];
       return id ? [Number(id)] : [];
     });
     await tx.update(studyEvents).set({ subjectId }).where(selected);
@@ -1120,4 +1120,48 @@ export async function lessonReviewSchedule(userId: number) {
     day.setUTCDate(day.getUTCDate() + (row.reviewedAt ? 7 : 3));
     return [{ id: row.id, title: row.title, subject: row.subject, day: day.toISOString().slice(0, 10) }];
   }).sort((a, b) => a.day.localeCompare(b.day) || a.id - b.id);
+}
+
+
+export async function syncOfflineFocus(userId: number, input: {
+  key: string; minutes: 15 | 25 | 45 | 60; startedAt: number; completedAt: number;
+}) {
+  const db = await database();
+  if (input.startedAt < Date.UTC(2020, 0, 1) || input.completedAt > Date.now() + 300_000
+    || input.completedAt - input.startedAt < input.minutes * 60_000) {
+    throw new Error("وقت جلسة الأوفلاين غير صالح. راجع ساعة الجهاز.");
+  }
+
+  const cycle = await getActiveCycle(userId);
+  const prefix = "offline-focus:" + input.key.toLowerCase() + ":";
+  const result = await db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const [existing] = await tx.select({ id: studyEvents.id }).from(studyEvents)
+      .where(and(eq(studyEvents.userId, userId), eq(studyEvents.eventType, "pomodoro_complete"), like(studyEvents.referenceId, prefix + "%")))
+      .limit(1);
+    if (existing) return { alreadySynced: true, amount: 0 };
+
+    const startedAt = new Date(input.startedAt);
+    const completedAt = new Date(input.completedAt);
+    const [session] = await tx.insert(pomodoroSessions).values({
+      userId, cycleId: cycle.id, startedAt, completedAt, createdAt: startedAt,
+      plannedMinutes: input.minutes, completedMinutes: input.minutes, state: "completed",
+    });
+    const referenceId = prefix + session.insertId;
+    await tx.insert(studyEvents).values({
+      userId, cycleId: cycle.id, eventType: "pomodoro_complete", referenceId,
+      durationMinutes: input.minutes, occurredAt: completedAt,
+    });
+    const rateKey = ("pomodoro_" + input.minutes) as CoinRateKey;
+    const [rate] = await tx.select({ amount: coinRateSettings.amount }).from(coinRateSettings)
+      .where(eq(coinRateSettings.rateKey, rateKey)).limit(1);
+    const amount = rate?.amount ?? coinRewardForPomodoro(input.minutes);
+    if (amount > 0) await tx.insert(coinTransactions).values({
+      userId, cycleId: cycle.id, amount, type: "earn", referenceKey: referenceId,
+      reason: "Pomodoro بدون نت — " + input.minutes + " دقيقة", createdAt: completedAt,
+    });
+    return { alreadySynced: false, amount };
+  });
+  if (!result.alreadySynced) await evaluateAchievements(userId, cycle.id).catch(error => console.warn("Offline focus achievements failed", error instanceof Error ? error.name : "unknown"));
+  return result;
 }
