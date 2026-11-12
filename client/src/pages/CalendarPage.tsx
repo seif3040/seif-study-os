@@ -38,7 +38,8 @@ export default function CalendarPage() {
   const [allTasks, setAllTasks] = useState(() => new URLSearchParams(search).get("view") === "all");
   const [selected, setSelected] = useState(() => dayKey(new Date()));
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-  const [dialog, setDialog] = useState<{ task?: CalendarTask }>();
+  const reviewTitle = new URLSearchParams(search).get("review")?.slice(0, 200);
+  const [dialog, setDialog] = useState<{ task?: CalendarTask; title?: string } | undefined>(() => reviewTitle ? { title: reviewTitle } : undefined);
   const [eventOpen, setEventOpen] = useState(false);
   const daily = useRef<HTMLElement>(null);
   const dates = useMemo(() => {
@@ -195,7 +196,7 @@ export default function CalendarPage() {
       </section>
     </div>
 
-    {dialog && <TaskDialog key={dialog.task?.id ?? selected} task={dialog.task} day={selected} onDone={refreshTasks} onClose={() => setDialog(undefined)} />}
+    {dialog && <TaskDialog key={dialog.task?.id ?? selected} task={dialog.task} initialTitle={dialog.title} day={selected} onDone={refreshTasks} onClose={() => setDialog(undefined)} />}
     {eventOpen && <EventDialog day={selected} onClose={() => setEventOpen(false)} onDone={() => utils.calendar.list.invalidate()} />}
   </div>;
 }

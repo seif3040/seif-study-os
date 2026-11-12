@@ -86,6 +86,18 @@
     });
   }
 
+  function completeTask(ownerId, taskId) {
+    return transaction(["queue"], "readwrite", tx => {
+      tx.objectStore("queue").put({
+        key: "task:" + ownerId + ":" + taskId,
+        kind: "task",
+        ownerId,
+        taskId,
+        completedAt: Date.now(),
+      });
+    });
+  }
+
   function queue() {
     return transaction(["queue"], "readonly", (tx, result) => {
       const request = tx.objectStore("queue").getAll();
@@ -99,21 +111,35 @@
     const active = await get("timer:" + snapshot.ownerId);
     if (active) await finish(snapshot.ownerId, active.key);
     const pending = (await queue()).filter(item => item.ownerId === snapshot.ownerId)
-      .sort((a, b) => a.startedAt - b.startedAt);
+      .sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0));
     let count = 0;
     for (const item of pending) {
-      const response = await fetch("/api/trpc/pomodoro.syncOffline", {
+      const isTask = item.kind === "task";
+      const route = isTask ? "tasks.syncCompletion" : "pomodoro.syncOffline";
+      const payload = isTask ? { ownerId: item.ownerId, taskId: item.taskId, completedAt: item.completedAt } : item;
+      const response = await fetch("/api/trpc/" + route, {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ json: item }),
+        body: JSON.stringify({ json: payload }),
         signal: AbortSignal.timeout(12_000),
       });
       if (response.status === 401 || response.status === 403) return count;
       if (!response.ok) throw new Error("جلسة مستنية المزامنة (" + response.status + ").");
       const output = await response.json();
-      if (typeof output.result?.data?.json?.alreadySynced !== "boolean") throw new Error("تعذّر تأكيد حفظ الجلسة.");
-      await transaction(["queue"], "readwrite", tx => tx.objectStore("queue").delete(item.key));
+      if (typeof output.result?.data?.json?.[isTask ? "alreadyCompleted" : "alreadySynced"] !== "boolean") throw new Error("تعذّر تأكيد حفظ الجلسة.");
+      await transaction(["queue", "state"], "readwrite", tx => {
+        tx.objectStore("queue").delete(item.key);
+        if (!isTask) return;
+        const state = tx.objectStore("state");
+        const request = state.get("snapshot");
+        request.onsuccess = () => {
+          const current = request.result;
+          if (current?.ownerId !== item.ownerId) return;
+          current.tasks = current.tasks.map(task => task.id === item.taskId ? { ...task, completed: true } : task);
+          state.put(current, "snapshot");
+        };
+      });
       count++;
     }
     return count;
@@ -130,5 +156,5 @@
     if (registration?.sync) await registration.sync.register(SYNC_TAG);
   }
 
-  globalThis.StudyOffline = { get, remember, forget, start, finish, cancel, queue, sync, background, SYNC_TAG };
+  globalThis.StudyOffline = { get, remember, forget, start, finish, cancel, completeTask, queue, sync, background, SYNC_TAG };
 })();

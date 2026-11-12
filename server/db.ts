@@ -323,13 +323,36 @@ export async function reviewLesson(userId: number, lessonId: number) {
 
 export async function listTasks(userId: number) { const db = await database(); return db.select().from(tasks).where(eq(tasks.userId, userId)).orderBy(tasks.status, tasks.scheduledFor, desc(tasks.createdAt)); }
 export async function createTask(userId: number, input: { title: string; description?: string; scheduledFor?: string; deadline?: Date; priority: "urgent" | "medium" | "low"; category?: string }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(tasks).values({ userId, cycleId: cycle.id, title: input.title, description: input.description ?? null, scheduledFor: input.scheduledFor ?? dateKey(), deadline: input.deadline ?? null, priority: input.priority, category: input.category ?? "دراسة" }); }
-export async function completeTask(userId: number, taskId: number) {
-  const db = await database(); const item = await db.select().from(tasks).where(and(eq(tasks.id, taskId), eq(tasks.userId, userId))).limit(1); if (!item[0]) throw new Error("المهمة غير موجودة.");
-  if (!isFirstCompletion(item[0].status)) return { alreadyCompleted: true, awarded: false, unlocks: [] };
-  await db.update(tasks).set({ status: "completed", completedAt: new Date() }).where(eq(tasks.id, taskId));
-  const ref = `task:${taskId}:complete`; await recordStudyEvent({ userId, cycleId: item[0].cycleId, eventType: "task_complete", referenceId: ref });
-  const reward = await awardCoins({ userId, cycleId: item[0].cycleId, amount: taskRewardForPriority(item[0].priority), rateKey: `task_${item[0].priority}`, reason: `إكمال مهمة: ${item[0].title}`, referenceKey: ref });
-  return { alreadyCompleted: false, ...reward, unlocks: await evaluateAchievements(userId, item[0].cycleId) };
+export async function completeTask(userId: number, taskId: number, completedAt = new Date()) {
+  const db = await database();
+  const result = await db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const ownerTask = and(eq(tasks.id, taskId), eq(tasks.userId, userId));
+    const [item] = await tx.select().from(tasks).where(ownerTask).for("update");
+    if (!item) throw new Error("المهمة غير موجودة.");
+    if (!isFirstCompletion(item.status)) return { alreadyCompleted: true, awarded: false, amount: 0, cycleId: item.cycleId };
+
+    const reference = `task:${taskId}:complete`;
+    await tx.update(tasks).set({ status: "completed", completedAt }).where(ownerTask);
+    const [event] = await tx.select({ id: studyEvents.id }).from(studyEvents)
+      .where(and(eq(studyEvents.userId, userId), eq(studyEvents.referenceId, reference))).limit(1);
+    if (!event) await tx.insert(studyEvents).values({
+      userId, cycleId: item.cycleId, eventType: "task_complete", referenceId: reference, occurredAt: completedAt,
+    });
+    const [prior] = await tx.select({ id: coinTransactions.id }).from(coinTransactions)
+      .where(eq(coinTransactions.referenceKey, reference)).limit(1);
+    const [rate] = await tx.select({ amount: coinRateSettings.amount }).from(coinRateSettings)
+      .where(eq(coinRateSettings.rateKey, `task_${item.priority}`)).limit(1);
+    const amount = prior ? 0 : rate?.amount ?? taskRewardForPriority(item.priority);
+    if (amount > 0) await tx.insert(coinTransactions).values({
+      userId, cycleId: item.cycleId, amount, type: "earn", referenceKey: reference,
+      reason: `إكمال مهمة: ${item.title}`, createdAt: completedAt,
+    });
+    return { alreadyCompleted: false, awarded: amount > 0, amount, cycleId: item.cycleId, balance: (await getCoinSummary(tx, userId)).balance };
+  });
+  const { cycleId, ...completion } = result;
+  const unlocks = result.alreadyCompleted ? [] : await evaluateAchievements(userId, cycleId).catch(() => []);
+  return { ...completion, unlocks };
 }
 export async function updateTask(userId: number, taskId: number, input: { title: string; description?: string; scheduledFor?: string; deadline?: Date; priority: "urgent" | "medium" | "low"; category?: string }) { const db = await database(); return db.update(tasks).set({ title: input.title, description: input.description ?? null, scheduledFor: input.scheduledFor ?? null, deadline: input.deadline ?? null, priority: input.priority, category: input.category ?? "دراسة" }).where(and(eq(tasks.id, taskId), eq(tasks.userId, userId))); }
 export async function deleteTask(userId: number, taskId: number) { const db = await database(); return db.delete(tasks).where(and(eq(tasks.id, taskId), eq(tasks.userId, userId))); }

@@ -59,7 +59,7 @@ function SubjectReport() {
         {!!subject.missedTopics.length && <details className="mt-3 border-t pt-3">
           <summary className="cursor-pointer text-sm font-semibold">موضوعات الغلط المتكررة</summary>
           <ul className="mt-2 divide-y">{subject.missedTopics.map(item => <li key={item.topic} className="flex justify-between gap-2 py-2 text-sm">
-            <span>{item.topic}</span><b>{format.format(item.count)} محاولة</b>
+            <span className="min-w-0 flex-1">{item.topic}<small className="block text-muted-foreground">{format.format(item.count)} محاولة</small></span><a className="shrink-0 text-sm font-semibold text-primary underline" href={"/calendar?review=" + encodeURIComponent(("مراجعة " + subject.title + " · " + item.topic).slice(0, 200))}>ضيف مهمة مراجعة</a>
           </li>)}</ul>
         </details>}
       </article>)}

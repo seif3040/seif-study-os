@@ -63,6 +63,14 @@ export const appRouter = router({
     review: protectedProcedure.input(z.object({ lessonId: id })).mutation(({ ctx, input }) => db.reviewLesson(ctx.user.id, input.lessonId)),
   }),
   tasks: router({
+    syncCompletion: protectedProcedure.input(z.object({ ownerId: id, taskId: id, completedAt: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        if (input.ownerId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+        if (input.completedAt < Date.UTC(2020, 0, 1) || input.completedAt > Date.now() + 300_000) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "راجع تاريخ وساعة الجهاز." });
+        }
+        return db.completeTask(ctx.user.id, input.taskId, new Date(input.completedAt));
+      }),
     list: protectedProcedure.query(({ ctx }) => db.listTasks(ctx.user.id)),
     create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), description: z.string().max(2000).optional(), scheduledFor: z.string().date().optional(), deadline: date.optional(), priority, category: z.string().trim().min(1).max(80).optional() })).mutation(({ ctx, input }) => db.createTask(ctx.user.id, input)),
     update: protectedProcedure.input(z.object({ taskId: id, title: z.string().trim().min(1).max(200), description: z.string().max(2000).optional(), scheduledFor: z.string().date().optional(), deadline: date.optional(), priority, category: z.string().trim().min(1).max(80).optional() })).mutation(({ ctx, input }) => db.updateTask(ctx.user.id, input.taskId, input)),

@@ -17,8 +17,38 @@
   }
 
   async function refreshPending() {
-    const count = (await store.queue()).filter(item => item.ownerId === snapshot.ownerId).length;
-    pending.textContent = count ? "جلسات مستنية المزامنة: " + count.toLocaleString("ar-EG") : "مفيش جلسات مستنية المزامنة.";
+    const items = (await store.queue()).filter(item => item.ownerId === snapshot.ownerId);
+    pending.textContent = items.length ? "تغييرات مستنية المزامنة: " + items.length.toLocaleString("ar-EG") : "مفيش تغييرات مستنية المزامنة.";
+    const latest = await store.get("snapshot");
+    if (latest?.ownerId === snapshot.ownerId) snapshot = latest;
+    renderTasks(items);
+  }
+
+  function renderTasks(items) {
+    const list = byId("tasks");
+    list.replaceChildren();
+    for (const task of snapshot.tasks) {
+      const item = document.createElement("li");
+      const pendingTask = items.some(entry => entry.kind === "task" && entry.taskId === task.id);
+      item.textContent = task.title + (pendingTask ? " — مستني المزامنة" : task.completed ? " ✓" : "");
+      if (task.id && !task.completed && !pendingTask) {
+        const button = document.createElement("button");
+        button.className = "secondary";
+        button.textContent = "خلصت";
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try {
+            await store.completeTask(snapshot.ownerId, task.id);
+            await refreshPending();
+            await store.background().catch(() => undefined);
+            await sync();
+          } catch { showError(); button.disabled = false; }
+        });
+        item.append(" ", button);
+      }
+      list.append(item);
+    }
+    if (!snapshot.tasks.length) list.textContent = "مفيش مهام في الجدول المحفوظ.";
   }
 
   async function sync() {
@@ -27,10 +57,10 @@
     try {
       if (navigator.onLine) {
         const saved = await store.sync();
-        if (saved) status.textContent = "الجلسات اتسجّلت في قاعدة البيانات.";
+        if (saved) status.textContent = "التغييرات اتسجّلت في قاعدة البيانات.";
       }
     } catch {
-      status.textContent = "الجلسات محفوظة على الجهاز. هنحاول نبعتها تاني لما الاتصال يبقى متاح.";
+      status.textContent = "التغييرات محفوظة على الجهاز. هنحاول نبعتها تاني لما الاتصال يبقى متاح.";
     }
     await refreshPending();
   }
@@ -79,12 +109,6 @@
     if (snapshot.savedAt) {
       schedule.hidden = false;
       byId("schedule-date").textContent = new Date(snapshot.savedAt).toLocaleString("ar-EG", { timeZone: "Africa/Cairo" });
-      for (const task of snapshot.tasks) {
-        const item = document.createElement("li");
-        item.textContent = task.title + (task.completed ? " ✓" : "");
-        byId("tasks").append(item);
-      }
-      if (!snapshot.tasks.length) byId("tasks").textContent = "مفيش مهام في الجدول المحفوظ.";
       if (snapshot.exam) byId("exam").textContent = "أقرب امتحان: " + snapshot.exam;
     }
     status.textContent = "جلساتك بتتحفظ على الجهاز وتتزامن لما الإنترنت يرجع.";

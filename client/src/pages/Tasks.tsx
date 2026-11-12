@@ -22,11 +22,12 @@ function localDateTime(value: Date) {
   return new Date(value.getTime() - offset).toISOString().slice(0, 16);
 }
 
-export function TaskDialog({ task, day, onClose, onDone }: {
-  task?: CalendarTask; day: string; onClose: () => void; onDone: () => Promise<unknown>;
+export function TaskDialog({ task, initialTitle, day, onClose, onDone }: {
+  task?: CalendarTask;
+  initialTitle?: string; day: string; onClose: () => void; onDone: () => Promise<unknown>;
 }) {
   const [editing, setEditing] = useState(!task);
-  const [title, setTitle] = useState(task?.title ?? "");
+  const [title, setTitle] = useState(task?.title ?? initialTitle ?? "");
   const [description, setDescription] = useState(task?.description ?? "");
   const [scheduledFor, setScheduledFor] = useState(task ? task.scheduledFor ?? "" : day);
   const [deadline, setDeadline] = useState(task?.deadline ? localDateTime(new Date(task.deadline)) : "");

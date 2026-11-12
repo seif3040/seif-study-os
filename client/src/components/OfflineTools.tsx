@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { Download, WifiOff } from "lucide-react";
 import { toast } from "sonner";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 
 type Snapshot = {
   ownerId: number;
   savedAt: number;
-  tasks: { title: string; completed: boolean }[];
+  tasks: { id: number; title: string; completed: boolean }[];
   exam?: string;
 };
 declare global {
@@ -25,6 +26,8 @@ declare global {
 export default function OfflineTools({ ownerId }: { ownerId: number }) {
   const utils = trpc.useUtils();
   const summary = trpc.dashboard.summary.useQuery();
+  const [updateOpen, setUpdateOpen] = useState(false);
+  const [deferUpdate, setDeferUpdate] = useState(false);
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null);
 
   useEffect(() => {
@@ -32,7 +35,7 @@ export default function OfflineTools({ ownerId }: { ownerId: number }) {
     const { todaysTasks, upcomingExams } = summary.data;
     void window.StudyOffline.remember({
       ownerId, savedAt: summary.dataUpdatedAt,
-      tasks: todaysTasks.map(task => ({ title: task.title, completed: task.status === "completed" })),
+      tasks: todaysTasks.map(task => ({ id: task.id, title: task.title, completed: task.status === "completed" })),
       exam: upcomingExams[0]?.title,
     }).catch(() => undefined);
   }, [ownerId, summary.data, summary.dataUpdatedAt]);
@@ -44,7 +47,7 @@ export default function OfflineTools({ ownerId }: { ownerId: number }) {
       try {
         const count = await window.StudyOffline?.sync();
         if (count && live) {
-          toast.success("اتزامنت جلسات البومودورو");
+          toast.success("اتزامنت تغييرات الأوفلاين");
           await utils.invalidate();
         }
       } catch {
@@ -101,24 +104,39 @@ export default function OfflineTools({ ownerId }: { ownerId: number }) {
     };
   }, []);
 
-  async function applyUpdate() {
+  async function applyUpdate(afterTimer = false) {
     if (!waiting) return;
     try {
       const activeTimer = await window.StudyOffline?.get("timer:" + ownerId);
       if (activeTimer) {
-        toast.info("سيب جلسة الأوفلاين تخلص الأول، وبعدها اضغط حدّث.");
+        if (!afterTimer) { setDeferUpdate(true); setUpdateOpen(false); toast.info("هنطبّق التحديث بعد الجلسة."); }
         return;
       }
     } catch {
       toast.error("تعذّر التحقق من المؤقت على الجهاز.");
       return;
     }
+    setDeferUpdate(false);
+    setUpdateOpen(false);
     navigator.serviceWorker.addEventListener("controllerchange", () => window.location.reload(), { once: true });
     waiting.postMessage({ type: "APPLY_UPDATE" });
   }
 
+  useEffect(() => {
+    if (!deferUpdate || !waiting) return;
+    const timer = window.setInterval(() => void applyUpdate(true), 3000);
+    return () => window.clearInterval(timer);
+  }, [deferUpdate, waiting, ownerId]);
+
   return <div className="flex items-center gap-1">
-    {waiting && <Button size="sm" onClick={() => void applyUpdate()}><Download />حدّث</Button>}
+    {waiting && <Button size="sm" onClick={() => setUpdateOpen(true)}><Download />{deferUpdate ? "التحديث بعد الجلسة" : "حدّث"}</Button>}
+    <Dialog open={updateOpen} onOpenChange={setUpdateOpen}>
+      <DialogContent dir="rtl">
+        <DialogHeader><DialogTitle>تحديث Seif Study OS</DialogTitle><DialogDescription>النسخة الجديدة جاهزة. لو فيه جلسة أوفلاين شغالة، التحديث هيتطبق بعد ما تخلص.</DialogDescription></DialogHeader>
+        <p className="text-sm">آخر الإضافات تشمل إكمال المهام من غير نت وتحويل أخطاء الامتحانات لمهام مراجعة.</p>
+        <DialogFooter><Button variant="outline" onClick={() => { setDeferUpdate(false); setUpdateOpen(false); }}>بعد شوية</Button><Button onClick={() => void applyUpdate()}>حدّث</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
     <Button size="sm" variant="ghost" asChild><a href="/study-offline.html"><WifiOff />بدون نت</a></Button>
   </div>;
 }

@@ -1,5 +1,5 @@
 import { hasStudyAI, invokeLLM } from "./_core/llm.js";
-import { completeLesson, completeTask, createChapter, createExam, createGoal, createHabit, createLesson, createReward, createSubject, createTask, dashboard, listAssistantMessages, ownedAssistantChat, listExams, listGoals, listHabits, listPomodoros, listRewards, listStudyPlan, listTasks, saveAssistantMessage, setExamArchived, setRewardActive, startPomodoro, updateGoal, updateHabit, updateTask } from "./db.js";
+import { completeLesson, completeTask, createChapter, createExam, createGoal, createHabit, createLesson, createReward, createSubject, createTask, dashboard, listAssistantMessages, ownedAssistantChat, listExams, listGoals, listHabits, listPomodoros, listRewards, listStudyPlan, listTasks, saveAssistantMessage, setExamArchived, setRewardActive, startPomodoro, subjectAnalytics, updateGoal, updateHabit, updateTask } from "./db.js";
 
 export const personalAssistantActionTypes = ["none", "add_task", "update_task", "reschedule_task", "reprioritize_task", "delete_task", "add_habit", "update_habit", "delete_habit", "add_goal", "update_goal", "delete_goal", "navigate", "complete_task", "add_subject", "add_chapter", "add_lesson", "complete_lesson", "add_exam", "archive_exam", "restore_exam", "add_reward", "hide_reward", "restore_reward", "start_focus"] as const;
 export const personalAssistantRoutes = ["","/","/tasks","/calendar","/lesson-sources","/study-plan","/exams","/pomodoro","/focus-lounge","/study-video","/habits","/analytics","/rewards","/coins","/settings"] as const;
@@ -75,6 +75,24 @@ export async function planPersonalAssistantAction(userId: number, request: strin
         : "سجلّك فيه " + format.format(metrics.studyMinutes / 60) + " ساعة مذاكرة، و" + format.format(metrics.lessonsCompleted) + " درس مكتمل، و" + format.format(metrics.tasksCompleted) + " مهمة مكتملة.";
       await saveAssistantMessage(userId, "assistant", reply, chatId);
       return { ...FALLBACK_PLAN, reply };
+    }
+    if (/أراجع|اراجع|أذاكر إيه|اذاكر ايه|أخطائي|اخطائي|ضعيف في إيه/.test(normalized)) {
+      const normalizeSubject = (value: string) => value.replace(/[أإآ]/g, "ا").replace(/\s+/g, " ").trim();
+      const requested = normalizeSubject(normalized);
+      const report = await subjectAnalytics(userId);
+      const matches = report.filter(subject => subject.id !== null && requested.includes(normalizeSubject(subject.title)));
+      if (matches.length === 1) {
+        const subject = matches[0];
+        const recent = subject.recentAttempts[0];
+        const topics = subject.missedTopics.slice(0, 3).map(item => item.topic);
+        const reply = [
+          subject.title,
+          topics.length ? "ابدأ بمراجعة " + topics.join("، ") + ". دي أكتر الموضوعات اللي اتكررت في أخطائك المسجّلة." : "مفيش موضوعات غلط متسجّلة للمادة دي. راجع آخر درس وجرّب تحل عليه أسئلة.",
+          recent ? "آخر محاولة: «" + recent.exam + "» (" + recent.score + "٪)." : "مفيش محاولات امتحانات مسجّلة للمادة دي.",
+        ].join("\n");
+        await saveAssistantMessage(userId, "assistant", reply, chatId);
+        return { ...FALLBACK_PLAN, reply, actionType: "navigate", route: "/analytics" };
+      }
     }
     if (!shareWithOpenRouter) return { ...FALLBACK_PLAN, reply: "فعّل إرسال الرسالة إلى OpenRouter عشان جارفيس يقدر يرد." };
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo" }).format(new Date());
