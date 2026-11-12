@@ -61,6 +61,22 @@ export function TaskDialog({ task, initialTitle, day, onClose, onDone }: {
     await onDone();
   }
 
+  async function postpone() {
+    if (!task || pending) return;
+    const next = new Date((task.scheduledFor ?? day) + "T00:00:00Z");
+    next.setUTCDate(next.getUTCDate() + 1);
+    try {
+      await update.mutateAsync({
+        taskId: task.id, title: task.title, description: task.description ?? undefined,
+        scheduledFor: next.toISOString().slice(0, 10), deadline: task.deadline ? new Date(task.deadline) : undefined,
+        priority: task.priority, category: task.category,
+      });
+      toast.success("اتأجّلت المهمة يوم.");
+      onClose();
+      await onDone();
+    } catch (error) { toast.error(errorText(error)); }
+  }
+
   async function finish() {
     if (!task || pending) return;
     try {
@@ -101,7 +117,10 @@ export function TaskDialog({ task, initialTitle, day, onClose, onDone }: {
         </dl>
         <DialogFooter>
           <Button variant="outline" onClick={() => setEditing(true)}><Pencil />تعديل المهمة</Button>
-          {task.status !== "completed" && <Button disabled={pending} onClick={() => void finish()}><CheckCircle2 />إكمال</Button>}
+          {task.status !== "completed" && <>
+            <Button variant="outline" disabled={pending} onClick={() => void postpone()}>أجّل يوم</Button>
+            <Button disabled={pending} onClick={() => void finish()}><CheckCircle2 />إكمال</Button>
+          </>}
         </DialogFooter>
       </>}
     </DialogContent>

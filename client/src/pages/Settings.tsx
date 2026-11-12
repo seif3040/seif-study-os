@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { ReminderSettings } from "@/components/StudyReminders";
 import StudyBackup from "@/components/StudyBackup";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,7 @@ export default function Settings() {
   return <div className="space-y-5">
     <PageHeader title="الإعدادات" description="عدّل مظهر الموقع وأسعار الهدايا ومكافآت Coins." />
     <StudyBackup />
+    <ReminderSettings />
     <section className="surface flex flex-wrap items-center justify-between gap-3 p-5">
       <h2 className="flex items-center gap-2 font-bold"><Palette />المظهر</h2>
       <Button variant="outline" onClick={toggleTheme}>{theme === "dark" ? <Sun /> : <Moon />}{theme === "dark" ? "المظهر الفاتح" : "المظهر الداكن"}</Button>
