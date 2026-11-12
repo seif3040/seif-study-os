@@ -28,3 +28,11 @@ ul { padding-inline-start: 1.25rem; line-height: 1.8; }
   min-width: 0; border-radius: .6rem; border: 1px solid #7970b6; padding: .55rem; font: inherit;
 }
 #new-task-form { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+
+
+:root[data-study-theme] { background: var(--background); color: var(--foreground); }
+:root[data-study-theme] section { background: var(--card); border-color: var(--border); }
+:root[data-study-theme] .hero { background: linear-gradient(128deg, var(--study-hero-start), var(--study-hero-end)); }
+:root[data-study-theme] #clock { color: var(--primary); }
+:root[data-study-theme] button:not(.secondary) { background: var(--primary); color: var(--primary-foreground); }
+:root[data-study-theme] button, :root[data-study-theme] select, :root[data-study-theme] input, :root[data-study-theme] textarea { border-color: var(--border); }

@@ -157,7 +157,7 @@ function versionStudyWorker(): Plugin {
     apply: "build",
     closeBundle() {
       const output = path.join(PROJECT_ROOT, "dist", "public");
-      const files = ["index.html", "study-worker.js", "study-offline.html", "study-offline.js", "study-offline-core.js", "study-offline.css", "study-logo.svg"];
+      const files = ["index.html", "study-worker.js", "study-offline.html", "study-offline.js", "study-offline-core.js", "study-offline.css", "study-logo.svg", "study-theme.css", "study-theme.js"];
       const hash = createHash("sha256");
       for (const file of files) hash.update(fs.readFileSync(path.join(output, file)));
       const worker = path.join(output, "study-worker.js");

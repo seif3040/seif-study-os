@@ -2,7 +2,7 @@ importScripts("/study-offline-core.js");
 
 const CACHE = "seif-offline-__STUDY_BUILD_VERSION__";
 const PAGE = "/study-offline.html";
-const assets = [PAGE, "/study-offline.css", "/study-offline.js", "/study-offline-core.js", "/study-logo.svg"];
+const assets = [PAGE, "/study-offline.css", "/study-offline.js", "/study-offline-core.js", "/study-logo.svg", "/study-theme.css", "/study-theme.js"];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(assets.map(path => new Request(path, { cache: "reload" })))));

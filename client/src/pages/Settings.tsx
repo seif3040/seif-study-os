@@ -5,14 +5,13 @@ import StudyBackup from "@/components/StudyBackup";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/PageHeader";
-import { useTheme } from "@/contexts/ThemeContext";
+import { ThemePicker } from "@/components/ThemePicker";
 import { errorText } from "@/lib/study";
 import { trpc } from "@/lib/trpc";
-import { Coins, Gift, Moon, Palette, Sun } from "lucide-react";
+import { Coins, Gift } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Settings() {
-  const { theme, toggleTheme } = useTheme();
   const utils = trpc.useUtils();
   const rates = trpc.economy.rates.useQuery();
   const catalog = trpc.rewards.list.useQuery();
@@ -25,13 +24,10 @@ export default function Settings() {
   const manage = catalog.data?.canManage;
   return <div className="space-y-5">
     <PageHeader title="الإعدادات" description="عدّل مظهر الموقع وأسعار الهدايا ومكافآت Coins." />
+    <ThemePicker />
     <StudyBackup />
     <StudyTrash />
     <ReminderSettings />
-    <section className="surface flex flex-wrap items-center justify-between gap-3 p-5">
-      <h2 className="flex items-center gap-2 font-bold"><Palette />المظهر</h2>
-      <Button variant="outline" onClick={toggleTheme}>{theme === "dark" ? <Sun /> : <Moon />}{theme === "dark" ? "المظهر الفاتح" : "المظهر الداكن"}</Button>
-    </section>
     {catalog.isLoading && <p className="p-3 text-sm text-muted-foreground">جارٍ تحميل إعدادات الأسعار…</p>}
     {catalog.isError && <Button variant="outline" onClick={() => void catalog.refetch()}>إعادة تحميل إعدادات الأسعار</Button>}
     {manage && <div className="grid items-start gap-5 xl:grid-cols-2">
