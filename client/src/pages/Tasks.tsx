@@ -39,8 +39,9 @@ export function TaskDialog({ task, initialTitle, day, onClose, onDone }: {
   const recurring = trpc.tasks.createRecurring.useMutation();
   const create = trpc.tasks.create.useMutation();
   const update = trpc.tasks.update.useMutation();
+  const remove = trpc.tasks.delete.useMutation();
   const complete = trpc.tasks.complete.useMutation();
-  const pending = recurring.isPending || create.isPending || update.isPending || complete.isPending;
+  const pending = remove.isPending || recurring.isPending || create.isPending || update.isPending || complete.isPending;
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -87,6 +88,16 @@ export function TaskDialog({ task, initialTitle, day, onClose, onDone }: {
         priority: task.priority, category: task.category,
       });
       toast.success("اتأجّلت المهمة يوم.");
+      onClose();
+      await onDone();
+    } catch (error) { toast.error(errorText(error)); }
+  }
+
+  async function moveToTrash() {
+    if (!task || pending) return;
+    try {
+      await remove.mutateAsync({ taskId: task.id });
+      toast.success("المهمة راحت لسلة المحذوفات في الإعدادات.");
       onClose();
       await onDone();
     } catch (error) { toast.error(errorText(error)); }
@@ -145,6 +156,7 @@ export function TaskDialog({ task, initialTitle, day, onClose, onDone }: {
           <div><dt className="inline font-semibold">التصنيف: </dt><dd className="inline">{task.category}</dd></div>
         </dl>
         <DialogFooter>
+          <Button variant="ghost" disabled={pending} onClick={() => void moveToTrash()}>نقل للسلة</Button>
           <Button variant="outline" onClick={() => setEditing(true)}><Pencil />تعديل المهمة</Button>
           {task.status !== "completed" && <>
             <Button variant="outline" disabled={pending} onClick={() => void postpone()}>أجّل يوم</Button>

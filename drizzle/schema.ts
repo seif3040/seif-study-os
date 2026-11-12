@@ -40,6 +40,7 @@ export const chapters = mysqlTable("chapters", {
 }, table => [index("chapters_subject_idx").on(table.subjectId)]);
 
 export const lessons = mysqlTable("lessons", {
+  deletedAt: timestamp("deletedAt"),
   id: int("id").autoincrement().primaryKey(),
   chapterId: int("chapterId").notNull().references(() => chapters.id, { onDelete: "cascade" }),
   title: varchar("title", { length: 200 }).notNull(),
@@ -63,6 +64,7 @@ export const lessonProgress = mysqlTable("lessonProgress", {
 }, table => [uniqueIndex("lessonProgress_user_lesson_unique").on(table.userId, table.lessonId), index("lessonProgress_user_status_idx").on(table.userId, table.status)]);
 
 export const tasks = mysqlTable("tasks", {
+  deletedAt: timestamp("deletedAt"),
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
   cycleId: int("cycleId").notNull().references(() => studyCycles.id, { onDelete: "cascade" }),
@@ -79,6 +81,7 @@ export const tasks = mysqlTable("tasks", {
 }, table => [index("tasks_user_cycle_date_idx").on(table.userId, table.cycleId, table.scheduledFor)]);
 
 export const assistantChats = mysqlTable("assistantChats", {
+  deletedAt: timestamp("deletedAt"),
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
   title: varchar("title", { length: 100 }).notNull(),

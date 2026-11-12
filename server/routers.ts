@@ -34,6 +34,11 @@ export const appRouter = router({
   }),
   workspaceSearch: protectedProcedure.input(z.object({ query: z.string().trim().min(2).max(100) }))
     .query(({ ctx, input }) => db.searchWorkspaceTitles(ctx.user.id, input.query)),
+  trash: router({
+    list: protectedProcedure.query(({ ctx }) => db.listStudyTrash(ctx.user.id)),
+    restore: protectedProcedure.input(z.object({ kind: z.enum(["tasks", "chats", "lessons"]), id }))
+      .mutation(({ ctx, input }) => db.restoreStudyTrash(ctx.user.id, input.kind, input.id)),
+  }),
   backup: router({
     keepDaily: protectedProcedure.mutation(({ ctx }) => keepDailyBackup(ctx.user.id, ctx.user.role === "admin")),
     daily: protectedProcedure.query(({ ctx }) => listDailyBackups(ctx.user.id)),

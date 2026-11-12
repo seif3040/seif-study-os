@@ -1,5 +1,5 @@
 import { coinRateCatalog, coinRateKeys, type CoinRateKey } from "../shared/coinRates.js";
-import { and, count, desc, eq, gte, inArray, isNull, like, lte, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNotNull, isNull, like, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   achievements, calendarEvents, chapters, coinTransactions, examAttempts, examLessons, exams, goalMilestones,
@@ -239,7 +239,7 @@ export async function evaluateAchievements(userId: number, cycleId: number) {
 async function ownedLesson(db: any, userId: number, lessonId: number) {
   const rows = await db.select({ lessonId: lessons.id, subjectId: subjects.id, cycleId: subjects.cycleId, title: lessons.title })
     .from(lessons).innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id))
-    .where(and(eq(lessons.id, lessonId), eq(subjects.userId, userId))).limit(1);
+    .where(and(eq(lessons.id, lessonId), eq(subjects.userId, userId), isNull(lessons.deletedAt))).limit(1);
   if (!rows[0]) throw new Error("الدرس غير موجود.");
   return rows[0];
 }
@@ -250,7 +250,7 @@ export async function dashboard(userId: number) {
   const metrics = await metricSnapshot(db, userId);
   const coins = await getCoinSummary(db, userId);
   const today = dateKey();
-  const todaysTasks = await db.select().from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.scheduledFor, today))).orderBy(desc(tasks.priority));
+  const todaysTasks = await db.select().from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt), eq(tasks.scheduledFor, today))).orderBy(desc(tasks.priority));
   const upcomingExams = await db.select({ id: exams.id, title: exams.title, scheduledAt: exams.scheduledAt, subject: subjects.title }).from(exams)
     .leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(and(eq(exams.userId, userId), isNull(exams.archivedAt), gte(exams.scheduledAt, new Date()))).orderBy(exams.scheduledAt).limit(4);
   const activeGoals = await db.select().from(goals).where(and(eq(goals.userId, userId), eq(goals.status, "active"))).orderBy(desc(goals.progress)).limit(4);
@@ -263,7 +263,7 @@ export async function listStudyPlan(userId: number) {
   const db = await database();
   const cycle = await getActiveCycle(userId);
   const rows = await db.select({ subject: subjects, chapter: chapters, lesson: lessons, progress: lessonProgress })
-    .from(subjects).leftJoin(chapters, eq(chapters.subjectId, subjects.id)).leftJoin(lessons, eq(lessons.chapterId, chapters.id))
+    .from(subjects).leftJoin(chapters, eq(chapters.subjectId, subjects.id)).leftJoin(lessons, and(eq(lessons.chapterId, chapters.id), isNull(lessons.deletedAt)))
     .leftJoin(lessonProgress, and(eq(lessonProgress.lessonId, lessons.id), eq(lessonProgress.userId, userId)))
     .where(eq(subjects.userId, userId)).orderBy(subjects.createdAt, chapters.sortOrder, lessons.sortOrder);
   return { cycle, rows };
@@ -292,7 +292,7 @@ export async function createLesson(userId: number, input: { chapterId: number; t
   await db.insert(lessons).values({ ...input, description: input.description ?? null, notes: input.notes ?? null, sortOrder: Number(last?.order ?? 0) + 1 });
 }
 export async function updateLesson(userId: number, lessonId: number, input: { title: string; description?: string; estimatedMinutes: number; notes?: string }) { const db = await database(); await ownedLesson(db, userId, lessonId); return db.update(lessons).set({ title: input.title, description: input.description ?? null, estimatedMinutes: input.estimatedMinutes, notes: input.notes ?? null }).where(eq(lessons.id, lessonId)); }
-export async function deleteLesson(userId: number, lessonId: number) { const db = await database(); await ownedLesson(db, userId, lessonId); return db.delete(lessons).where(eq(lessons.id, lessonId)); }
+export async function deleteLesson(userId: number, lessonId: number) { const db = await database(); await ownedLesson(db, userId, lessonId); return db.update(lessons).set({ deletedAt: new Date() }).where(eq(lessons.id, lessonId)); }
 export async function updateLessonProgress(userId: number, lessonId: number, progress: number) {
   const db = await database(); await ownedLesson(db, userId, lessonId);
   const value = Math.min(99, Math.max(0, progress));
@@ -321,13 +321,13 @@ export async function reviewLesson(userId: number, lessonId: number) {
   return { ...reward, unlocks: await evaluateAchievements(userId, lesson.cycleId) };
 }
 
-export async function listTasks(userId: number) { const db = await database(); return db.select().from(tasks).where(eq(tasks.userId, userId)).orderBy(tasks.status, tasks.scheduledFor, desc(tasks.createdAt)); }
+export async function listTasks(userId: number) { const db = await database(); return db.select().from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt))).orderBy(tasks.status, tasks.scheduledFor, desc(tasks.createdAt)); }
 export async function createTask(userId: number, input: { title: string; description?: string; scheduledFor?: string; deadline?: Date; priority: "urgent" | "medium" | "low"; category?: string }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(tasks).values({ userId, cycleId: cycle.id, title: input.title, description: input.description ?? null, scheduledFor: input.scheduledFor ?? dateKey(), deadline: input.deadline ?? null, priority: input.priority, category: input.category ?? "دراسة" }); }
 export async function completeTask(userId: number, taskId: number, completedAt = new Date()) {
   const db = await database();
   const result = await db.transaction(async tx => {
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
-    const ownerTask = and(eq(tasks.id, taskId), eq(tasks.userId, userId));
+    const ownerTask = and(eq(tasks.id, taskId), eq(tasks.userId, userId), isNull(tasks.deletedAt));
     const [item] = await tx.select().from(tasks).where(ownerTask).for("update");
     if (!item) throw new Error("المهمة غير موجودة.");
     if (!isFirstCompletion(item.status)) return { alreadyCompleted: true, awarded: false, amount: 0, cycleId: item.cycleId };
@@ -354,8 +354,8 @@ export async function completeTask(userId: number, taskId: number, completedAt =
   const unlocks = result.alreadyCompleted ? [] : await evaluateAchievements(userId, cycleId).catch(() => []);
   return { ...completion, unlocks };
 }
-export async function updateTask(userId: number, taskId: number, input: { title: string; description?: string; scheduledFor?: string; deadline?: Date; priority: "urgent" | "medium" | "low"; category?: string }) { const db = await database(); return db.update(tasks).set({ title: input.title, description: input.description ?? null, scheduledFor: input.scheduledFor ?? null, deadline: input.deadline ?? null, priority: input.priority, category: input.category ?? "دراسة" }).where(and(eq(tasks.id, taskId), eq(tasks.userId, userId))); }
-export async function deleteTask(userId: number, taskId: number) { const db = await database(); return db.delete(tasks).where(and(eq(tasks.id, taskId), eq(tasks.userId, userId))); }
+export async function updateTask(userId: number, taskId: number, input: { title: string; description?: string; scheduledFor?: string; deadline?: Date; priority: "urgent" | "medium" | "low"; category?: string }) { const db = await database(); return db.update(tasks).set({ title: input.title, description: input.description ?? null, scheduledFor: input.scheduledFor ?? null, deadline: input.deadline ?? null, priority: input.priority, category: input.category ?? "دراسة" }).where(and(eq(tasks.id, taskId), eq(tasks.userId, userId), isNull(tasks.deletedAt))); }
+export async function deleteTask(userId: number, taskId: number) { const db = await database(); return db.update(tasks).set({ deletedAt: new Date() }).where(and(eq(tasks.id, taskId), eq(tasks.userId, userId), isNull(tasks.deletedAt))); }
 
 export async function listLessonSources(userId: number) {
   const db = await database();
@@ -422,7 +422,7 @@ export async function seedSeifLessonSources(userId: number) {
 
 export async function listAssistantChats(userId: number) {
   const db = await database();
-  return db.select().from(assistantChats).where(eq(assistantChats.userId, userId)).orderBy(desc(assistantChats.updatedAt), desc(assistantChats.id));
+  return db.select().from(assistantChats).where(and(eq(assistantChats.userId, userId), isNull(assistantChats.deletedAt))).orderBy(desc(assistantChats.updatedAt), desc(assistantChats.id));
 }
 export async function createAssistantChat(userId: number) {
   const db = await database();
@@ -431,7 +431,7 @@ export async function createAssistantChat(userId: number) {
 }
 export async function ownedAssistantChat(userId: number, chatId: number) {
   const db = await database();
-  const [chat] = await db.select().from(assistantChats).where(and(eq(assistantChats.userId, userId), eq(assistantChats.id, chatId))).limit(1);
+  const [chat] = await db.select().from(assistantChats).where(and(eq(assistantChats.userId, userId), eq(assistantChats.id, chatId), isNull(assistantChats.deletedAt))).limit(1);
   if (!chat) throw new Error("المحادثة مش موجودة.");
   return chat;
 }
@@ -454,22 +454,20 @@ export async function renameAssistantChat(userId: number, title: string, chatId?
 
 export async function deleteAssistantChat(userId: number, chatId?: number) {
   const db = await database();
-  await db.transaction(async tx => {
-    if (chatId !== undefined) {
-      const [chat] = await tx.select({ id: assistantChats.id }).from(assistantChats)
-        .where(and(eq(assistantChats.userId, userId), eq(assistantChats.id, chatId))).for("update");
-      if (!chat) return;
-    }
-
-    await tx.delete(assistantMessages).where(and(
-      eq(assistantMessages.userId, userId),
-      chatId === undefined ? isNull(assistantMessages.chatId) : eq(assistantMessages.chatId, chatId),
-    ));
-    if (chatId !== undefined) {
-      await tx.delete(assistantChats)
-        .where(and(eq(assistantChats.userId, userId), eq(assistantChats.id, chatId)));
-    }
-  });
+  const deletedAt = new Date();
+  if (chatId !== undefined) {
+    await db.update(assistantChats).set({ deletedAt })
+      .where(and(eq(assistantChats.userId, userId), eq(assistantChats.id, chatId), isNull(assistantChats.deletedAt)));
+  } else {
+    await db.transaction(async tx => {
+      await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+      const legacy = and(eq(assistantMessages.userId, userId), isNull(assistantMessages.chatId));
+      const [message] = await tx.select({ id: assistantMessages.id }).from(assistantMessages).where(legacy).limit(1);
+      if (!message) return;
+      const [chat] = await tx.insert(assistantChats).values({ userId, title: "المحادثة السابقة", deletedAt });
+      await tx.update(assistantMessages).set({ chatId: chat.insertId }).where(legacy);
+    });
+  }
   return { ok: true };
 }
 
@@ -490,7 +488,7 @@ export async function saveAssistantMessage(userId: number, role: "user" | "assis
   }
 
   await db.transaction(async tx => {
-    const ownerChat = and(eq(assistantChats.userId, userId), eq(assistantChats.id, chatId));
+    const ownerChat = and(eq(assistantChats.userId, userId), eq(assistantChats.id, chatId), isNull(assistantChats.deletedAt));
     const [chat] = await tx.select().from(assistantChats).where(ownerChat).for("update");
     if (!chat) throw new Error("المحادثة مش موجودة.");
     await tx.insert(assistantMessages).values(message);
@@ -507,7 +505,7 @@ export async function getDailyStudySummary(userId: number) {
   const db = await database(); const cycle = await getActiveCycle(userId); const today = dateKey();
   const existing = await db.select().from(dailyStudySummaries).where(and(eq(dailyStudySummaries.userId, userId), eq(dailyStudySummaries.summaryDate, today))).limit(1);
   if (existing[0]) return { ...existing[0], isNew: false };
-  const openTasks = await db.select().from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.status, "open"), lte(tasks.scheduledFor, today))).orderBy(desc(tasks.priority), tasks.scheduledFor).limit(6);
+  const openTasks = await db.select().from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt), eq(tasks.status, "open"), lte(tasks.scheduledFor, today))).orderBy(desc(tasks.priority), tasks.scheduledFor).limit(6);
   const dueToday = openTasks.filter(task => task.scheduledFor === today);
   const urgent = openTasks.filter(task => task.priority === "urgent");
   const upcoming = await db.select({ title: exams.title, scheduledAt: exams.scheduledAt }).from(exams).where(and(eq(exams.userId, userId), isNull(exams.archivedAt), gte(exams.scheduledAt, new Date()))).orderBy(exams.scheduledAt).limit(1);
@@ -584,7 +582,7 @@ export async function createExamLegacy(userId: number, input: { title: string; s
 export async function completeExamAttempt(userId: number, input: { examId: number; totalQuestions: number; correctAnswers: number; difficulty: "easy" | "medium" | "hard"; missedTopics: string[] }) { const db = await database(); const exam = await db.select().from(exams).where(and(eq(exams.id, input.examId), eq(exams.userId, userId), isNull(exams.archivedAt))).limit(1); if (!exam[0]) throw new Error("الامتحان غير موجود."); if (input.correctAnswers > input.totalQuestions) throw new Error("عدد الإجابات الصحيحة غير صحيح."); const incorrectAnswers = input.totalQuestions - input.correctAnswers; const score = Math.round((input.correctAnswers / input.totalQuestions) * 100); const [prior] = await db.select({ average: sql<number>`coalesce(avg(${examAttempts.score}), 0)` }).from(examAttempts).where(eq(examAttempts.userId, userId)); const comprehensionScore = await estimateComprehension({ score, correctAnswers: input.correctAnswers, incorrectAnswers, difficulty: input.difficulty, missedTopics: input.missedTopics, priorAverage: Number(prior?.average ?? 0) }); await db.insert(examAttempts).values({ userId, cycleId: exam[0].cycleId, examId: input.examId, totalQuestions: input.totalQuestions, correctAnswers: input.correctAnswers, incorrectAnswers, score, difficulty: input.difficulty, missedTopics: input.missedTopics, comprehensionScore, completionRewarded: true }); const attempt = await db.select().from(examAttempts).where(and(eq(examAttempts.examId, input.examId), eq(examAttempts.userId, userId))).orderBy(desc(examAttempts.id)).limit(1); const ref = `examAttempt:${attempt[0].id}`; await recordStudyEvent({ userId, cycleId: exam[0].cycleId, eventType: "exam_complete", referenceId: ref }); const completion = await awardCoins({ userId, cycleId: exam[0].cycleId, amount: 15, rateKey: "exam_complete", reason: `إكمال امتحان: ${exam[0].title}`, referenceKey: `${ref}:completion` }); const bonusDefault = examBonusForComprehension(comprehensionScore); const threshold = [95, 90, 80, 70, 60].find(value => comprehensionScore >= value); const bonus = threshold ? await awardCoins({ userId, cycleId: exam[0].cycleId, amount: bonusDefault, rateKey: ("exam_bonus_" + threshold) as CoinRateKey, reason: `مكافأة الاستيعاب: ${comprehensionScore}%`, referenceKey: `${ref}:comprehension` }) : { awarded: false, amount: 0 }; return { attempt: attempt[0], score, comprehensionScore, completion, bonus, bonusAmount: bonus.amount, unlocks: await evaluateAchievements(userId, exam[0].cycleId) }; }
 
 
-export async function listCalendar(userId: number, from: Date, to: Date) { const db = await database(); const [taskItems, examItems, goalItems, customItems, sessions] = await Promise.all([db.select().from(tasks).where(and(eq(tasks.userId, userId), gte(tasks.deadline, from), lte(tasks.deadline, to))), db.select().from(exams).where(and(eq(exams.userId, userId), isNull(exams.archivedAt), gte(exams.scheduledAt, from), lte(exams.scheduledAt, to))), db.select().from(goals).where(and(eq(goals.userId, userId), gte(goals.deadline, from), lte(goals.deadline, to))), db.select().from(calendarEvents).where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startsAt, from), lte(calendarEvents.startsAt, to))), db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "completed"), gte(pomodoroSessions.completedAt, from), lte(pomodoroSessions.completedAt, to)))]); return { tasks: taskItems, exams: examItems, goals: goalItems, events: customItems, sessions }; }
+export async function listCalendar(userId: number, from: Date, to: Date) { const db = await database(); const [taskItems, examItems, goalItems, customItems, sessions] = await Promise.all([db.select().from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt), gte(tasks.deadline, from), lte(tasks.deadline, to))), db.select().from(exams).where(and(eq(exams.userId, userId), isNull(exams.archivedAt), gte(exams.scheduledAt, from), lte(exams.scheduledAt, to))), db.select().from(goals).where(and(eq(goals.userId, userId), gte(goals.deadline, from), lte(goals.deadline, to))), db.select().from(calendarEvents).where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startsAt, from), lte(calendarEvents.startsAt, to))), db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "completed"), gte(pomodoroSessions.completedAt, from), lte(pomodoroSessions.completedAt, to)))]); return { tasks: taskItems, exams: examItems, goals: goalItems, events: customItems, sessions }; }
 export async function createCalendarEvent(userId: number, input: { title: string; startsAt: Date; endsAt?: Date; eventType: "important_date" | "custom" }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(calendarEvents).values({ userId, cycleId: cycle.id, title: input.title, startsAt: input.startsAt, endsAt: input.endsAt ?? null, eventType: input.eventType }); }
 
 export async function listRewards(userId: number, canManage = false) {
@@ -675,7 +673,7 @@ async function scopedExamLessons(db: any, userId: number, examId: number): Promi
 export async function createExam(userId: number, input: { title: string; subjectId?: number; chapterId?: number; lessonId?: number; scheduledAt?: Date; lessonIds?: number[] }) {
   const db = await database(); const cycle = await getActiveCycle(userId); const lessonIds = Array.from(new Set([...(input.lessonIds ?? []), ...(input.lessonId ? [input.lessonId] : [])]));
   if (lessonIds.length) {
-    const owned = await db.select({ id: lessons.id }).from(lessons).innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id)).where(and(inArray(lessons.id, lessonIds), eq(subjects.userId, userId)));
+    const owned = await db.select({ id: lessons.id }).from(lessons).innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id)).where(and(inArray(lessons.id, lessonIds), eq(subjects.userId, userId), isNull(lessons.deletedAt)));
     if (owned.length !== lessonIds.length) throw new Error("اختر دروسًا موجودة ضمن خطتك فقط.");
   }
   await db.insert(exams).values({ userId, cycleId: cycle.id, title: input.title, subjectId: input.subjectId ?? null, chapterId: input.chapterId ?? null, lessonId: input.lessonId ?? null, scheduledAt: input.scheduledAt ?? null });
@@ -695,7 +693,7 @@ export async function updateExam(userId: number, input: { examId: number; title:
       const valid = await tx.select({ id: lessons.id }).from(lessons)
         .innerJoin(chapters, eq(lessons.chapterId, chapters.id))
         .innerJoin(subjects, eq(chapters.subjectId, subjects.id))
-        .where(and(eq(subjects.userId, userId), inArray(lessons.id, lessonIds)));
+        .where(and(eq(subjects.userId, userId), isNull(lessons.deletedAt), inArray(lessons.id, lessonIds)));
       if (valid.length !== lessonIds.length) throw new Error("اختر دروسًا موجودة ضمن خطتك فقط.");
     }
     await tx.update(exams).set({ title: input.title, scheduledAt: input.scheduledAt, ...(lessonIds === undefined ? {} : { lessonId: null, chapterId: null, subjectId: null }) }).where(owned);
@@ -789,7 +787,7 @@ export async function searchStudyWorkspace(userId: number, query: string) {
   const db = await database(); const pattern = `%${query.trim()}%`;
   const [noteRows, lessonRows, cardRows] = await Promise.all([
     db.select({ id: notes.id, title: notes.title, excerpt: notes.content, notebook: notebooks.title }).from(notes).innerJoin(notebooks, eq(notes.notebookId, notebooks.id)).where(and(eq(notebooks.userId, userId), or(like(notes.title, pattern), like(notes.content, pattern)))).limit(20),
-    db.select({ id: lessons.id, title: lessons.title, excerpt: lessons.description, subject: subjects.title, chapter: chapters.title }).from(lessons).innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id)).where(and(eq(subjects.userId, userId), or(like(lessons.title, pattern), like(lessons.description, pattern), like(lessons.notes, pattern)))).limit(20),
+    db.select({ id: lessons.id, title: lessons.title, excerpt: lessons.description, subject: subjects.title, chapter: chapters.title }).from(lessons).innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id)).where(and(eq(subjects.userId, userId), isNull(lessons.deletedAt), or(like(lessons.title, pattern), like(lessons.description, pattern), like(lessons.notes, pattern)))).limit(20),
     db.select({ id: flashcards.id, prompt: flashcards.prompt, answer: flashcards.answer, deck: flashcardDecks.title }).from(flashcards).innerJoin(flashcardDecks, eq(flashcards.deckId, flashcardDecks.id)).where(and(eq(flashcardDecks.userId, userId), or(like(flashcards.prompt, pattern), like(flashcards.answer, pattern)))).limit(20),
   ]);
   return { notes: noteRows, lessons: lessonRows, flashcards: cardRows };
@@ -1028,14 +1026,14 @@ export async function searchWorkspaceTitles(userId: number, query: string) {
       .where(and(eq(subjects.userId, userId), sql`${subjects.title} LIKE ${pattern} ESCAPE '!'`)).limit(12),
     db.select({ id: lessons.id, title: lessons.title, subject: subjects.title }).from(lessons)
       .innerJoin(chapters, eq(chapters.id, lessons.chapterId)).innerJoin(subjects, eq(subjects.id, chapters.subjectId))
-      .where(and(eq(subjects.userId, userId), or(sql`${lessons.title} LIKE ${pattern} ESCAPE '!'`, sql`${subjects.title} LIKE ${pattern} ESCAPE '!'`))).limit(12),
+      .where(and(eq(subjects.userId, userId), isNull(lessons.deletedAt), or(sql`${lessons.title} LIKE ${pattern} ESCAPE '!'`, sql`${subjects.title} LIKE ${pattern} ESCAPE '!'`))).limit(12),
     db.select({ id: tasks.id, title: tasks.title, date: tasks.scheduledFor }).from(tasks)
-      .where(and(eq(tasks.userId, userId), sql`${tasks.title} LIKE ${pattern} ESCAPE '!'`)).limit(12),
+      .where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt), sql`${tasks.title} LIKE ${pattern} ESCAPE '!'`)).limit(12),
     db.select({ id: exams.id, title: exams.title, subject: subjects.title }).from(exams)
       .leftJoin(subjects, eq(exams.subjectId, subjects.id))
       .where(and(eq(exams.userId, userId), isNull(exams.archivedAt), or(sql`${exams.title} LIKE ${pattern} ESCAPE '!'`, sql`${subjects.title} LIKE ${pattern} ESCAPE '!'`))).limit(12),
     db.select({ id: assistantChats.id, title: assistantChats.title }).from(assistantChats)
-      .where(and(eq(assistantChats.userId, userId), sql`${assistantChats.title} LIKE ${pattern} ESCAPE '!'`)).limit(12),
+      .where(and(eq(assistantChats.userId, userId), isNull(assistantChats.deletedAt), sql`${assistantChats.title} LIKE ${pattern} ESCAPE '!'`)).limit(12),
   ]);
   return { subjects: subjectRows, lessons: lessonRows, tasks: taskRows, exams: examRows, chats: chatRows };
 }
@@ -1059,7 +1057,7 @@ export async function importStudyCsv(userId: number, kind: "tasks" | "exams", ro
   return db.transaction(async tx => {
     if (!preview) await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
     const existing = kind === "tasks"
-      ? await tx.select({ title: tasks.title, day: tasks.scheduledFor }).from(tasks).where(eq(tasks.userId, userId))
+      ? await tx.select({ title: tasks.title, day: tasks.scheduledFor }).from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt)))
       : (await tx.select({ title: exams.title, scheduledAt: exams.scheduledAt }).from(exams).where(eq(exams.userId, userId)))
           .map(row => ({ title: row.title, day: row.scheduledAt ? dayInCairo(row.scheduledAt) : null }));
     const key = (title: string, day: string | null) => JSON.stringify([title.trim().toLocaleLowerCase("ar-EG"), day]);
@@ -1130,7 +1128,7 @@ export async function lessonReviewSchedule(userId: number) {
   }).from(lessonProgress).innerJoin(lessons, eq(lessons.id, lessonProgress.lessonId))
     .innerJoin(chapters, eq(chapters.id, lessons.chapterId))
     .innerJoin(subjects, eq(subjects.id, chapters.subjectId))
-    .where(and(eq(subjects.userId, userId), eq(lessonProgress.userId, userId), eq(lessonProgress.status, "completed")));
+    .where(and(eq(subjects.userId, userId), eq(lessonProgress.userId, userId), eq(lessonProgress.status, "completed"), isNull(lessons.deletedAt)));
   const cairo = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" });
   const toDay = (date: Date) => {
     const values = Object.fromEntries(cairo.formatToParts(date).map(part => [part.type, part.value]));
@@ -1203,7 +1201,7 @@ export async function createRecurringTasks(userId: number, input: {
   return db.transaction(async tx => {
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
     const existing = await tx.select({ day: tasks.scheduledFor }).from(tasks)
-      .where(and(eq(tasks.userId, userId), eq(tasks.title, input.title), inArray(tasks.scheduledFor, days)));
+      .where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt), eq(tasks.title, input.title), inArray(tasks.scheduledFor, days)));
     const seen = new Set(existing.map(row => row.day));
     const fresh = days.filter(day => !seen.has(day));
     if (fresh.length) await tx.insert(tasks).values(fresh.map(day => ({
@@ -1230,4 +1228,34 @@ export async function syncOfflineTask(userId: number, input: { key: string; titl
     await tx.insert(offlineTaskWrites).values({ userId, requestKey, taskId: task.insertId });
     return { taskId: task.insertId, alreadySynced: false };
   });
+}
+
+
+export async function listStudyTrash(userId: number) {
+  const db = await database();
+  const [taskRows, chatRows, lessonRows] = await Promise.all([
+    db.select({ id: tasks.id, title: tasks.title, deletedAt: tasks.deletedAt }).from(tasks)
+      .where(and(eq(tasks.userId, userId), isNotNull(tasks.deletedAt))).orderBy(desc(tasks.deletedAt)),
+    db.select({ id: assistantChats.id, title: assistantChats.title, deletedAt: assistantChats.deletedAt }).from(assistantChats)
+      .where(and(eq(assistantChats.userId, userId), isNotNull(assistantChats.deletedAt))).orderBy(desc(assistantChats.deletedAt)),
+    db.select({ id: lessons.id, title: lessons.title, deletedAt: lessons.deletedAt }).from(lessons)
+      .innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id))
+      .where(and(eq(subjects.userId, userId), isNotNull(lessons.deletedAt))).orderBy(desc(lessons.deletedAt)),
+  ]);
+  return { tasks: taskRows, chats: chatRows, lessons: lessonRows };
+}
+
+export async function restoreStudyTrash(userId: number, kind: "tasks" | "chats" | "lessons", id: number) {
+  const db = await database();
+  if (kind === "tasks") await db.update(tasks).set({ deletedAt: null })
+    .where(and(eq(tasks.id, id), eq(tasks.userId, userId), isNotNull(tasks.deletedAt)));
+  else if (kind === "chats") await db.update(assistantChats).set({ deletedAt: null })
+    .where(and(eq(assistantChats.id, id), eq(assistantChats.userId, userId), isNotNull(assistantChats.deletedAt)));
+  else {
+    const ownedChapters = db.select({ id: chapters.id }).from(chapters).innerJoin(subjects, eq(chapters.subjectId, subjects.id))
+      .where(eq(subjects.userId, userId));
+    await db.update(lessons).set({ deletedAt: null })
+      .where(and(eq(lessons.id, id), inArray(lessons.chapterId, ownedChapters), isNotNull(lessons.deletedAt)));
+  }
+  return { ok: true };
 }

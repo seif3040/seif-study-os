@@ -213,7 +213,7 @@ export default function Seify() {
       } else {
         await remove.mutateAsync({ chatId: chat });
         switchChat();
-        toast.success("اتمسحت المحادثة");
+        toast.success("المحادثة راحت لسلة المحذوفات");
       }
       setChatDialog(null);
       await Promise.all([
@@ -251,7 +251,7 @@ export default function Seify() {
       <DialogContent dir="rtl">
         <DialogHeader>
           <DialogTitle>{chatDialog === "rename" ? "إعادة تسمية المحادثة" : "حذف المحادثة؟"}</DialogTitle>
-          <DialogDescription>{chatDialog === "rename" ? "اكتب الاسم اللي عايزه يظهر في القائمة." : "كل رسائل المحادثة دي هتتمسح نهائيًا."}</DialogDescription>
+          <DialogDescription>{chatDialog === "rename" ? "اكتب الاسم اللي عايزه يظهر في القائمة." : "تقدر تسترجع المحادثة ورسائلها من سلة المحذوفات في الإعدادات."}</DialogDescription>
         </DialogHeader>
         <form onSubmit={manageChat} className="space-y-4">
           {chatDialog === "rename" && <Input aria-label="اسم المحادثة" autoFocus required maxLength={100} value={chatTitle} onChange={event => setChatTitle(event.target.value)} />}
