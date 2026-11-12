@@ -508,7 +508,27 @@ export async function updateGoal(userId: number, goalId: number, input: { title:
 export async function deleteGoal(userId: number, goalId: number) { const db = await database(); return db.delete(goals).where(and(eq(goals.id, goalId), eq(goals.userId, userId))); }
 
 export async function listPomodoros(userId: number) { const db = await database(); return db.select().from(pomodoroSessions).where(eq(pomodoroSessions.userId, userId)).orderBy(desc(pomodoroSessions.createdAt)); }
-export async function startPomodoro(userId: number, input: { plannedMinutes: 15 | 25 | 45 | 60; subjectId?: number }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(pomodoroSessions).values({ userId, cycleId: cycle.id, plannedMinutes: input.plannedMinutes, subjectId: input.subjectId ?? null, state: "running" }); const created = await db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "running"))).orderBy(desc(pomodoroSessions.id)).limit(1); return created[0]; }
+export async function startPomodoro(userId: number, input: { plannedMinutes: 15 | 25 | 45 | 60; subjectId?: number }) {
+  const db = await database();
+  const cycle = await getActiveCycle(userId);
+  return db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const [active] = await tx.select().from(pomodoroSessions)
+      .where(and(eq(pomodoroSessions.userId, userId), inArray(pomodoroSessions.state, ["running", "paused"])))
+      .orderBy(desc(pomodoroSessions.id)).limit(1);
+    if (active) return active;
+    const subjectId = input.subjectId ?? null;
+    if (subjectId !== null) {
+      const [subject] = await tx.select({ id: subjects.id }).from(subjects)
+        .where(and(eq(subjects.userId, userId), eq(subjects.id, subjectId)));
+      if (!subject) throw new Error("المادة مش موجودة.");
+    }
+    const [result] = await tx.insert(pomodoroSessions).values({ userId, cycleId: cycle.id, plannedMinutes: input.plannedMinutes, subjectId });
+    const [created] = await tx.select().from(pomodoroSessions)
+      .where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.id, result.insertId)));
+    return created;
+  });
+}
 export async function completePomodoro(userId: number, sessionId: number) { const db = await database(); const session = await db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.id, sessionId), eq(pomodoroSessions.userId, userId))).limit(1); if (!session[0]) throw new Error("جلسة Pomodoro غير موجودة."); if (session[0].state === "completed") return { alreadyCompleted: true, awarded: false, unlocks: [] }; if (session[0].state !== "running") throw new Error("استأنف الجلسة قبل إكمالها."); const elapsed = Date.now() - session[0].startedAt.getTime() - session[0].pausedSeconds * 1000; if (elapsed < session[0].plannedMinutes * 60_000 * 0.9) throw new Error("لا يمكن منح المكافأة قبل إكمال الجلسة بالكامل."); await db.update(pomodoroSessions).set({ state: "completed", completedMinutes: session[0].plannedMinutes, completedAt: new Date(), pausedAt: null }).where(eq(pomodoroSessions.id, sessionId)); const ref = `pomodoro:${sessionId}:complete`; await recordStudyEvent({ userId, cycleId: session[0].cycleId, subjectId: session[0].subjectId, eventType: "pomodoro_complete", referenceId: ref, durationMinutes: session[0].plannedMinutes }); const reward = await awardCoins({ userId, cycleId: session[0].cycleId, amount: coinRewardForPomodoro(session[0].plannedMinutes), rateKey: ("pomodoro_" + session[0].plannedMinutes) as CoinRateKey, reason: `Pomodoro مكتمل — ${session[0].plannedMinutes} دقيقة`, referenceKey: ref }); return { alreadyCompleted: false, ...reward, unlocks: await evaluateAchievements(userId, session[0].cycleId) }; }
 export async function pausePomodoro(userId: number, sessionId: number, paused: boolean) { const db = await database(); const rows = await db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.id, sessionId), eq(pomodoroSessions.userId, userId))).limit(1); const session = rows[0]; if (!session || !["running", "paused"].includes(session.state)) throw new Error("لا يمكن تعديل هذه الجلسة."); if (paused && session.state === "running") return db.update(pomodoroSessions).set({ state: "paused", pausedAt: new Date() }).where(eq(pomodoroSessions.id, sessionId)); if (!paused && session.state === "paused") { const pauseSeconds = session.pausedAt ? Math.max(0, Math.floor((Date.now() - session.pausedAt.getTime()) / 1000)) : 0; return db.update(pomodoroSessions).set({ state: "running", pausedAt: null, pausedSeconds: session.pausedSeconds + pauseSeconds }).where(eq(pomodoroSessions.id, sessionId)); } return { rowsAffected: 0 }; }
 
@@ -1023,5 +1043,38 @@ export async function importStudyCsv(userId: number, kind: "tasks" | "exams", ro
       }
     }
     return { rows: statuses, added: cycle ? fresh.length : 0 };
+  });
+}
+
+
+export async function listFocusAssignments(userId: number) {
+  const db = await database();
+  return db.select({
+    id: studyEvents.id, subjectId: studyEvents.subjectId, minutes: studyEvents.durationMinutes, date: studyEvents.occurredAt,
+  }).from(studyEvents).where(and(eq(studyEvents.userId, userId), eq(studyEvents.eventType, "pomodoro_complete")))
+    .orderBy(studyEvents.occurredAt, studyEvents.id);
+}
+
+export async function assignFocusSubject(userId: number, eventIds: number[], subjectId: number | null) {
+  const db = await database();
+  const uniqueIds = [...new Set(eventIds)];
+  return db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    if (subjectId !== null) {
+      const [subject] = await tx.select({ id: subjects.id }).from(subjects)
+        .where(and(eq(subjects.userId, userId), eq(subjects.id, subjectId))).for("update");
+      if (!subject) throw new Error("المادة مش موجودة.");
+    }
+    const selected = and(eq(studyEvents.userId, userId), eq(studyEvents.eventType, "pomodoro_complete"), inArray(studyEvents.id, uniqueIds));
+    const rows = await tx.select({ id: studyEvents.id, reference: studyEvents.referenceId }).from(studyEvents).where(selected).for("update");
+    if (rows.length !== uniqueIds.length) throw new Error("اختار جلسات تركيز موجودة عندك.");
+    const sessionIds = rows.flatMap(row => {
+      const id = row.reference?.match(/^pomodoro:(\d+):complete$/)?.[1];
+      return id ? [Number(id)] : [];
+    });
+    await tx.update(studyEvents).set({ subjectId }).where(selected);
+    if (sessionIds.length) await tx.update(pomodoroSessions).set({ subjectId })
+      .where(and(eq(pomodoroSessions.userId, userId), inArray(pomodoroSessions.id, sessionIds)));
+    return { updated: rows.length };
   });
 }
