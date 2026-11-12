@@ -31,8 +31,8 @@
     list.replaceChildren();
     for (const task of snapshot.tasks) {
       const item = document.createElement("li");
-      const pendingTask = items.some(entry => entry.kind === "task" && entry.taskId === task.id);
-      item.textContent = task.title + (task.day ? " (" + task.day + ")" : "") + (pendingTask ? " — مستني المزامنة" : task.completed ? " ✓" : "");
+      const pendingTask = items.find(entry => entry.kind === "task" && entry.taskId === task.id);
+      item.textContent = task.title + (task.day ? " (" + task.day + ")" : "") + (pendingTask ? pendingTask.syncIssue ? " — تعذّر الإرسال، محفوظة على الجهاز" : " — مستني المزامنة" : task.completed ? " ✓" : "");
       if (task.id && !task.completed && !pendingTask) {
         const button = document.createElement("button");
         button.className = "secondary";
@@ -53,7 +53,7 @@
     const additions = items.filter(item => item.kind === "task-create");
     for (const addition of additions) {
       const entry = document.createElement("li");
-      entry.textContent = addition.title + " — مهمة جديدة مستنية المزامنة";
+      entry.textContent = addition.title + (addition.syncIssue ? " — تعذّر الإرسال، محفوظة على الجهاز" : " — مهمة جديدة مستنية المزامنة");
       list.append(entry);
     }
     if (!snapshot.tasks.length && !additions.length) list.textContent = "مفيش مهام في الجدول المحفوظ.";
@@ -121,7 +121,7 @@
         : item.kind === "exam" ? exams.find(exam => exam.id === item.examId) : null;
       if (item.kind !== "lesson" && item.kind !== "exam") continue;
       const line = document.createElement("li");
-      line.textContent = (source?.title ?? (item.kind === "lesson" ? "درس" : "امتحان")) + " — مستني المزامنة";
+      line.textContent = (source?.title ?? (item.kind === "lesson" ? "درس" : "امتحان")) + (item.syncIssue ? " — تعذّر الإرسال، محفوظ على الجهاز" : " — مستني المزامنة");
       list.append(line);
     }
   }

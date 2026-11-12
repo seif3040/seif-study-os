@@ -162,8 +162,9 @@
     const pending = (await queue()).filter(item => item.ownerId === snapshot.ownerId && !item.conflict)
       .sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0));
     let count = 0;
+    let failed = false;
     for (const item of pending) {
-      const { kind, ...payload } = item;
+      const { kind, syncIssue, ...payload } = item;
       const routes = {
         "task-create": ["tasks.syncCreate", "alreadySynced"],
         task: ["tasks.syncCompletion", "alreadyCompleted"],
@@ -179,7 +180,11 @@
         signal: AbortSignal.timeout(12_000),
       });
       if (response.status === 401 || response.status === 403) return count;
-      if (!response.ok) throw new Error("جلسة مستنية المزامنة (" + response.status + ").");
+      if (!response.ok) {
+        failed = true;
+        await transaction(["queue"], "readwrite", tx => tx.objectStore("queue").put({ ...item, syncIssue: response.status }));
+        continue;
+      }
       const output = await response.json();
       const saved = output.result?.data?.json;
       if (kind === "task" && saved?.conflict) {
@@ -205,6 +210,7 @@
       });
       count++;
     }
+    if (failed && !count) throw new Error("في تغييرات لسه مستنية المزامنة.");
     return count;
   }
 
