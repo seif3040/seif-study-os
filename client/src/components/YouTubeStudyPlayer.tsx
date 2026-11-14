@@ -36,13 +36,14 @@ function loadYouTube() {
   return apiPromise;
 }
 
-export function YouTubeStudyPlayer({ embed, onPlaying, onStopped }: {
+export function YouTubeStudyPlayer({ embed, onPlaying, onStopped, onPosition }: {
   embed: string;
   onPlaying(readPosition: () => number, readRate: () => number): void;
   onStopped(position?: number): void;
+  onPosition(position: number): void;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const callbacks = useRef({ onPlaying, onStopped });
+  const callbacks = useRef({ onPlaying, onStopped, onPosition });
   callbacks.current = { onPlaying, onStopped };
   const [error, setError] = useState(false);
   useEffect(() => {
@@ -51,6 +52,11 @@ export function YouTubeStudyPlayer({ embed, onPlaying, onStopped }: {
     let disposed = false;
     let player: Player | undefined;
     let playing = false;
+    const refreshPosition = () => {
+      const position = player?.getCurrentTime?.();
+      if (typeof position === "number" && Number.isFinite(position)) callbacks.current.onPosition(position);
+    };
+    const interval = window.setInterval(refreshPosition, 200);
     const url = new URL(embed);
     url.searchParams.set("enablejsapi", "1");
     url.searchParams.set("origin", window.location.origin);
@@ -72,6 +78,7 @@ export function YouTubeStudyPlayer({ embed, onPlaying, onStopped }: {
       player = new api.Player(frame, { events: {
         onStateChange(event) {
           if (disposed) return;
+          refreshPosition();
           if (event.data === 1) {
             playing = true;
             callbacks.current.onPlaying(() => event.target.getCurrentTime(), () => event.target.getPlaybackRate());
@@ -87,6 +94,7 @@ export function YouTubeStudyPlayer({ embed, onPlaying, onStopped }: {
     });
     return () => {
       disposed = true;
+      window.clearInterval(interval);
       stop(player?.getCurrentTime());
       player?.destroy();
       frame.remove();
