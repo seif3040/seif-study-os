@@ -54,8 +54,8 @@ export const appRouter = router({
   prayers: router({
     today: protectedProcedure.query(({ ctx }) => db.dailyPrayers(ctx.user.id)),
     schedule: protectedProcedure.input(z.object({ day: z.string().date() })).query(({ input }) => db.prayerSchedule(input.day)),
-    log: protectedProcedure.input(z.object({ day: z.string().date(), prayer: z.enum(["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]) }))
-      .mutation(({ ctx, input }) => db.logPrayer(ctx.user.id, input.day, input.prayer)),
+    log: protectedProcedure.input(z.object({ day: z.string().date(), prayer: z.enum(["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]), location: z.enum(["home", "mosque"]) }))
+      .mutation(({ ctx, input }) => db.logPrayer(ctx.user.id, input.day, input.prayer, input.location)),
   }),
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),

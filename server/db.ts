@@ -1696,6 +1696,12 @@ export function fillStudyDay(userId: number, day: string, subjectId: number) {
         start: time(Math.max(plannerMinutes(state.wake), minuteOf(event.startsAt))),
         end: time(Math.min(plannerMinutes(state.sleep), minuteOf(event.endsAt))) });
     }
+    const times = await cairoPrayers(day);
+    for (const prayer of prayers) {
+      const start = times[prayer];
+      busy.push({ id: "prayer-" + prayer, title: prayerNames[prayer], weekday, start,
+        end: time(Math.min(1440, plannerMinutes(start) + 30)) });
+    }
     const gaps = plannerFreeTime(state.wake, state.sleep, busy);
     if (!gaps.length) throw new Error("مفيش وقت فاضي في اليوم ده.");
     state.studySessions = [...(state.studySessions ?? []), ...gaps.map(({ start, end }): PlannedStudy => ({
@@ -1722,7 +1728,7 @@ async function suggestDailyStudy(tx: StudyTransaction, userId: number, state: Pl
   const prayerTimes = await cairoPrayers(day).catch(() => null);
   const prayerBlocks = prayerTimes ? prayers.map(prayer => {
     const start = plannerMinutes(prayerTimes[prayer]);
-    return { start, end: start + 15 };
+    return { start, end: start + 30 };
   }) : [];
   const blocked = events.map(event => ({
     start: minuteOf(event.startsAt),
@@ -1833,8 +1839,13 @@ function prayerReference(userId: number, day: string, prayer: Prayer) {
   return `prayer:${userId}:${day}:${prayer}`;
 }
 
-export async function logPrayer(userId: number, day: string, prayer: Prayer) {
+export async function logPrayer(userId: number, day: string, prayer: Prayer, location: "home" | "mosque") {
+  if (location !== (prayer === "Fajr" ? "home" : "mosque")) throw new Error("مكان الصلاة المسجّل لا يطابق شرط النقاط.");
   if (day !== plannerToday()) throw new Error("حدّث الصفحة عشان تسجّل صلاة النهارده.");
+  const times = await cairoPrayers(day);
+  const start = +cairoPlannerTime(day, times[prayer]);
+  const now = Date.now();
+  if (now < start || now >= start + 30 * 60_000) throw new Error("النقاط بتتحسب خلال أول نص ساعة من الأذان.");
   const cycle = await getActiveCycle(userId);
   return awardCoins({
     userId, cycleId: cycle.id, amount: 500, reason: "صلاة " + prayerNames[prayer],
