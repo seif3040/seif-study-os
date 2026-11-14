@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useId, useRef, useState, type PointerEvent } from "react";
 import { Button } from "@/components/ui/button";
 
 type Card = { id: string; text: string; x: number; y: number; sticky: boolean };
-type Board = { cards: Card[]; links: [string, string][] };
+type Stroke = { points: string; color: string; width: number; opacity: number };
+type Board = { ink?: Stroke[]; cards: Card[]; links: [string, string][] };
 const prefix = "study-board:v1:";
 const audioPrefix = "study-audio:v1:";
 function readBoard(value: string): Board {
@@ -26,6 +27,13 @@ function Whiteboard({ value, onChange }: { value: string; onChange?: (value: str
   const board = readBoard(value);
   const surface = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: string; x: number; y: number; rect: DOMRect } | undefined>(undefined);
+  const [tool, setTool] = useState("move");
+  const [color, setColor] = useState("#2563eb");
+  const [zoom, setZoom] = useState(100);
+  const [large, setLarge] = useState(false);
+  const [draft, setDraft] = useState<Stroke>();
+  const ink = useRef<Stroke | undefined>(undefined);
+  const arrow = useId();
   const [selected, setSelected] = useState("");
   const [linking, setLinking] = useState("");
   const save = (next: Board) => onChange?.(prefix + JSON.stringify(next));
@@ -36,7 +44,60 @@ function Whiteboard({ value, onChange }: { value: string; onChange?: (value: str
     const y = Math.max(0, Math.min(76, (event.clientY - item.rect.top - item.y) / item.rect.height * 100));
     save({ ...board, cards: board.cards.map(card => card.id === item.id ? { ...card, x, y } : card) });
   }
-  return <div className="space-y-2">
+  function draw(event: PointerEvent<SVGSVGElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const point = Math.round((event.clientX - rect.left) * 1000 / rect.width) + "," +
+      Math.round((event.clientY - rect.top) * 600 / rect.height);
+    if (event.type === "pointerdown") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      ink.current = { points: point + " " + point, color, width: tool === "highlight" ? 24 : 4, opacity: tool === "highlight" ? .32 : 1 };
+    } else if (ink.current && ink.current.points.length < 6000) ink.current = { ...ink.current, points: ink.current.points + " " + point };
+    setDraft(ink.current);
+  }
+  function finishInk() {
+    if (!ink.current) return;
+    const next = { ...board, ink: [...(board.ink ?? []), ink.current] };
+    if ((prefix + JSON.stringify(next)).length <= 60000) save(next);
+    else window.alert("اللوحة وصلت لحد الحفظ. افتح لوحة جديدة أو امسح آخر خط.");
+    ink.current = undefined;
+    setDraft(undefined);
+  }
+  function printBoard() {
+    const popup = window.open("", "_blank");
+    if (!popup || !surface.current) { window.alert("اسمح بفتح النوافذ المنبثقة للطباعة."); return; }
+    const page = popup.document;
+    page.title = "لوحة المذاكرة";
+    const style = page.createElement("style");
+    style.textContent = "@page{size:A4 landscape;margin:10mm}body{margin:0;font:14px Arial}svg{position:absolute;inset:0;width:100%;height:100%}textarea,button{display:none}.paper{position:relative;height:170mm;background:white;color:#111}.card{position:absolute;width:22%;padding:4px;white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid #555;border-radius:6px;box-sizing:border-box;print-color-adjust:exact}";
+    page.head.append(style);
+    const paper = page.createElement("div"); paper.className = "paper";
+    const svg = surface.current.querySelector("svg");
+    if (svg) paper.append(svg.cloneNode(true));
+    for (const card of board.cards) {
+      const div = page.createElement("div");
+      div.className = "card"; div.dir = "auto"; div.textContent = card.text;
+      div.style.left = card.x + "%"; div.style.top = card.y + "%";
+      div.style.background = card.sticky ? "#fde68a" : "#fff"; paper.append(div);
+    }
+    page.body.append(paper); popup.print();
+  }
+  return <div className={large ? "fixed inset-0 z-[60] overflow-auto bg-background p-4 space-y-2" : "space-y-2"}>
+    <div className="flex flex-wrap gap-1">
+      <Button type="button" size="sm" variant="outline" onClick={() => setLarge(!large)}>{large ? "رجوع" : "ملء الشاشة"}</Button>
+      <Button type="button" size="sm" variant="outline" onClick={() => setZoom(Math.max(50, zoom - 25))}>−</Button>
+      <Button type="button" size="sm" variant="outline" onClick={() => setZoom(100)}>{zoom}%</Button>
+      <Button type="button" size="sm" variant="outline" onClick={() => setZoom(Math.min(250, zoom + 25))}>+</Button>
+      <Button type="button" size="sm" variant="outline" onClick={printBoard}>طباعة / PDF</Button>
+    </div>
+    {onChange && <div className="flex flex-wrap items-center gap-1">
+      {[["move", "تحريك"], ["pen", "قلم"], ["highlight", "هايلايتر"]].map(([key, label]) =>
+        <Button key={key} type="button" size="sm" variant={tool === key ? "default" : "outline"} onClick={() => {
+          setTool(key); if (key === "highlight") setColor("#facc15"); if (key === "pen") setColor("#2563eb");
+        }}>{label}</Button>)}
+      <input type="color" aria-label="لون القلم" value={color} onChange={event => setColor(event.target.value)} />
+      <Button type="button" variant="ghost" size="sm" disabled={!board.ink?.length}
+        onClick={() => save({ ...board, ink: board.ink?.slice(0, -1) })}>تراجع عن آخر خط</Button>
+    </div>}
     {onChange && <div className="flex flex-wrap gap-1">
       {[false, true].map(sticky => <Button key={String(sticky)} size="sm" type="button" variant="outline" disabled={board.cards.length >= 30}
         onClick={() => {
@@ -47,18 +108,26 @@ function Whiteboard({ value, onChange }: { value: string; onChange?: (value: str
         }}>{sticky ? "+ Sticky Note" : "+ فكرة"}</Button>)}
       <Button type="button" size="sm" variant="outline" disabled={!selected} onClick={() => setLinking(linking ? "" : selected)}>{linking ? "اختار الفكرة التانية" : "اربط بفكرة"}</Button>
       <Button type="button" size="sm" variant="ghost" disabled={!selected} onClick={() => {
-        save({ cards: board.cards.filter(c => c.id !== selected), links: board.links.filter(pair => !pair.includes(selected)) });
+        save({ ...board, cards: board.cards.filter(c => c.id !== selected), links: board.links.filter(pair => !pair.includes(selected)) });
         setSelected(""); setLinking("");
       }}>حذف الكارت</Button>
     </div>}
-    <div ref={surface} dir="ltr" className="relative h-80 overflow-hidden rounded-xl border bg-muted/50">
-      <svg aria-hidden="true" className="pointer-events-none absolute inset-0 size-full">
+    <div className="overflow-auto rounded-xl border">
+    <div ref={surface} dir="ltr" style={{ width: zoom + "%", height: (large ? 550 : 350) * zoom / 100 }}
+      className="relative overflow-hidden bg-white text-slate-900">
+      <svg aria-hidden="true" viewBox="0 0 1000 600" preserveAspectRatio="none"
+        className="pointer-events-none absolute inset-0 size-full">
+        <defs><marker id={arrow} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <path d="M0 0 L8 4 L0 8 Z" fill="#334155" />
+        </marker></defs>
+        {[...(board.ink ?? []), ...(draft ? [draft] : [])].map((stroke, index) => <polyline key={index}
+          points={stroke.points} fill="none" stroke={stroke.color} strokeWidth={stroke.width} opacity={stroke.opacity} strokeLinecap="round" strokeLinejoin="round" />)}
         {board.links.map(([a, b]) => {
           const from = board.cards.find(card => card.id === a), to = board.cards.find(card => card.id === b);
-          return from && to && <line key={a + b} x1={(from.x + 10) + "%"} y1={(from.y + 9) + "%"} x2={(to.x + 10) + "%"} y2={(to.y + 9) + "%"} stroke="currentColor" strokeWidth="2" />;
+          return from && to && <line key={a + b} x1={(from.x + 10) + "%"} y1={(from.y + 9) + "%"} x2={(to.x + 10) + "%"} y2={(to.y + 9) + "%"} stroke="#334155" strokeWidth="2" markerEnd={"url(#" + arrow + ")"} />;
         })}
       </svg>
-      {board.cards.map(card => <div key={card.id} style={{ left: card.x + "%", top: card.y + "%" }}
+      {board.cards.map(card => <div key={card.id} data-board-card={card.id} style={{ left: card.x + "%", top: card.y + "%" }}
         className={"absolute w-[23%] min-w-0 overflow-hidden rounded border shadow " + (card.sticky ? "bg-amber-200 text-slate-950" : "bg-card text-card-foreground") + (selected === card.id ? " ring-2 ring-primary" : "")}>
         {onChange && <button type="button" aria-label="حرّك أو اختار الكارت" className="w-full touch-none cursor-grab bg-black/10 text-center"
           onPointerDown={event => {
@@ -74,12 +143,21 @@ function Whiteboard({ value, onChange }: { value: string; onChange?: (value: str
             drag.current = { id: card.id, rect, x: event.clientX - rect.left - rect.width * card.x / 100, y: event.clientY - rect.top - rect.height * card.y / 100 };
             event.currentTarget.setPointerCapture(event.pointerId);
           }} onPointerMove={move} onPointerUp={() => { drag.current = undefined; }} onPointerCancel={() => { drag.current = undefined; }}>⠿</button>}
+        {onChange && <button type="button" className="absolute right-1 top-0 touch-none text-xs" aria-label="اسحب سهم لكارت تاني"
+          onPointerDown={event => event.currentTarget.setPointerCapture(event.pointerId)}
+          onPointerUp={event => {
+            const target = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-board-card]")?.getAttribute("data-board-card");
+            if (target && target !== card.id && !board.links.some(pair => pair[0] === card.id && pair[1] === target))
+              save({ ...board, links: [...board.links, [card.id, target]] });
+          }}>↗</button>}
         {onChange ? <textarea dir="auto" aria-label="نص الكارت" className="block h-14 w-full resize-none bg-transparent p-1 text-xs" value={card.text} maxLength={300}
           onFocus={() => setSelected(card.id)}
           onChange={event => save({ ...board, cards: board.cards.map(item => item.id === card.id ? { ...item, text: event.target.value } : item) })} />
           : <p dir="auto" className="whitespace-pre-wrap break-words p-2 text-xs">{card.text}</p>}
       </div>)}
-    </div>
+      {onChange && tool !== "move" && <svg aria-label="مساحة الرسم" className="absolute inset-0 z-10 size-full touch-none cursor-crosshair"
+        onPointerDown={draw} onPointerMove={event => { if (ink.current) draw(event); }} onPointerUp={finishInk} onPointerCancel={finishInk} />}
+    </div></div>
   </div>;
 }
 

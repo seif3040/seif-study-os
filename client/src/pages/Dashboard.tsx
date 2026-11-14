@@ -2,7 +2,7 @@ import DailyPrayers from "@/components/DailyPrayers";
 import DayStudy from "@/components/DayStudy";
 import { TaskDialog, type CalendarTask } from "./Tasks";
 import { useState } from "react";
-import { ArrowLeft, BookOpen, CalendarDays, Check, CircleDollarSign, Clock3, Flame, GraduationCap, Sparkles, Timer } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, Check, CircleDollarSign, Clock3, Flame, GraduationCap, Timer } from "lucide-react";
 import type { CSSProperties } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
@@ -58,8 +58,7 @@ export default function Dashboard() {
       <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-6xl">النهارده</h1>
       
       <div className="mt-5 flex flex-wrap gap-2">
-        <Button asChild className="study-hero-action study-interactive"><Link href="/pomodoro"><Timer />{ongoingPomodoro ? "كمّل جلسة التركيز" : "ابدأ بومودورو"}</Link></Button>
-        <Button asChild variant="outline" className="study-interactive border-white/50 bg-transparent text-white hover:bg-white/15 hover:text-white"><Link href="/seify"><Sparkles />كلم جارفيس</Link></Button>
+        <Button asChild className="study-hero-action study-interactive"><Link href="/study-video#pomodoro"><Timer />{ongoingPomodoro ? "كمّل جلسة التركيز" : "ابدأ بومودورو"}</Link></Button>
       </div>
       </div>
       <div className="today-progress">

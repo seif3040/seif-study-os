@@ -250,7 +250,10 @@ export const appRouter = router({
     chat: protectedProcedure.input(z.object({ messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().trim().min(1).max(5000) })).min(1).max(12) })).mutation(({ ctx, input }) => db.chatWithAssistant(ctx.user.id, input.messages)),
   }),
   personalAssistant: router({
-    plan: protectedProcedure.input(z.object({ request: z.string().trim().min(1).max(1200), page: z.string().max(100).optional(), shareWithOpenRouter: z.boolean().default(false), chatId: id.optional(), includeChatHistory: z.boolean().default(false), multiple: z.boolean().default(false) })).mutation(({ ctx, input }) => personalAssistant.planPersonalAssistantAction(ctx.user.id, input.request, input.page, input.shareWithOpenRouter, input.chatId, input.includeChatHistory, input.multiple)),
+    plan: protectedProcedure.input(z.object({ request: z.string().trim().min(1).max(1200), page: z.string().max(100).optional(), shareWithOpenRouter: z.boolean().default(false), chatId: id.optional(), includeChatHistory: z.boolean().default(false), multiple: z.boolean().default(false) })).mutation(async () => {
+      return Promise.reject<Awaited<ReturnType<typeof personalAssistant.planPersonalAssistantAction>>>(
+        new TRPCError({ code: "NOT_FOUND", message: "جارفيس اتشال من الموقع." }));
+    }),
     chats: protectedProcedure.query(({ ctx }) => db.listAssistantChats(ctx.user.id)),
     createChat: protectedProcedure.mutation(({ ctx }) => db.createAssistantChat(ctx.user.id)),
     renameChat: protectedProcedure.input(z.object({ chatId: id.optional(), title: z.string().trim().min(1).max(100) }))
@@ -278,6 +281,8 @@ export const appRouter = router({
     create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), startsAt: date, endsAt: date.optional(), eventType: z.enum(["important_date", "custom"]) })).mutation(({ ctx, input }) => db.createCalendarEvent(ctx.user.id, input)),
   }),
   economy: router({
+    activity: protectedProcedure.input(z.object({ action: z.string().trim().min(1).max(150) }))
+      .mutation(({ ctx, input }) => db.awardActivityPoint(ctx.user.id, input.action)),
     rates: protectedProcedure.query(() => db.listCoinRates()),
     setRate: adminProcedure.input(z.object({ key: z.enum(coinRateKeys), amount: z.number().int().min(0).max(1_000_000) }))
       .mutation(({ input }) => db.setCoinRate(input.key, input.amount)),

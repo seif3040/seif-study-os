@@ -1,12 +1,11 @@
 import { useState } from "react";
-import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { PageHeader, EmptyState } from "@/components/PageHeader";
 import { money, minutesLabel } from "@/lib/study";
 import { trpc } from "@/lib/trpc";
 import { Award, BarChart3, BookOpen, BrainCircuit, CheckSquare, CircleDollarSign, Timer, Video } from "lucide-react";
 const cards = [{ key: "lessonsCompleted", label: "الدروس المكتملة", icon: BookOpen }, { key: "studyMinutes", label: "ساعات الدراسة", icon: Timer }, { key: "pomodoros", label: "Pomodoros", icon: Timer }, { key: "videoMinutes", label: "وقت الفيديو", icon: Video }, { key: "examsCompleted", label: "امتحانات مكتملة", icon: BrainCircuit }, { key: "tasksCompleted", label: "مهام مكتملة", icon: CheckSquare }, { key: "goalsCompleted", label: "أهداف مكتملة", icon: Award }, { key: "currentStreak", label: "السلسلة الحالية", icon: BarChart3 }] as const;
 export default function Analytics() {
-  return <div className="space-y-8"><SubjectReport /><Overview /></div>;
+  return <div className="space-y-8"><Overview /><SubjectReport /></div>;
 }
 
 function SubjectReport() {
@@ -68,5 +67,37 @@ function SubjectReport() {
   </section>;
 }
 
-function Overview() { const { data, isLoading } = trpc.analytics.overview.useQuery(); if (isLoading) return <div className="h-80 animate-pulse rounded-2xl bg-muted" />; if (!data) return <EmptyState title="لا توجد بيانات بعد" description="ستظهر التحليلات تلقائيًا عند تسجيل نشاط دراسي حقيقي." />; const daily = data.daily.map((x: any) => ({ ...x, label: new Date(`${x.day}T12:00:00`).toLocaleDateString("ar-EG", { day: "numeric", month: "short" }) })); const comprehension = data.comprehension.map((x: any) => ({ ...x, label: new Date(`${x.date}T12:00:00`).toLocaleDateString("ar-EG", { day: "numeric", month: "short" }) })); return <div><PageHeader title="نظرة عامة" description="كل بطاقة وكل رسم يعتمدان على نشاطك ومعاملاتك المسجلة، بلا أرقام افتراضية." /><div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{cards.map(({ key, label, icon: Icon }) => <div key={key} className="surface flex items-center gap-3 p-4"><span className="metric-icon bg-primary/10 text-primary"><Icon className="size-5" /></span><div><p className="text-xs text-muted-foreground">{label}</p><p className="text-xl font-bold">{key === "studyMinutes" || key === "videoMinutes" ? minutesLabel(data.metrics[key]) : money.format(data.metrics[key])}</p></div></div>)}</div><div className="mb-5 grid gap-4 xl:grid-cols-2"><ChartCard title="وقت الدراسة اليومي" subtitle="دقائق النشاط المسجل"><ResponsiveContainer width="100%" height={260}><BarChart data={daily}><CartesianGrid vertical={false} strokeDasharray="3 3" /><XAxis dataKey="label" fontSize={11} /><YAxis fontSize={11} /><Tooltip /><Bar dataKey="minutes" fill="#0f766e" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer></ChartCard><ChartCard title="منحنى الاستيعاب" subtitle="بعد كل محاولة امتحان"><ResponsiveContainer width="100%" height={260}><LineChart data={comprehension}><CartesianGrid vertical={false} strokeDasharray="3 3" /><XAxis dataKey="label" fontSize={11} /><YAxis domain={[0, 100]} fontSize={11} /><Tooltip /><Line dataKey="comprehension" stroke="#7c3aed" strokeWidth={3} dot={{ r: 4 }} /></LineChart></ResponsiveContainer></ChartCard></div><div className="grid gap-4 xl:grid-cols-[1fr_.55fr]"><ChartCard title="الدراسة حسب المادة" subtitle="وقت التركيز المرتبط بالمواد">{data.bySubject.length ? <div className="space-y-4 pt-4">{data.bySubject.map((x: any) => <div key={x.subject ?? "none"} className="flex items-center justify-between rounded-xl bg-muted/55 p-3 text-sm"><span>{x.subject ?? "بدون مادة"}</span><b className="font-[Manrope] text-primary">{minutesLabel(Number(x.minutes))}</b></div>)}</div> : <p className="p-8 text-center text-sm text-muted-foreground">اربط Pomodoro أو الدروس بمادة لتظهر هذه المقارنة.</p>}</ChartCard><div className="surface p-5"><div className="flex items-center gap-2"><CircleDollarSign className="size-5 text-primary" /><h2 className="font-bold">سجل المكافآت</h2></div><div className="mt-6 space-y-5"><Metric label="Coins مكتسبة" value={money.format(data.coins.earned)} /><Metric label="Coins منفقَة" value={money.format(data.coins.spent)} /><Metric label="المكافآت المشتراة" value={money.format(data.rewardsPurchased)} /><Metric label="متوسط الاستيعاب" value={`${money.format(Math.round(data.metrics.averageExamScore))}%`} /></div></div></div></div>; }
-function ChartCard({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) { return <section className="surface p-5"><h2 className="font-bold">{title}</h2><p className="mt-1 text-xs text-muted-foreground">{subtitle}</p><div className="mt-3">{children}</div></section>; } function Metric({ label, value }: { label: string; value: string }) { return <div className="flex justify-between border-b pb-3 text-sm last:border-0"><span className="text-muted-foreground">{label}</span><b className="font-[Manrope]">{value}</b></div>; }
+function Overview() {
+  const { data, isLoading, isError, refetch } = trpc.analytics.overview.useQuery();
+  const [limit, setLimit] = useState(14);
+  if (isLoading) return <div className="h-80 animate-pulse rounded-2xl bg-muted" />;
+  if (isError) return <button onClick={() => void refetch()}>تعذّر تحميل سجل تطوّرك. جرّب تاني.</button>;
+  if (!data) return <EmptyState title="لسه مفيش نشاط" description="إنجازاتك هتظهر هنا أول ما تسجّل مذاكرة." />;
+  const daily = [...data.daily].reverse();
+  const max = Math.max(1, ...daily.slice(0, limit).map(day => Number(day.minutes)));
+  return <section className="space-y-4">
+    <PageHeader title="رحلة إنجازك" description="شوف وقت مذاكرتك واللي أنجزته في كل يوم نشاط." />
+    <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+      {cards.map(({ key, label, icon: Icon }) => <article key={key} className="surface flex items-center gap-3 p-4">
+        <Icon className="size-5 shrink-0 text-primary" /><div>
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="text-lg font-bold">{key === "studyMinutes" || key === "videoMinutes"
+            ? minutesLabel(Number(data.metrics[key] ?? 0)) : money.format(Number(data.metrics[key] ?? 0))}</p>
+        </div>
+      </article>)}
+    </div>
+    <div className="surface space-y-3 p-4 sm:p-6">
+      <h2 className="font-bold">إنجازات يوم بيوم</h2>
+      {!daily.length && <p>أول يوم مذاكرة هيتسجل هنا.</p>}
+      {daily.slice(0, limit).map(day => <article key={String(day.day)} className="space-y-2 rounded-xl border p-3">
+        <div className="flex flex-wrap justify-between gap-2">
+          <time className="font-bold">{new Intl.DateTimeFormat("ar-EG", { dateStyle: "full" }).format(new Date(String(day.day).slice(0, 10) + "T12:00:00"))}</time>
+          <span className="font-bold text-primary">{minutesLabel(Number(day.minutes))}</span>
+        </div>
+        <progress className="h-2 w-full accent-primary" aria-label="وقت المذاكرة" value={Number(day.minutes)} max={max} />
+        <p className="text-sm text-muted-foreground">{money.format(Number(day.lessons))} درس · {money.format(Number(day.tasks))} مهمة · {money.format(Number(day.exams))} امتحان · {money.format(Number(day.events))} نشاط</p>
+      </article>)}
+      {daily.length > limit && <button className="text-primary underline" onClick={() => setLimit(daily.length)}>اعرض كل الأيام</button>}
+    </div>
+  </section>;
+}

@@ -818,7 +818,11 @@ export async function analytics(userId: number) {
   const eventDay = sql<string>`date(\`studyEvents\`.\`occurredAt\`)`;
   const subjectName = sql<string>`coalesce(${subjects.title}, 'بدون مادة')`;
   const [daily, bySubject, completion, comprehension, purchases] = await Promise.all([
-    db.select({ day: eventDay, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)`, events: count() }).from(studyEvents).where(eq(studyEvents.userId, userId)).groupBy(eventDay).orderBy(eventDay),
+    db.select({ day: eventDay, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)`, events: count(),
+      lessons: sql<number>`sum(case when ${studyEvents.eventType} = 'lesson_complete' then 1 else 0 end)`,
+      tasks: sql<number>`sum(case when ${studyEvents.eventType} = 'task_complete' then 1 else 0 end)`,
+      exams: sql<number>`sum(case when ${studyEvents.eventType} = 'exam_complete' then 1 else 0 end)`,
+    }).from(studyEvents).where(eq(studyEvents.userId, userId)).groupBy(eventDay).orderBy(eventDay),
     db.select({ subject: subjectName, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)` }).from(studyEvents).leftJoin(subjects, eq(studyEvents.subjectId, subjects.id)).where(eq(studyEvents.userId, userId)).groupBy(studyEvents.subjectId, subjectName),
     db.select({ open: sql<number>`coalesce(sum(case when ${tasks.status} = 'open' then 1 else 0 end), 0)`, completed: sql<number>`coalesce(sum(case when ${tasks.status} = 'completed' then 1 else 0 end), 0)` }).from(tasks).where(eq(tasks.userId, userId)),
     db.select({ date: sql<string>`date(${examAttempts.createdAt})`, score: examAttempts.score, comprehension: examAttempts.comprehensionScore }).from(examAttempts).where(eq(examAttempts.userId, userId)).orderBy(examAttempts.createdAt),
@@ -1858,4 +1862,25 @@ export async function logPrayer(userId: number, day: string, prayer: Prayer, loc
 export async function prayerSchedule(day: string) {
   const times = await cairoPrayers(day);
   return prayers.map(prayer => ({ prayer, name: prayerNames[prayer], time: times[prayer] }));
+}
+
+export async function awardActivityPoint(userId: number, action: string) {
+  const cycle = await getActiveCycle(userId);
+  const { createHash } = await import("node:crypto");
+  const day = plannerToday();
+  const prefix = `activity:${userId}:${day}:`;
+  const referenceKey = prefix + createHash("sha256").update(action).digest("hex").slice(0, 24);
+  const db = await database();
+  return db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const [existing] = await tx.select({ id: coinTransactions.id }).from(coinTransactions)
+      .where(eq(coinTransactions.referenceKey, referenceKey));
+    if (existing) return { awarded: false };
+    const [daily] = await tx.select({ total: count() }).from(coinTransactions)
+      .where(and(eq(coinTransactions.userId, userId), like(coinTransactions.referenceKey, prefix + "%")));
+    if (Number(daily?.total ?? 0) >= 100) return { awarded: false };
+    await tx.insert(coinTransactions).values({ userId, cycleId: cycle.id, amount: 1,
+      type: "earn", referenceKey, reason: "نشاط في الموقع" });
+    return { awarded: true };
+  });
 }
