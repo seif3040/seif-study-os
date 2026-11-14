@@ -113,14 +113,20 @@ export default function WeekPlanner() {
             <label>من<Input type="time" required value={editing.start} onChange={event => setEditing({ ...editing, start: event.target.value })} /></label>
             <label>لحد<Input type="time" required value={editing.end} onChange={event => setEditing({ ...editing, end: event.target.value })} /></label>
           </div>
-          <label>المادة<select className={selectStyle} value={editing.subjectId ?? ""} onChange={event => setEditing({ ...editing, subjectId: Number(event.target.value) || undefined })}>
-            <option value="">التزام شخصي</option>
-            {subjects.map(subject => <option key={subject.id} value={subject.id}>{subject.title}</option>)}
+          <label>نوع الموعد<select className={selectStyle} value={editing.subjectId ? "class" : "commitment"} onChange={event => {
+            const subjectId = event.target.value === "class" ? subjects[0]?.id : undefined;
+            setEditing({ ...editing, subjectId });
+          }}>
+            <option value="commitment">التزام شخصي (المدرسة، المواصلات، وغيره)</option>
+            <option value="class" disabled={!subjects.length}>حصة مرتبطة بالمنهج</option>
           </select></label>
-          {editing.subjectId && <label>مصدر الحصة<select className={selectStyle} value={editing.sourceId ?? ""} onChange={event => setEditing({ ...editing, sourceId: Number(event.target.value) || undefined })}>
-            <option value="">اختياري</option>
-            {(sources.data ?? []).map(source => <option key={source.id} value={source.id}>{source.subject} · {source.teacherName}</option>)}
+          {editing.subjectId && <label>المادة<select className={selectStyle} value={editing.subjectId} onChange={event => setEditing({ ...editing, subjectId: Number(event.target.value) })}>
+            {subjects.map(subject => <option key={subject.id} value={subject.id}>{subject.title}</option>)}
           </select></label>}
+          <label>المصدر (اختياري)<select className={selectStyle} value={editing.sourceId ?? ""} onChange={event => setEditing({ ...editing, sourceId: Number(event.target.value) || undefined })}>
+            <option value="">من غير مصدر</option>
+            {(sources.data ?? []).map(source => <option key={source.id} value={source.id}>{source.subject} · {source.teacherName}</option>)}
+          </select></label>
           {overlapsPlannerSlot(editing, state.slots) && <label className="text-sm text-destructive"><input type="checkbox" checked={allowOverlap} onChange={event => setAllowOverlap(event.target.checked)} /> الموعد متداخل. احفظه رغم التداخل.</label>}
           <div className="flex gap-2">
             <Button type="submit" disabled={save.isPending}>حفظ</Button>
