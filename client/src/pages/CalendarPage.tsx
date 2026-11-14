@@ -1,5 +1,5 @@
-import { slotOccurs } from "@shared/studyPlanner";
 import { formatClock } from "@shared/clockFormat";
+import { slotOccurs } from "@shared/studyPlanner";
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -104,6 +104,7 @@ export default function CalendarPage() {
     utils.tasks.list.invalidate(), utils.calendar.list.invalidate(), utils.dashboard.summary.invalidate(),
     utils.analytics.overview.invalidate(), utils.coins.ledger.invalidate(), utils.achievements.list.invalidate(),
   ]);
+  const prayerSchedule = trpc.prayers.schedule.useQuery({ day: selected }, { enabled: !allTasks, staleTime: 3600_000 });
   const dayEntries = entries.get(selected) ?? [];
   const visibleTasks = allTasks
     ? (taskQuery.data ?? []).map(task => ({ id: "task-" + task.id, label: task.title, kind: "task" as const, task }))
@@ -199,6 +200,12 @@ export default function CalendarPage() {
             })}
           </ul> : <p className="p-4 text-sm text-muted-foreground">{allTasks ? "لسه مفيش مهام." : "مفيش مهام في اليوم ده."}</p>}
         {!allTasks && calendar.isError && <div className="border-t p-4 text-sm" role="alert">تعذّر تحميل المواعيد. <Button size="sm" variant="ghost" onClick={() => void calendar.refetch()}>إعادة المحاولة</Button></div>}
+        {!allTasks && prayerSchedule.data && <div className="space-y-2 border-t p-4">
+          <h3 className="font-bold">الصلوات · القاهرة</h3>
+          <ul className="flex flex-wrap gap-2">{prayerSchedule.data.map(item =>
+            <li key={item.prayer}><Badge variant="outline">{item.name} · {formatClock(item.time)}</Badge></li>
+          )}</ul>
+        </div>}
         {!allTasks && otherEntries.length > 0 && <div className="border-t p-4">
           <h3 className="mb-2 text-sm font-bold">مواعيد ونشاط اليوم</h3>
           <ul className="space-y-2">{otherEntries.map(entry => <li key={entry.id} className="flex items-start gap-2 text-sm"><Badge className={colors[entry.kind]}>{labels[entry.kind]}</Badge><span>{entry.label}</span></li>)}</ul>

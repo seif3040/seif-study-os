@@ -51,6 +51,12 @@ const dailyPlanInput = z.object({
 
 export const appRouter = router({
   system: systemRouter,
+  prayers: router({
+    today: protectedProcedure.query(({ ctx }) => db.dailyPrayers(ctx.user.id)),
+    schedule: protectedProcedure.input(z.object({ day: z.string().date() })).query(({ input }) => db.prayerSchedule(input.day)),
+    log: protectedProcedure.input(z.object({ day: z.string().date(), prayer: z.enum(["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]) }))
+      .mutation(({ ctx, input }) => db.logPrayer(ctx.user.id, input.day, input.prayer)),
+  }),
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => { ctx.res.clearCookie(COOKIE_NAME, { ...getSessionCookieOptions(ctx.req), maxAge: -1 }); return { success: true } as const; }),

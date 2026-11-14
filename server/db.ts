@@ -1,3 +1,4 @@
+import { cairoPrayers, prayers, prayerNames, type Prayer } from "./prayerTimes.js";
 import { focusReward, isFocusPreset } from "../shared/focusDuration.js";
 import { slotOccurs } from "../shared/studyPlanner.js";
 import { upcomingClassLessons, plannerMinutes, plannerFreeTime, studySlots, type PlannedStudy } from "../shared/studyPlanner.js";
@@ -1718,10 +1719,16 @@ async function suggestDailyStudy(tx: StudyTransaction, userId: number, state: Pl
   const minuteOf = (value: Date) => plannerMinutes(state.wake) + Math.ceil((+value - +from) / 60_000);
   const gaps = plannerFreeTime(state.wake, state.sleep, [...state.slots.filter(slot => slotOccurs(slot, day)), ...studySlots(state, day)])
     .map(gap => ({ start: Math.max(gap.start, minuteOf(new Date())), end: gap.end }));
+  const prayerTimes = await cairoPrayers(day).catch(() => null);
+  const prayerBlocks = prayerTimes ? prayers.map(prayer => {
+    const start = plannerMinutes(prayerTimes[prayer]);
+    return { start, end: start + 15 };
+  }) : [];
   const blocked = events.map(event => ({
     start: minuteOf(event.startsAt),
     end: event.endsAt ? minuteOf(event.endsAt) : plannerMinutes(state.sleep),
   }));
+  blocked.push(...prayerBlocks);
   for (const exam of assessments) if (exam.at && exam.at <= to) {
     blocked.push({ start: minuteOf(exam.at), end: plannerMinutes(state.sleep) });
   }
@@ -1805,4 +1812,37 @@ export function skipDailyStudy(userId: number) {
     const day = plannerToday();
     if (state.dailyPrompt?.day !== day) state.dailyPrompt = { day, outcome: "skipped" };
   });
+}
+
+export async function dailyPrayers(userId: number) {
+  const day = plannerToday();
+  const db = await database();
+  const references = prayers.map(prayer => prayerReference(userId, day, prayer));
+  const [times, completed] = await Promise.all([
+    cairoPrayers(day).catch(() => null),
+    db.select({ reference: coinTransactions.referenceKey }).from(coinTransactions)
+      .where(and(eq(coinTransactions.userId, userId), inArray(coinTransactions.referenceKey, references))),
+  ]);
+  return { day, prayers: prayers.map(prayer => ({
+    prayer, name: prayerNames[prayer], time: times?.[prayer] ?? null,
+    done: completed.some(row => row.reference === prayerReference(userId, day, prayer)),
+  })) };
+}
+
+function prayerReference(userId: number, day: string, prayer: Prayer) {
+  return `prayer:${userId}:${day}:${prayer}`;
+}
+
+export async function logPrayer(userId: number, day: string, prayer: Prayer) {
+  if (day !== plannerToday()) throw new Error("حدّث الصفحة عشان تسجّل صلاة النهارده.");
+  const cycle = await getActiveCycle(userId);
+  return awardCoins({
+    userId, cycleId: cycle.id, amount: 500, reason: "صلاة " + prayerNames[prayer],
+    referenceKey: prayerReference(userId, day, prayer),
+  });
+}
+
+export async function prayerSchedule(day: string) {
+  const times = await cairoPrayers(day);
+  return prayers.map(prayer => ({ prayer, name: prayerNames[prayer], time: times[prayer] }));
 }

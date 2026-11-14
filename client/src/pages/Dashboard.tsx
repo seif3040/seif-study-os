@@ -1,3 +1,4 @@
+import DailyPrayers from "@/components/DailyPrayers";
 import DayStudy from "@/components/DayStudy";
 import { TaskDialog, type CalendarTask } from "./Tasks";
 import { useState } from "react";
@@ -102,6 +103,7 @@ export default function Dashboard() {
         </li>)}
       </ul> : <p className="text-sm text-muted-foreground">الواجب هيظهر هنا أول ما تسجّل حضور حصة.</p>}
     </section>
+    <DailyPrayers day={today} />
     <DayStudy day={today} showSchedule />
     {editingHomework && <TaskDialog task={editingHomework} day={today} onClose={() => setEditingHomework(undefined)} onDone={() => utils.invalidate()} />}
 
