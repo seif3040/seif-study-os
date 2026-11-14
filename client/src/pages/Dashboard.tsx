@@ -29,6 +29,9 @@ export default function Dashboard() {
     onSuccess: async () => { await utils.invalidate(); },
     onError: error => toast.error(errorText(error)),
   });
+  const reopen = trpc.tasks.reopen.useMutation({
+    onSuccess: () => utils.invalidate(), onError: error => toast.error(errorText(error)),
+  });
   const complete = trpc.tasks.complete.useMutation({
     onSuccess: async () => { await utils.invalidate(); },
     onError: error => toast.error(errorText(error)),
@@ -110,7 +113,7 @@ export default function Dashboard() {
         </header>
         {todaysTasks.length ? <ul className="divide-y">
           {todaysTasks.map(task => <li key={task.id} className="study-task-row flex items-center gap-3 px-5 py-3" data-completed={task.status === "completed"}>
-            <Button size="icon" variant={task.status === "completed" ? "secondary" : "outline"} disabled={task.status === "completed" || complete.isPending} aria-label={task.status === "completed" ? "مكتملة" : "إكمال " + task.title} onClick={() => complete.mutate({ taskId: task.id })}><Check className={task.status === "completed" ? "study-check" : undefined} /></Button>
+            <Button size="icon" variant={task.status === "completed" ? "secondary" : "outline"} disabled={reopen.isPending || complete.isPending} title={task.status === "completed" ? "إلغاء الإكمال" : "إكمال المهمة"} aria-label={(task.status === "completed" ? "إلغاء إكمال " : "إكمال ") + task.title} onClick={() => task.status === "completed" ? reopen.mutate({ taskId: task.id }) : complete.mutate({ taskId: task.id })}><Check className={task.status === "completed" ? "study-check" : undefined} /></Button>
             <span className={task.status === "completed" ? "text-muted-foreground line-through" : "font-medium"}>{task.title}</span>
             {task.status !== "completed" && task.priority === "urgent" && <span className="ms-auto rounded-full bg-rose-100 px-2 py-1 text-xs text-rose-800">عاجلة</span>}
           </li>)}

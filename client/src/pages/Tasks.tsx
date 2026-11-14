@@ -41,7 +41,11 @@ export function TaskDialog({ task, initialTitle, day, onClose, onDone }: {
   const update = trpc.tasks.update.useMutation();
   const remove = trpc.tasks.delete.useMutation();
   const complete = trpc.tasks.complete.useMutation();
-  const pending = remove.isPending || recurring.isPending || create.isPending || update.isPending || complete.isPending;
+  const reopen = trpc.tasks.reopen.useMutation({
+    onSuccess: async () => { await onDone(); onClose(); toast.success("المهمة رجعت مفتوحة."); },
+    onError: error => toast.error(errorText(error)),
+  });
+  const pending = remove.isPending || recurring.isPending || create.isPending || update.isPending || complete.isPending || reopen.isPending;
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -158,6 +162,8 @@ export function TaskDialog({ task, initialTitle, day, onClose, onDone }: {
         <DialogFooter>
           <Button variant="ghost" disabled={pending} onClick={() => void moveToTrash()}>نقل للسلة</Button>
           <Button variant="outline" onClick={() => setEditing(true)}><Pencil />تعديل المهمة</Button>
+          {task.status === "completed" && <Button variant="outline" disabled={pending}
+            onClick={() => reopen.mutate({ taskId: task.id })}>إلغاء الإكمال</Button>}
           {task.status !== "completed" && <>
             <Button variant="outline" disabled={pending} onClick={() => void postpone()}>أجّل يوم</Button>
             <Button disabled={pending} onClick={() => void finish()}><CheckCircle2 />إكمال</Button>

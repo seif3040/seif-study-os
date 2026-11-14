@@ -1545,3 +1545,19 @@ export function chooseBacklogSubject(userId: number, subjectId: number) {
     state.backlogSubjects[day] = subjectId;
   });
 }
+
+export async function reopenTask(userId: number, taskId: number) {
+  const db = await database();
+  await db.update(tasks).set({ status: "open", completedAt: null })
+    .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId), isNull(tasks.deletedAt), eq(tasks.status, "completed")));
+}
+
+export async function reopenLesson(userId: number, lessonId: number) {
+  const db = await database();
+  await db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    await ownedLesson(tx, userId, lessonId);
+    await tx.update(lessonProgress).set({ status: "not_started", progress: 0, completedAt: null, lastReviewedAt: null })
+      .where(and(eq(lessonProgress.userId, userId), eq(lessonProgress.lessonId, lessonId), eq(lessonProgress.status, "completed")));
+  });
+}

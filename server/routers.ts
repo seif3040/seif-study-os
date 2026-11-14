@@ -72,6 +72,7 @@ export const appRouter = router({
   }),
   dashboard: router({ summary: protectedProcedure.query(({ ctx }) => db.dashboard(ctx.user.id)) }),
   studyPlan: router({
+    reopen: protectedProcedure.input(z.object({ lessonId: id })).mutation(({ ctx, input }) => db.reopenLesson(ctx.user.id, input.lessonId)),
     syncCompletion: protectedProcedure.input(z.object({ ownerId: id, lessonId: id, completedAt: z.number().int().positive() }))
       .mutation(({ ctx, input }) => {
         validateOfflineTimestamp(ctx.user.id, input.ownerId, input.completedAt);
@@ -93,6 +94,7 @@ export const appRouter = router({
     review: protectedProcedure.input(z.object({ lessonId: id })).mutation(({ ctx, input }) => db.reviewLesson(ctx.user.id, input.lessonId)),
   }),
   tasks: router({
+    reopen: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.reopenTask(ctx.user.id, input.taskId)),
     syncCreate: protectedProcedure.input(z.object({ ownerId: id, key: z.string().uuid(), title: z.string().trim().min(1).max(200), day: z.string().date() }))
       .mutation(({ ctx, input }) => {
         if (ctx.user.id !== input.ownerId) throw new TRPCError({ code: "FORBIDDEN" });

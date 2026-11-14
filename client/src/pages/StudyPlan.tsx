@@ -160,6 +160,7 @@ function LessonRow({ lesson, marked, onDone, onEdit }: { lesson: Lesson; marked:
     onSuccess: async result => { completionToast(result, 15); await onDone(); },
     onError: error => toast.error(errorText(error)),
   });
+  const reopen = trpc.studyPlan.reopen.useMutation({ onSuccess: onDone, onError: error => toast.error(errorText(error)) });
   const backlog = trpc.planner.markBacklog.useMutation({ onSuccess: onDone, onError: error => toast.error(errorText(error)) });
   const status = lesson.progress?.status ?? "not_started";
   return <article className="space-y-3 p-4 sm:p-5">
@@ -188,6 +189,8 @@ function LessonRow({ lesson, marked, onDone, onEdit }: { lesson: Lesson; marked:
       <Button size="sm" variant="outline" disabled={backlog.isPending} onClick={() => backlog.mutate({ lessonIds: [lesson.id], marked: !marked })}>
         {marked ? "شيل من المتراكم" : "علّم كمتراكم"}
       </Button>
+      {status === "completed" && <Button size="sm" variant="outline" disabled={reopen.isPending}
+        onClick={() => reopen.mutate({ lessonId: lesson.id })}>إلغاء الإكمال</Button>}
       <ResourceButtons title={lesson.title} onEdit={onEdit} />
     </div>
   </article>;
