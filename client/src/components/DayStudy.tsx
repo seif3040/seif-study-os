@@ -12,11 +12,12 @@ import { studySlots, upcomingClassLessons, plannerPolicy, type PlannedStudy } fr
 
 const kinds = { study: "مذاكرة", homework: "واجب", review: "مراجعة", backlog: "متراكم" };
 
-export default function DayStudy({ day, showSchedule = false }: { day: string; showSchedule?: boolean }) {
+export default function DayStudy({ day, showSchedule = false, embedded = false }: { day: string; showSchedule?: boolean; embedded?: boolean }) {
   const planner = trpc.planner.list.useQuery();
-  const plan = trpc.studyPlan.list.useQuery(undefined, { enabled: showSchedule });
+  const plan = trpc.studyPlan.list.useQuery(undefined, { enabled: showSchedule || embedded });
   const sources = trpc.lessonSources.list.useQuery(undefined, { enabled: showSchedule });
   const utils = trpc.useUtils();
+  const [subjectId, setSubjectId] = useState(0);
   const [editor, setEditor] = useState<PlannedStudy>();
   const onError = (error: unknown) => toast.error(errorText(error));
   const save = trpc.planner.saveStudy.useMutation({
@@ -24,6 +25,15 @@ export default function DayStudy({ day, showSchedule = false }: { day: string; s
   });
   const done = trpc.planner.finishStudy.useMutation({ onSuccess: () => utils.invalidate(), onError });
   const remove = trpc.planner.removeStudy.useMutation({ onSuccess: () => utils.planner.list.invalidate(), onError });
+  const fill = trpc.planner.fillStudyDay.useMutation({
+    onSuccess: async count => {
+      await utils.planner.list.invalidate();
+      setSubjectId(0);
+      toast.success("المادة اتضافت في " + count + " فترات.");
+    },
+    onError,
+  });
+  const subjects = Array.from(new Map((plan.data?.rows ?? []).map(row => [row.subject.id, row.subject.title])));
   const state = planner.data;
   if (planner.isError) return <p role="alert">تعذّر تحميل خطة اليوم.</p>;
   if (!state) return <p>جارٍ تحميل خطة اليوم…</p>;
@@ -55,11 +65,24 @@ export default function DayStudy({ day, showSchedule = false }: { day: string; s
         </div>;
       })}
     </section>}
-    <section className="surface space-y-3 p-5">
+    <section className={embedded ? "space-y-3 border-t pt-3" : "surface space-y-3 p-5"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 font-bold"><BookOpen className="size-5" /> {showSchedule ? "هذاكر النهارده" : "خطة المذاكرة"}</h2>
-        <Button size="sm" variant="outline" onClick={() => setEditor({ id: crypto.randomUUID(), day, title: "", start: "17:00", end: "17:30", kind: "study" })}>ضيف للمذاكرة</Button>
+        <Button size="sm" variant="outline" onClick={() => setEditor({ id: crypto.randomUUID(), day, title: "", start: "17:00", end: "17:30", kind: "study" })}>{embedded ? "ميعاد مذاكرة محدد" : "ضيف للمذاكرة"}</Button>
       </div>
+      {embedded && <form className="flex flex-wrap items-end gap-2" onSubmit={event => {
+        event.preventDefault();
+        if (subjectId) fill.mutate({ day, subjectId });
+      }}>
+        <label className="min-w-40 flex-1 text-sm">مادة لباقي الوقت الفاضي
+          <select className="block h-10 w-full rounded-md border bg-background px-2" value={subjectId || ""}
+            onChange={event => setSubjectId(Number(event.target.value))} required>
+            <option value="">اختار المادة</option>
+            {subjects.map(([id, title]) => <option key={id} value={id}>{title}</option>)}
+          </select>
+        </label>
+        <Button type="submit" size="sm" disabled={!subjectId || fill.isPending}>احجز الوقت الفاضي</Button>
+      </form>}
       {!sessions.length && <p className="text-sm text-muted-foreground">لسه مفيش مذاكرة متخططة لليوم ده.</p>}
       {sessions.map(item => <div key={item.id} className="flex flex-wrap items-center gap-2 rounded-xl border p-3">
         <div className="min-w-40 flex-1">

@@ -1633,3 +1633,37 @@ export function overridePlannerSlot(userId: number, id: string, day: string, act
     slot.dateOverrides[day] = active;
   });
 }
+
+export function fillStudyDay(userId: number, day: string, subjectId: number) {
+  return changePlanner(userId, async (state, tx) => {
+    const [subject] = await tx.select({ title: subjects.title }).from(subjects)
+      .where(and(eq(subjects.id, subjectId), eq(subjects.userId, userId)));
+    if (!subject) throw new Error("المادة مش موجودة.");
+    const from = cairoPlannerTime(day, state.wake);
+    const to = cairoPlannerTime(day, state.sleep);
+    const events = await tx.select().from(calendarEvents).where(and(eq(calendarEvents.userId, userId),
+      lte(calendarEvents.startsAt, to), or(gte(calendarEvents.startsAt, from), gte(calendarEvents.endsAt, from))));
+    const [exam] = await tx.select({ id: exams.id }).from(exams).where(and(eq(exams.userId, userId),
+      isNull(exams.archivedAt), gte(exams.scheduledAt, from), lte(exams.scheduledAt, to))).limit(1);
+    if (exam) throw new Error("اليوم فيه امتحان. ضيف المذاكرة بوقت محدد من خطة اليوم.");
+    const time = (minutes: number) => [Math.floor(minutes / 60), minutes % 60]
+      .map(value => String(value).padStart(2, "0")).join(":");
+    const minuteOf = (date: Date) => plannerMinutes(state.wake) + Math.floor((+date - +from) / 60_000);
+    const weekday = plannerWeekday(day);
+    const busy = [...state.slots.filter(slot => slotOccurs(slot, day)), ...studySlots(state, day)];
+    for (const event of events) {
+      if (!event.endsAt || event.endsAt <= event.startsAt) {
+        throw new Error("فيه موعد من غير وقت نهاية. ضيف المذاكرة بوقت محدد من خطة اليوم.");
+      }
+      busy.push({ id: "event-" + event.id, weekday, title: event.title,
+        start: time(Math.max(plannerMinutes(state.wake), minuteOf(event.startsAt))),
+        end: time(Math.min(plannerMinutes(state.sleep), minuteOf(event.endsAt))) });
+    }
+    const gaps = plannerFreeTime(state.wake, state.sleep, busy);
+    if (!gaps.length) throw new Error("مفيش وقت فاضي في اليوم ده.");
+    state.studySessions = [...(state.studySessions ?? []), ...gaps.map(({ start, end }): PlannedStudy => ({
+      id: crypto.randomUUID(), day, start: time(start), end: time(end), title: subject.title, kind: "study",
+    }))];
+    return gaps.length;
+  });
+}

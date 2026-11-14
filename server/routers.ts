@@ -122,6 +122,8 @@ export const appRouter = router({
     complete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.completeTask(ctx.user.id, input.taskId)),
   }),
   planner: router({
+    fillStudyDay: protectedProcedure.input(z.object({ day: z.string().date(), subjectId: id }))
+      .mutation(({ ctx, input }) => db.fillStudyDay(ctx.user.id, input.day, input.subjectId)),
     overrideSlot: protectedProcedure.input(z.object({ id: z.string().uuid(), day: z.string().date(), active: z.boolean() }))
       .mutation(({ ctx, input }) => db.overridePlannerSlot(ctx.user.id, input.id, input.day, input.active)),
     saveStudy: protectedProcedure.input(z.object({

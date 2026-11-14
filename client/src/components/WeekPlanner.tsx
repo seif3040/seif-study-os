@@ -206,6 +206,7 @@ export default function WeekPlanner() {
           </article>;
         })}
         </section>)}
+        <DayStudy key={day} day={day} embedded />
       </div>
       <div className="surface space-y-3 p-4">
         <h3 className="flex items-center gap-2 font-bold"><Clock3 className="size-5" /> الوقت الفاضي</h3>
@@ -213,7 +214,6 @@ export default function WeekPlanner() {
         <ul className="space-y-2">{gaps.map(gap => <li key={gap.start} dir="ltr" className="rounded-lg bg-muted p-2 text-center text-sm">{formatClock(gap.start)} – {formatClock(gap.end)}</li>)}</ul>
       </div>
     </div>
-    <DayStudy key={day} day={day} />
     {state.milestones.length > 0 && <div className="surface space-y-3 p-4">
       <h3 className="font-bold">الورش والامتحانات ومعسكرات المراجعة</h3>
       {state.milestones.map(item => <form key={item.id + ":" + (state.milestones.find(value => value.id === item.follows)?.day ?? "")} className="flex flex-wrap items-end gap-2 rounded-lg border p-3"
