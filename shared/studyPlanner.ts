@@ -32,6 +32,7 @@ export type PlannerMilestone = {
 };
 
 export type PlannerState = {
+  prayersByDay?: Record<string, string[]>;
   nawafilByDay?: Record<string, string[]>;
   navigation?: import("./navigation.js").NavigationPrefs;
   backlog?: number[];

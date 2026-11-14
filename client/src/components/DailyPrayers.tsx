@@ -16,23 +16,28 @@ export default function DailyPrayers({ day }: { day: string }) {
   const minute = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
   const query = trpc.prayers.today.useQuery(undefined, { refetchInterval: 60_000 });
   const utils = trpc.useUtils();
+  const refresh = () => Promise.all([utils.planner.list.invalidate(), utils.prayers.today.invalidate(), utils.coins.ledger.invalidate(), utils.dashboard.summary.invalidate()]);
   const planner = trpc.planner.list.useQuery();
   const naf = trpc.prayers.setNafl.useMutation({
-    onSuccess: () => utils.planner.list.invalidate(),
+    onSuccess: async result => {
+      await refresh();
+      if (result.amount) toast.success("اتضافت نقاط الصلاة: " + result.amount);
+    },
     onError: error => toast.error(errorText(error)),
   });
   const dhuhr = query.data?.prayers.find(item => item.prayer === "Dhuhr")?.time;
   const log = trpc.prayers.log.useMutation({
     onSuccess: async result => {
       setConfirm(undefined);
-      await Promise.all([utils.prayers.today.invalidate(), utils.coins.ledger.invalidate(), utils.dashboard.summary.invalidate()]);
-      if (result.awarded) toast.success("اتسجّلت الصلاة · +٥٠٠ نقطة");
+      await refresh();
+      toast.success(result.amount ? "اتضافت نقاط الصلاة: " + result.amount : "اتسجّل الفرض. النقاط بعد إكمال الفروض والنوافل.");
     },
     onError: error => toast.error(errorText(error)),
   });
   return <section className="surface space-y-3 p-5">
     <h2 className="flex items-center gap-2 font-bold"><Clock3 className="size-5" /> مواقيت الصلاة · القاهرة</h2>
     <p className="text-sm text-muted-foreground">الفجر يتسجّل بالنقاط لحد أذان الظهر. باقي الصلوات خلال ساعة من الأذان.</p>
+    <p className="text-sm font-semibold">{query.data?.awarded ? "نقاط صلاة اليوم اتحسبت." : "٢٥٠٠ نقطة بعد تسجيل الفروض الخمسة في مواعيدها وتأكيد كل النوافل."}</p>
     {query.isError && <p role="alert">تعذّر تحميل الصلوات. <Button size="sm" variant="outline" onClick={() => void query.refetch()}>جرّب تاني</Button></p>}
     {query.isLoading && <p>جارٍ تحميل المواقيت…</p>}
     {query.data?.day === day && <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
@@ -44,16 +49,17 @@ export default function DailyPrayers({ day }: { day: string }) {
         <p className="font-bold">{item.name}</p>
         <p className="text-sm text-muted-foreground">{item.time && end !== null ? formatClock(item.time) + " – " + formatClock(end) : "الموعد غير متاح"}</p>
         <Button size="sm" variant={item.done ? "secondary" : "outline"} disabled={item.done || log.isPending || !canLog}
-          onClick={() => setConfirm(item.prayer)}><Check />{item.done ? "اتسجّلت" : canLog ? "صلّيت · +٥٠٠" : end !== null && minute(now) >= end ? "انتهى وقت النقاط" : "لسه معادها مجاش"}</Button>
+          onClick={() => setConfirm(item.prayer)}><Check />{item.done ? "اتسجّلت" : canLog ? "سجّل الصلاة" : end !== null && minute(now) >= end ? "انتهى وقت النقاط" : "لسه معادها مجاش"}</Button>
       </li>;
       })}
     </ul>}
     <details className="rounded-xl border p-3">
       <summary className="cursor-pointer font-bold">النوافل والسنن</summary>
+      <p className="mt-2 text-sm text-muted-foreground">علّم على النافلة بعد ما تصليها في وقتها.</p>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         {nawafil.map(name => <label key={name} className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={planner.data?.nawafilByDay?.[day]?.includes(name) ?? false}
-            disabled={!planner.data || naf.isPending} onChange={event => naf.mutate({ day, name, done: event.target.checked })} />
+            disabled={!planner.data || naf.isPending || query.data?.awarded} onChange={event => naf.mutate({ day, name, done: event.target.checked })} />
           {name}
         </label>)}
       </div>

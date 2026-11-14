@@ -1890,14 +1890,15 @@ export async function dailyPrayers(userId: number) {
   const day = plannerToday();
   const db = await database();
   const references = prayers.map(prayer => prayerReference(userId, day, prayer));
-  const [times, completed] = await Promise.all([
+  const [times, completed, planner] = await Promise.all([
     cairoPrayers(day).catch(() => null),
     db.select({ reference: coinTransactions.referenceKey }).from(coinTransactions)
       .where(and(eq(coinTransactions.userId, userId), inArray(coinTransactions.referenceKey, references))),
+    getPlanner(userId),
   ]);
-  return { day, prayers: prayers.map(prayer => ({
+  return { day, awarded: completed.length === prayers.length, prayers: prayers.map(prayer => ({
     prayer, name: prayerNames[prayer], time: times?.[prayer] ?? null,
-    done: completed.some(row => row.reference === prayerReference(userId, day, prayer)),
+    done: planner.prayersByDay?.[day]?.includes(prayer) || completed.some(row => row.reference === prayerReference(userId, day, prayer)),
   })) };
 }
 
@@ -1914,9 +1915,10 @@ export async function logPrayer(userId: number, day: string, prayer: Prayer, loc
   const now = Date.now();
   if (now < start || now >= end) throw new Error("وقت تسجيل الصلاة بالنقاط مش متاح دلوقتي.");
   const cycle = await getActiveCycle(userId);
-  return awardCoins({
-    userId, cycleId: cycle.id, amount: 500, reason: "صلاة " + prayerNames[prayer],
-    referenceKey: prayerReference(userId, day, prayer),
+  return changePlanner(userId, async (state, tx) => {
+    state.prayersByDay ??= {};
+    state.prayersByDay[day] = Array.from(new Set([...(state.prayersByDay[day] ?? []), prayer]));
+    return settlePrayerPoints(tx, state, userId, cycle.id, day);
   });
 }
 
@@ -1968,13 +1970,38 @@ export function saveNavigation(userId: number, navigation: NavigationPrefs) {
   return changePlanner(userId, async state => { state.navigation = navigation; });
 }
 
-export function setNafl(userId: number, day: string, name: typeof nawafil[number], done: boolean) {
-  return changePlanner(userId, async state => {
+export async function setNafl(userId: number, day: string, name: typeof nawafil[number], done: boolean) {
+  const cycle = await getActiveCycle(userId);
+  return changePlanner(userId, async (state, tx) => {
     if (day !== plannerToday()) throw new Error("حدّث الصفحة عشان تسجل نوافل النهارده.");
+    if (!done) {
+      const paid = await creditedPrayers(tx, userId, day);
+      if (paid.length === prayers.length) throw new Error("نقاط اليوم اتحسبت بعد إكمال القائمة.");
+    }
     state.nawafilByDay ??= {};
     const entries = new Set(state.nawafilByDay[day] ?? []);
     if (done) entries.add(name);
     else entries.delete(name);
     state.nawafilByDay[day] = Array.from(entries);
+    return settlePrayerPoints(tx, state, userId, cycle.id, day);
   });
+}
+
+async function creditedPrayers(tx: StudyTransaction, userId: number, day: string) {
+  return tx.select({ reference: coinTransactions.referenceKey }).from(coinTransactions)
+    .where(and(eq(coinTransactions.userId, userId), inArray(coinTransactions.referenceKey, prayers.map(prayer => prayerReference(userId, day, prayer)))));
+}
+
+async function settlePrayerPoints(tx: StudyTransaction, state: PlannerState, userId: number, cycleId: number, day: string) {
+  if (!nawafil.every(name => state.nawafilByDay?.[day]?.includes(name))) return { amount: 0 };
+  const paid = new Set((await creditedPrayers(tx, userId, day)).map(row => row.reference));
+  if (!prayers.every(prayer => state.prayersByDay?.[day]?.includes(prayer) || paid.has(prayerReference(userId, day, prayer)))) {
+    return { amount: 0 };
+  }
+  const remaining = prayers.filter(prayer => !paid.has(prayerReference(userId, day, prayer)));
+  if (remaining.length) await tx.insert(coinTransactions).values(remaining.map(prayer => ({
+    userId, cycleId, amount: 500, type: "earn" as const,
+    reason: "صلاة " + prayerNames[prayer], referenceKey: prayerReference(userId, day, prayer),
+  })));
+  return { amount: remaining.length * 500 };
 }
