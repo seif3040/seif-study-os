@@ -1,3 +1,4 @@
+import { defaultDesktopTabs, type NavigationPrefs } from "../shared/navigation.js";
 import { assessmentCatalog, type AssessmentStatus } from "../shared/assessments.js";
 import { cairoPrayers, prayers, prayerNames, type Prayer } from "./prayerTimes.js";
 import { focusReward, isFocusPreset } from "../shared/focusDuration.js";
@@ -1905,4 +1906,15 @@ export function setAssessmentStatus(userId: number, id: number, status: Assessme
       if (session.lessonId === -id) session.done = status === "completed";
     }
   });
+}
+
+export function saveNavigation(userId: number, navigation: NavigationPrefs) {
+  const valid = new Set<string>(defaultDesktopTabs);
+  for (const paths of [navigation.mobile, navigation.desktop]) {
+    if (paths.some(path => !valid.has(path)) || new Set(paths).size !== paths.length) {
+      throw new Error("اختار تبويبات مختلفة من القائمة.");
+    }
+  }
+  if (!navigation.desktop.includes("/settings")) throw new Error("الإعدادات لازم تفضل متاحة في القائمة الجانبية.");
+  return changePlanner(userId, async state => { state.navigation = navigation; });
 }

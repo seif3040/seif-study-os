@@ -136,6 +136,10 @@ export const appRouter = router({
     complete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.completeTask(ctx.user.id, input.taskId)),
   }),
   planner: router({
+    saveNavigation: protectedProcedure.input(z.object({
+      mobile: z.array(z.string().max(32)).min(1).max(5),
+      desktop: z.array(z.string().max(32)).min(1).max(12),
+    })).mutation(({ ctx, input }) => db.saveNavigation(ctx.user.id, input)),
     assessmentStatus: protectedProcedure.input(z.object({ assessmentId: id, status: z.enum(["pending", "backlog", "completed"]) }))
       .mutation(({ ctx, input }) => db.setAssessmentStatus(ctx.user.id, input.assessmentId, input.status)),
     previewDaily: protectedProcedure.input(dailyPlanInput)

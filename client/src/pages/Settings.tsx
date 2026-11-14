@@ -1,3 +1,4 @@
+import NavigationSettings from "@/components/NavigationSettings";
 import { useState, type FormEvent } from "react";
 import { ReminderSettings } from "@/components/StudyReminders";
 import StudyTrash from "@/components/StudyTrash";
@@ -25,6 +26,7 @@ export default function Settings() {
   return <div className="space-y-5">
     <PageHeader title="الإعدادات" description="عدّل مظهر الموقع وأسعار الهدايا ومكافآت Coins." />
     <ThemePicker />
+    <NavigationSettings />
     <StudyBackup />
     <StudyTrash />
     <ReminderSettings />
