@@ -1717,21 +1717,25 @@ async function suggestDailyStudy(tx: StudyTransaction, userId: number, state: Pl
   const support = candidates.filter(row => row.subject.id === secondary);
   const order = input.subjectId ? main : [...main.slice(0, 1), ...support.slice(0, 1), ...main.slice(1),
     ...support.slice(1), ...candidates.filter(row => row.subject.id !== primary && row.subject.id !== secondary)];
-  let budget = Math.max(0, Math.min(input.budget, available - input.reserve));
+  const budget = Math.max(0, Math.min(input.budget, available - input.reserve));
   const clock = (minutes: number) => [Math.floor(minutes / 60), minutes % 60].map(value => String(value).padStart(2, "0")).join(":");
   const suggestions: { lessonId: number; title: string; subject: string; start: string; end: string; reason: string }[] = [];
-  for (const row of order) {
-    if (suggestions.length >= input.count) break;
+  const count = Math.min(input.count, order.length);
+  // Give each lesson an equal share without crossing a booked period.
+  let duration = Math.floor(budget / Math.max(1, count));
+  while (duration >= 5 && free.reduce((sum, gap) => sum + Math.floor((gap.end - gap.start) / duration), 0) < count) {
+    duration--;
+  }
+  for (const row of order.slice(0, count)) {
+    if (duration < 5) break;
     const lesson = row.lesson!;
-    const duration = Math.max(5, lesson.estimatedMinutes);
     const gap = free.find(period => period.end - period.start >= duration);
-    if (!gap || duration > budget) continue;
+    if (!gap) break;
     suggestions.push({ lessonId: lesson.id, title: lesson.title, subject: row.subject.title,
       start: clock(gap.start), end: clock(gap.start + duration),
       reason: row.subject.id === primary && !input.subjectId ? "أكبر تراكم" :
         row.subject.id === secondary && Number.isFinite(urgent[0]?.next) ? "متابعة مادة لها موعد قريب" : "من المتراكم" });
     gap.start += duration;
-    budget -= duration;
   }
   return { day, available, suggestions, subjects: ranked.map(([id, entry]) => ({ id, ...entry })) };
 }

@@ -55,12 +55,12 @@ function DailyStudyDialog({ day }: { day: string }) {
       onEscapeKeyDown={event => event.preventDefault()}
       onInteractOutside={event => event.preventDefault()}>
       <DialogTitle>هتذاكر إيه من المتراكم النهارده؟</DialogTitle>
-      <DialogDescription>اعتمد خطة اليوم أو اختار «مش النهارده» عشان تكمل.</DialogDescription>
+      <DialogDescription>اختار وقت المذاكرة وعدد الدروس، والموقع هيوزّع الوقت على الدروس حسب الفراغات.</DialogDescription>
       <div className="space-y-3">
     {data && <p>متاح {Math.floor(data.available / 60)} ساعة و{data.available % 60} دقيقة بعد المواعيد المحجوزة.</p>}
     <div className="grid gap-2 sm:grid-cols-3">
       <label>عدد الدروس<Input type="number" min={1} max={20} value={count} onChange={e => setCount(Number(e.target.value))} /></label>
-      <label>دقائق المذاكرة بحد أقصى<Input type="number" min={5} max={1440} value={budget} onChange={e => setBudget(Number(e.target.value))} /></label>
+      <label>إجمالي دقائق المذاكرة<Input type="number" min={5} max={1440} value={budget} onChange={e => setBudget(Number(e.target.value))} /></label>
       <label>دقائق تسيبها للأكل والراحة<Input type="number" min={0} max={1440} value={reserve} onChange={e => setReserve(Number(e.target.value))} /></label>
     </div>
     <label className="block">المواد
