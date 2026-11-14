@@ -25,18 +25,18 @@ export default function DailyPrayers({ day }: { day: string }) {
   });
   return <section className="surface space-y-3 p-5">
     <h2 className="flex items-center gap-2 font-bold"><Clock3 className="size-5" /> مواقيت الصلاة · القاهرة</h2>
-    <p className="text-sm text-muted-foreground">لكل صلاة نص ساعة من الأذان. سجّل في الوقت ده عشان تتحسب النقاط.</p>
+    <p className="text-sm text-muted-foreground">لكل صلاة ساعة من الأذان. سجّل في الوقت ده عشان تتحسب النقاط.</p>
     {query.isError && <p role="alert">تعذّر تحميل الصلوات. <Button size="sm" variant="outline" onClick={() => void query.refetch()}>جرّب تاني</Button></p>}
     {query.isLoading && <p>جارٍ تحميل المواقيت…</p>}
     {query.data?.day === day && <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
       {query.data.prayers.map(item => {
         const elapsed = item.time ? minute(now) - minute(item.time) : -1;
-        const canLog = elapsed >= 0 && elapsed < 30;
+        const canLog = elapsed >= 0 && elapsed < 60;
         return <li key={item.prayer} className="space-y-2 rounded-xl border p-3">
         <p className="font-bold">{item.name}</p>
-        <p className="text-sm text-muted-foreground">{item.time ? formatClock(item.time) + " – " + formatClock(minute(item.time) + 30) : "الموعد غير متاح"}</p>
+        <p className="text-sm text-muted-foreground">{item.time ? formatClock(item.time) + " – " + formatClock(minute(item.time) + 60) : "الموعد غير متاح"}</p>
         <Button size="sm" variant={item.done ? "secondary" : "outline"} disabled={item.done || log.isPending || !canLog}
-          onClick={() => setConfirm(item.prayer)}><Check />{item.done ? "اتسجّلت" : canLog ? "صلّيت · +٥٠٠" : elapsed >= 30 ? "انتهى وقت النقاط" : "لسه معادها مجاش"}</Button>
+          onClick={() => setConfirm(item.prayer)}><Check />{item.done ? "اتسجّلت" : canLog ? "صلّيت · +٥٠٠" : elapsed >= 60 ? "انتهى وقت النقاط" : "لسه معادها مجاش"}</Button>
       </li>;
       })}
     </ul>}

@@ -203,7 +203,7 @@ export default function CalendarPage() {
         {!allTasks && prayerSchedule.data && <div className="space-y-2 border-t p-4">
           <h3 className="font-bold">الصلوات · القاهرة</h3>
           <ul className="flex flex-wrap gap-2">{prayerSchedule.data.map(item =>
-            <li key={item.prayer}><Badge variant="outline">{item.name} · {formatClock(item.time)} – {formatClock(Number(item.time.slice(0, 2)) * 60 + Number(item.time.slice(3)) + 30)}</Badge></li>
+            <li key={item.prayer}><Badge variant="outline">{item.name} · {formatClock(item.time)} – {formatClock(Number(item.time.slice(0, 2)) * 60 + Number(item.time.slice(3)) + 60)}</Badge></li>
           )}</ul>
         </div>}
         {!allTasks && otherEntries.length > 0 && <div className="border-t p-4">

@@ -1702,7 +1702,7 @@ export function fillStudyDay(userId: number, day: string, subjectId: number) {
     for (const prayer of prayers) {
       const start = times[prayer];
       busy.push({ id: "prayer-" + prayer, title: prayerNames[prayer], weekday, start,
-        end: time(Math.min(1440, plannerMinutes(start) + 30)) });
+        end: time(Math.min(1440, plannerMinutes(start) + 60)) });
     }
     const gaps = plannerFreeTime(state.wake, state.sleep, busy);
     if (!gaps.length) throw new Error("مفيش وقت فاضي في اليوم ده.");
@@ -1730,7 +1730,7 @@ async function suggestDailyStudy(tx: StudyTransaction, userId: number, state: Pl
   const prayerTimes = await cairoPrayers(day).catch(() => null);
   const prayerBlocks = prayerTimes ? prayers.map(prayer => {
     const start = plannerMinutes(prayerTimes[prayer]);
-    return { start, end: start + 30 };
+    return { start, end: start + 60 };
   }) : [];
   const blocked = events.map(event => ({
     start: minuteOf(event.startsAt),
@@ -1847,7 +1847,7 @@ export async function logPrayer(userId: number, day: string, prayer: Prayer, loc
   const times = await cairoPrayers(day);
   const start = +cairoPlannerTime(day, times[prayer]);
   const now = Date.now();
-  if (now < start || now >= start + 30 * 60_000) throw new Error("النقاط بتتحسب خلال أول نص ساعة من الأذان.");
+  if (now < start || now >= start + 60 * 60_000) throw new Error("النقاط بتتحسب خلال أول ساعة من الأذان.");
   const cycle = await getActiveCycle(userId);
   return awardCoins({
     userId, cycleId: cycle.id, amount: 500, reason: "صلاة " + prayerNames[prayer],
