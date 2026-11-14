@@ -746,17 +746,19 @@ async function scopedExamLessons(db: any, userId: number, examId: number): Promi
 
 export async function createExam(userId: number, input: { title: string; subjectId?: number; chapterId?: number; lessonId?: number; scheduledAt?: Date; lessonIds?: number[] }) {
   const db = await database(); const cycle = await getActiveCycle(userId); const lessonIds = Array.from(new Set([...(input.lessonIds ?? []), ...(input.lessonId ? [input.lessonId] : [])]));
+  return db.transaction(async tx => {
   if (lessonIds.length) {
-    const owned = await db.select({ id: lessons.id }).from(lessons).innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id)).where(and(inArray(lessons.id, lessonIds), eq(subjects.userId, userId), isNull(lessons.deletedAt)));
+    const owned = await tx.select({ id: lessons.id }).from(lessons).innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id)).where(and(inArray(lessons.id, lessonIds), eq(subjects.userId, userId), isNull(lessons.deletedAt)));
     if (owned.length !== lessonIds.length) throw new Error("اختر دروسًا موجودة ضمن خطتك فقط.");
   }
-  await db.insert(exams).values({ userId, cycleId: cycle.id, title: input.title, subjectId: input.subjectId ?? null, chapterId: input.chapterId ?? null, lessonId: input.lessonId ?? null, scheduledAt: input.scheduledAt ?? null });
-  const created = await db.select().from(exams).where(and(eq(exams.userId, userId), eq(exams.title, input.title))).orderBy(desc(exams.id)).limit(1);
-  if (created[0] && lessonIds.length) await db.insert(examLessons).values(lessonIds.map(lessonId => ({ examId: created[0].id, lessonId })));
+  const [inserted] = await tx.insert(exams).values({ userId, cycleId: cycle.id, title: input.title, subjectId: input.subjectId ?? null, chapterId: input.chapterId ?? null, lessonId: input.lessonId ?? null, scheduledAt: input.scheduledAt ?? null });
+  const created = await tx.select().from(exams).where(and(eq(exams.userId, userId), eq(exams.id, inserted.insertId))).limit(1);
+  if (created[0] && lessonIds.length) await tx.insert(examLessons).values(lessonIds.map(lessonId => ({ examId: created[0].id, lessonId })));
   return created[0];
+  });
 }
 
-export async function updateExam(userId: number, input: { examId: number; title: string; scheduledAt?: Date | null; lessonIds?: number[] }) {
+export async function updateExam(userId: number, input: { examId: number; title: string; scheduledAt?: Date | null; lessonIds?: number[]; subjectId?: number; chapterId?: number | null }) {
   const db = await database();
   return db.transaction(async tx => {
     const owned = and(eq(exams.id, input.examId), eq(exams.userId, userId));
@@ -770,7 +772,7 @@ export async function updateExam(userId: number, input: { examId: number; title:
         .where(and(eq(subjects.userId, userId), isNull(lessons.deletedAt), inArray(lessons.id, lessonIds)));
       if (valid.length !== lessonIds.length) throw new Error("اختر دروسًا موجودة ضمن خطتك فقط.");
     }
-    await tx.update(exams).set({ title: input.title, scheduledAt: input.scheduledAt, ...(lessonIds === undefined ? {} : { lessonId: null, chapterId: null, subjectId: null }) }).where(owned);
+    await tx.update(exams).set({ title: input.title, scheduledAt: input.scheduledAt, ...(lessonIds === undefined ? {} : { lessonId: null, chapterId: input.chapterId ?? null, subjectId: input.subjectId ?? null }) }).where(owned);
     if (lessonIds !== undefined) {
       await tx.delete(examLessons).where(eq(examLessons.examId, input.examId));
       if (lessonIds.length) await tx.insert(examLessons).values(lessonIds.map(lessonId => ({ examId: input.examId, lessonId })));

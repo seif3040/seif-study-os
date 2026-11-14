@@ -236,7 +236,7 @@ export const appRouter = router({
     }),
     list: protectedProcedure.query(({ ctx }) => db.listExams(ctx.user.id)),
     create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), subjectId: id.optional(), chapterId: id.optional(), lessonId: id.optional(), lessonIds: z.array(id).max(250).optional(), scheduledAt: date.optional() })).mutation(({ ctx, input }) => db.createExam(ctx.user.id, input)),
-    update: protectedProcedure.input(z.object({ examId: id, title: z.string().trim().min(1).max(200), scheduledAt: date.nullable().optional(), lessonIds: z.array(id).max(250).optional() })).mutation(({ ctx, input }) => db.updateExam(ctx.user.id, input)),
+    update: protectedProcedure.input(z.object({ examId: id, title: z.string().trim().min(1).max(200), scheduledAt: date.nullable().optional(), lessonIds: z.array(id).max(250).optional(), subjectId: id.optional(), chapterId: id.nullable().optional() })).mutation(({ ctx, input }) => db.updateExam(ctx.user.id, input)),
     setArchived: protectedProcedure.input(z.object({ examId: id, archived: z.boolean() })).mutation(({ ctx, input }) => db.setExamArchived(ctx.user.id, input.examId, input.archived)),
     completeAttempt: protectedProcedure.input(z.object({ examId: id, totalQuestions: z.number().int().min(1).max(500), correctAnswers: z.number().int().min(0).max(500), difficulty, missedTopics: z.array(z.string().trim().min(1).max(120)).max(40) })).mutation(({ ctx, input }) => db.completeExamAttempt(ctx.user.id, input)),
   }),

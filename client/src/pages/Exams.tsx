@@ -1,12 +1,12 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { PageHeader, EmptyState } from "@/components/PageHeader";
-import { errorText, shortDate } from "@/lib/study";
+import { errorText } from "@/lib/study";
 import { trpc } from "@/lib/trpc";
-import { BrainCircuit, CheckCircle2, CirclePlus, FileQuestion, GraduationCap, Pencil, Plus, Trash2, Sparkles, Target } from "lucide-react";
+import { BrainCircuit, CheckCircle2, FileQuestion, GraduationCap, Pencil, Plus, Trash2, Target } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Exams() {
@@ -23,7 +23,7 @@ function ExamCard({ item, plan, onDone }: { item: any; plan: any; onDone: () => 
   const mutation = trpc.exams.completeAttempt.useMutation({ onSuccess: async r => { setResult(r); toast.success(`تم تسجيل النتيجة: ${r.score}% — الاستيعاب ${r.comprehensionScore}%`); await onDone(); }, onError: e => toast.error(errorText(e)) });
   const reviewMutation = trpc.notebooks.markQuizReviewed.useMutation({ onSuccess: () => onDone(), onError: e => toast.error(errorText(e)) });
   const readiness = item.readiness; const weak = readiness?.weakLessons ?? []; const quiz = item.exam.quizPayload; const notebookQuiz = item.exam.origin === "notebook_ai" && quiz?.questions?.length;
-  return <div className="surface p-5"><div className="mb-5 flex items-start justify-between"><span className="metric-icon bg-sky-100 text-sky-700"><GraduationCap /></span><Badge variant="secondary">{notebookQuiz ? "Notebook AI · من ملفاتك" : item.subject || "امتحان محدد الدروس"}</Badge></div><h2 className="font-bold">{item.exam.title}</h2><p className="mt-1 text-sm text-muted-foreground">{notebookQuiz ? `${quiz.questions.length} أسئلة محفوظة للمراجعة` : item.exam.scheduledAt ? `موعده ${shortDate.format(new Date(item.exam.scheduledAt))}` : "اختبار مرن"}</p>
+  return <div className="surface p-5"><div className="mb-5 flex items-start justify-between"><span className="metric-icon bg-sky-100 text-sky-700"><GraduationCap /></span><Badge variant="secondary">{notebookQuiz ? "Notebook AI · من ملفاتك" : item.subject || "امتحان محدد الدروس"}</Badge></div><h2 className="font-bold">{item.exam.title}</h2><p className="mt-1 text-sm text-muted-foreground">{notebookQuiz ? `${quiz.questions.length} أسئلة محفوظة للمراجعة` : item.exam.scheduledAt ? `موعده ${examTime.format(new Date(item.exam.scheduledAt))}` : "اختبار مرن"}</p>
     <div className="mt-4 rounded-xl bg-primary/5 p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-2"><Target className="size-4 text-primary" /><p className="text-sm font-bold">مدى جاهزيتك</p></div><b className="font-[Manrope] text-2xl text-primary">{readiness?.score ?? 0}%</b></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-primary/10"><div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${readiness?.score ?? 0}%` }} /></div><p className="mt-2 text-xs text-muted-foreground">{readiness?.level ?? "أضف الدروس أولًا"} · مكتمل {readiness?.completed ?? 0}/{item.lessons?.length ?? 0} · مُراجع {readiness?.reviewed ?? 0}/{item.lessons?.length ?? 0}</p></div>
     {notebookQuiz ? <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50/60 p-3 text-xs text-violet-900"><p className="font-bold">المصادر: {quiz.sourceNames?.join("، ") || "ملفات Notebook AI"}</p><p className="mt-1 leading-5">الأسئلة والإجابات محفوظة هنا من الملفات التي رفعتها وقت الإنشاء.</p><p className="mt-2 font-semibold">{item.exam.quizReviewedAt ? "تمت المراجعة" : "لسه ما اتراجعش"}</p></div> : item.lessons?.length ? <div className="mt-4"><p className="mb-2 text-xs font-bold text-muted-foreground">دروس الامتحان ({item.lessons.length})</p><div className="space-y-2">{item.lessons.map((lesson: any) => <div key={`${lesson.subjectTitle}-${lesson.title}`} className="flex items-center justify-between gap-2 text-xs"><span className="truncate">{lesson.title}</span><span className={lesson.status === "completed" && lesson.lastReviewedAt ? "text-emerald-600" : "text-amber-600"}>{lesson.status === "completed" && lesson.lastReviewedAt ? "مكتمل ومراجع" : lesson.status === "completed" ? "يحتاج مراجعة" : "غير مكتمل"}</span></div>)}</div>{weak.length > 0 && <p className="mt-3 text-xs text-amber-700">ركّز قبل الامتحان على: {weak.slice(0, 2).map((lesson: any) => lesson.title).join("، ")}{weak.length > 2 ? "…" : ""}</p>}</div> : <p className="mt-4 rounded-xl border border-dashed p-3 text-xs text-muted-foreground">هذا الامتحان لم تُضف له دروس بعد، لذلك لا يمكن تقدير الجاهزية بدقة.</p>}
     <ExamActions item={item} plan={plan} onDone={onDone} />
@@ -34,12 +34,74 @@ function ExamCard({ item, plan, onDone }: { item: any; plan: any; onDone: () => 
   </div>;
 }
 
-function CreateExam({ onDone, plan }: { onDone: () => Promise<any>; plan: any }) {
-  const [open, setOpen] = useState(false), [title, setTitle] = useState(""), [date, setDate] = useState(""), [selected, setSelected] = useState<number[]>([]);
-  const lessons = useMemo(() => (plan?.rows ?? []).flatMap((row: any) => row.lesson ? [{ id: row.lesson.id, title: row.lesson.title, chapter: row.chapter?.title ?? "", subject: row.subject?.title ?? "" }] : []), [plan]);
-  const mutation = trpc.exams.create.useMutation({ onSuccess: async () => { toast.success("تمت إضافة الامتحان وحساب الجاهزية."); setOpen(false); setTitle(""); setDate(""); setSelected([]); await onDone(); }, onError: e => toast.error(errorText(e)) });
-  const toggle = (id: number) => setSelected(items => items.includes(id) ? items.filter(item => item !== id) : [...items, id]);
-  return <Dialog open={open} onOpenChange={setOpen}><DialogTrigger id="exam-trigger" asChild><span /></DialogTrigger><DialogContent className="max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>امتحان جديد</DialogTitle></DialogHeader><Input value={title} onChange={e => setTitle(e.target.value)} placeholder="مثال: اختبار الجبر الأسبوعي" /><Input type="date" value={date} onChange={e => setDate(e.target.value)} /><div><div className="mb-2 flex items-center justify-between"><p className="text-sm font-bold">الدروس التي سيشملها الامتحان</p><Badge variant="secondary">{selected.length} محدد</Badge></div>{lessons.length ? <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border p-3">{lessons.map((lesson: any) => <label key={lesson.id} className="flex cursor-pointer items-start gap-3 rounded-lg p-2 hover:bg-muted"><input className="mt-1" type="checkbox" checked={selected.includes(lesson.id)} onChange={() => toggle(lesson.id)} /><span><b className="block text-sm">{lesson.title}</b><span className="text-xs text-muted-foreground">{lesson.subject}{lesson.chapter ? ` · ${lesson.chapter}` : ""}</span></span></label>)}</div> : <p className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">أضف الدروس إلى خطة المذاكرة أولًا، ثم ستظهر هنا لاختيارها.</p>}</div><p className="text-xs leading-5 text-muted-foreground">الجاهزية = 70% من إكمال الدروس المحددة + 30% من مراجعتها، لذلك لن تُحسب من دروس غير مرتبطة بالامتحان.</p><DialogFooter><Button disabled={!title.trim() || mutation.isPending} onClick={() => mutation.mutate({ title, lessonIds: selected, scheduledAt: date ? new Date(`${date}T12:00:00`) : undefined })}><Plus />إضافة الامتحان</Button></DialogFooter></DialogContent></Dialog>;
+type Scope = { subjectId: number; chapterId: number; lessonIds: number[]; full: boolean };
+const emptyScope: Scope = { subjectId: 0, chapterId: 0, lessonIds: [], full: true };
+const selectClass = "block h-10 w-full rounded-md border bg-background px-2";
+const examTime = new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short", hour12: true });
+function localExamDate(value?: Date | string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  return new Date(+date - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+function ExamScopeFields({ plan, scope, onChange }: { plan: any; scope: Scope; onChange(scope: Scope): void }) {
+  const rows: any[] = plan?.rows ?? [];
+  const subjects = Array.from(new Map<number, string>(rows.map(row => [row.subject.id, row.subject.title])));
+  const chapters = Array.from(new Map<number, string>(rows.filter(row => row.subject.id === scope.subjectId && row.chapter)
+    .map(row => [row.chapter.id, row.chapter.title])));
+  const lessons = rows.filter(row => row.chapter?.id === scope.chapterId && row.lesson);
+  return <div className="space-y-3">
+    <label className="block">المادة<select className={selectClass} value={scope.subjectId} onChange={e => onChange({ ...emptyScope, subjectId: Number(e.target.value) })}>
+      <option value={0}>اختار المادة</option>
+      {subjects.map(([id, title]) => <option key={id} value={id}>{title}</option>)}
+    </select></label>
+    {scope.subjectId > 0 && <label className="block">نطاق الامتحان<select className={selectClass} value={scope.chapterId} onChange={e => onChange({ ...scope, chapterId: Number(e.target.value), full: true, lessonIds: [] })}>
+      <option value={0}>شامل المادة</option>
+      {chapters.map(([id, title]) => <option key={id} value={id}>{title}</option>)}
+    </select></label>}
+    {scope.chapterId > 0 && <fieldset className="space-y-2 rounded-xl border p-3">
+      <label className="flex gap-2"><input type="checkbox" checked={scope.full} onChange={e => onChange({ ...scope, full: e.target.checked, lessonIds: [] })} /> شامل الفصل كله</label>
+      {!scope.full && <div className="max-h-48 space-y-2 overflow-auto">{lessons.map(({ lesson }) =>
+        <label key={lesson.id} className="flex gap-2"><input type="checkbox" checked={scope.lessonIds.includes(lesson.id)}
+          onChange={e => onChange({ ...scope, lessonIds: e.target.checked ? [...scope.lessonIds, lesson.id] : scope.lessonIds.filter(id => id !== lesson.id) })} />{lesson.title}</label>)}</div>}
+    </fieldset>}
+  </div>;
+}
+
+function examScopeInput(scope: Scope, plan: any) {
+  const lessonIds: number[] = scope.full ? (plan?.rows ?? []).flatMap((row: any) =>
+    row.subject.id === scope.subjectId && (!scope.chapterId || row.chapter?.id === scope.chapterId) && row.lesson ? [row.lesson.id] : [])
+    : scope.lessonIds;
+  return { subjectId: scope.subjectId || undefined, chapterId: scope.chapterId || undefined, lessonIds };
+}
+function ExamDateFields({ value, setValue }: { value: string; setValue(value: string): void }) {
+  return <div className="grid grid-cols-2 gap-2">
+    <label>التاريخ<Input type="date" value={value.slice(0, 10)} onChange={e => setValue(e.target.value ? e.target.value + "T" + (value.slice(11) || "12:00") : "")} /></label>
+    <label>الساعة<Input type="time" disabled={!value} required={Boolean(value)} value={value.slice(11)} onChange={e => setValue(value.slice(0, 11) + e.target.value)} /></label>
+  </div>;
+}
+function CreateExam({ onDone, plan }: { onDone: () => Promise<unknown>; plan: any }) {
+  const [open, setOpen] = useState(false), [title, setTitle] = useState(""), [date, setDate] = useState("");
+  const [scope, setScope] = useState(emptyScope);
+  const mutation = trpc.exams.create.useMutation({
+    onSuccess: async () => { setOpen(false); setTitle(""); setDate(""); setScope(emptyScope); await onDone(); toast.success("اتضاف الامتحان."); },
+    onError: e => toast.error(errorText(e)),
+  });
+  return <Dialog open={open} onOpenChange={setOpen}>
+    <DialogTrigger id="exam-trigger" asChild><span /></DialogTrigger>
+    <DialogContent className="max-h-[85vh] overflow-y-auto">
+      <DialogHeader><DialogTitle>امتحان جديد</DialogTitle></DialogHeader>
+      <form className="space-y-3" onSubmit={e => {
+        e.preventDefault();
+        mutation.mutate({ title: title.trim() || (scope.full ? "امتحان شامل" : "امتحان") + " · " + (plan?.rows ?? []).find((row: any) => row.subject.id === scope.subjectId)?.subject.title,
+          scheduledAt: date ? new Date(date) : undefined, ...examScopeInput(scope, plan) });
+      }}>
+        <ExamDateFields value={date} setValue={setDate} />
+        <ExamScopeFields plan={plan} scope={scope} onChange={setScope} />
+        <label>اسم الامتحان (اختياري)<Input value={title} maxLength={200} onChange={e => setTitle(e.target.value)} /></label>
+        <DialogFooter><Button type="submit" disabled={!scope.subjectId || (!scope.full && !scope.lessonIds.length) || mutation.isPending}><Plus />إضافة الامتحان</Button></DialogFooter>
+      </form>
+    </DialogContent>
+  </Dialog>;
 }
 
 function ExamActions({ item, plan, onDone }: { item: any; plan: any; onDone: () => Promise<unknown> }) {
@@ -47,11 +109,9 @@ function ExamActions({ item, plan, onDone }: { item: any; plan: any; onDone: () 
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
-  const [selected, setSelected] = useState<number[]>([]);
+  const [scope, setScope] = useState(emptyScope);
   const [changedLessons, setChangedLessons] = useState(false);
-  const originalDate = item.exam.scheduledAt ? new Date(item.exam.scheduledAt).toISOString().slice(0, 10) : "";
-  const available = useMemo(() => (plan?.rows ?? []).flatMap((row: any) =>
-    row.lesson ? [{ id: Number(row.lesson.id), title: String(row.lesson.title), subject: String(row.subject.title) }] : []), [plan]);
+  const originalDate = localExamDate(item.exam.scheduledAt);
   const update = trpc.exams.update.useMutation({
     onSuccess: async () => { setEditOpen(false); toast.success("تم حفظ التعديل."); await onDone(); },
     onError: error => toast.error(errorText(error)),
@@ -70,7 +130,7 @@ function ExamActions({ item, plan, onDone }: { item: any; plan: any; onDone: () 
         <DialogTrigger asChild><Button size="sm" variant="outline" onClick={() => {
           setTitle(item.exam.title);
           setDate(originalDate);
-          setSelected([...new Set<number>([...item.lessons.map((lesson: { id: number }) => lesson.id), ...(item.exam.lessonId ? [item.exam.lessonId] : [])])]);
+          setScope(emptyScope);
           setChangedLessons(false);
         }}><Pencil /> تعديل الامتحان</Button></DialogTrigger>
         <DialogContent className="max-h-[85vh] overflow-y-auto">
@@ -78,20 +138,14 @@ function ExamActions({ item, plan, onDone }: { item: any; plan: any; onDone: () 
           <form className="space-y-4" onSubmit={event => {
             event.preventDefault();
             if (!title.trim() || update.isPending) return;
-            update.mutate({ examId: item.exam.id, title: title.trim(), scheduledAt: date === originalDate ? undefined : date ? new Date(date + "T00:00:00Z") : null, lessonIds: changedLessons ? selected : undefined });
+            update.mutate({ examId: item.exam.id, title: title.trim(), scheduledAt: date === originalDate ? undefined : date ? new Date(date) : null, ...(changedLessons ? { ...examScopeInput(scope, plan), chapterId: scope.chapterId || null } : {}) });
           }}>
             <label className="block space-y-1"><span>اسم الامتحان</span><Input value={title} onChange={e => setTitle(e.target.value)} maxLength={200} required /></label>
-            <label className="block space-y-1"><span>موعد الامتحان</span><Input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
-            {available.length > 0 && <fieldset className="rounded-xl border p-3">
-              <legend className="px-1 text-sm font-bold">دروس الامتحان</legend>
-              <div className="max-h-48 space-y-2 overflow-y-auto">{available.map((lesson: { id: number; title: string; subject: string }) =>
-                <label key={lesson.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.includes(lesson.id)} onChange={() => {
-                  setSelected(ids => ids.includes(lesson.id) ? ids.filter(id => id !== lesson.id) : [...ids, lesson.id]);
-                  setChangedLessons(true);
-                }} />{lesson.subject} — {lesson.title}</label>
-              )}</div>
-            </fieldset>}
-            <DialogFooter><Button type="submit" disabled={!title.trim() || update.isPending}>حفظ التعديل</Button></DialogFooter>
+            <ExamDateFields value={date} setValue={setDate} />
+            <details><summary className="cursor-pointer">تغيير نطاق الامتحان</summary>
+              <ExamScopeFields plan={plan} scope={scope} onChange={value => { setScope(value); setChangedLessons(true); }} />
+            </details>
+            <DialogFooter><Button type="submit" disabled={!title.trim() || update.isPending || (changedLessons && (!scope.subjectId || (!scope.full && !scope.lessonIds.length)))}>حفظ التعديل</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
