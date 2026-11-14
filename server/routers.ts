@@ -225,6 +225,12 @@ export const appRouter = router({
     delete: protectedProcedure.input(z.object({ cardId: id })).mutation(({ ctx, input }) => db.deleteFlashcard(ctx.user.id, input.cardId)),
   }),
   video: router({
+    startLocal: protectedProcedure.input(z.object({
+      lessonTitle: z.string().trim().min(1).max(220),
+      subject: z.enum(["arabic", "history", "english", "programming_ai", "german", "other"]),
+    })).mutation(({ ctx, input }) => db.startVideoSession(ctx.user.id, {
+      ...input, videoUrl: "local-video:" + crypto.randomUUID(), requestedMode: "embedded", local: true,
+    })),
     current: protectedProcedure.query(({ ctx }) => db.currentVideoSession(ctx.user.id)),
     history: protectedProcedure.query(({ ctx }) => db.listVideoSessions(ctx.user.id)),
     createNote: protectedProcedure.input(z.object({ sessionId: id, title: z.string().trim().min(1).max(220), content: z.string().trim().min(1).max(60000), timestampSeconds: z.number().int().min(0).max(172800).optional() })).mutation(({ ctx, input }) => db.createVideoNote(ctx.user.id, input)),
