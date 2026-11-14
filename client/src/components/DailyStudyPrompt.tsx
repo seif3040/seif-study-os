@@ -33,7 +33,12 @@ function DailyStudyDialog({ day }: { day: string }) {
   const input = { count, reserve, budget, subjectId, exclude };
   const answered = planner.data?.dailyPrompt?.day === day;
   const valid = Number.isInteger(count) && count >= 1 && count <= 20 && reserve >= 0 && reserve <= 1440 && budget >= 5 && budget <= 1440;
-  const preview = trpc.planner.previewDaily.useQuery(input, { enabled: Boolean(planner.data) && !answered && valid });
+  const eligibility = trpc.planner.previewDaily.useQuery(
+    { count: 1, reserve: 60, budget: 1440, exclude: [] },
+    { enabled: Boolean(planner.data?.backlog?.length) && !answered, refetchInterval: 60_000 },
+  );
+  const eligible = !eligibility.isError && eligibility.data?.day === day && eligibility.data.suggestions.length > 0;
+  const preview = trpc.planner.previewDaily.useQuery(input, { enabled: eligible && valid });
   const approve = trpc.planner.approveDaily.useMutation({
     onSuccess: async () => { await utils.planner.list.invalidate(); toast.success("خطة النهارده اتعمدت."); },
     onError: error => { toast.error(errorText(error)); void preview.refetch(); },
@@ -42,7 +47,7 @@ function DailyStudyDialog({ day }: { day: string }) {
     onSuccess: () => utils.planner.list.invalidate(),
     onError: error => toast.error(errorText(error)),
   });
-  if (answered) return null;
+  if (answered || !eligible) return null;
   const data = preview.data;
   return <Dialog open>
     <DialogContent dir="rtl" showCloseButton={false}
@@ -51,10 +56,7 @@ function DailyStudyDialog({ day }: { day: string }) {
       onInteractOutside={event => event.preventDefault()}>
       <DialogTitle>هتذاكر إيه من المتراكم النهارده؟</DialogTitle>
       <DialogDescription>اعتمد خطة اليوم أو اختار «مش النهارده» عشان تكمل.</DialogDescription>
-      {!planner.data && <div className="text-sm" role="status">
-        {planner.isError ? <>تعذّر تحميل خطة اليوم. <Button size="sm" variant="outline" onClick={() => void planner.refetch()}>جرّب تاني</Button></> : "جارٍ تحميل خطة اليوم…"}
-      </div>}
-      {planner.data && <div className="space-y-3">
+      <div className="space-y-3">
     {data && <p>متاح {Math.floor(data.available / 60)} ساعة و{data.available % 60} دقيقة بعد المواعيد المحجوزة.</p>}
     <div className="grid gap-2 sm:grid-cols-3">
       <label>عدد الدروس<Input type="number" min={1} max={20} value={count} onChange={e => setCount(Number(e.target.value))} /></label>
@@ -81,7 +83,7 @@ function DailyStudyDialog({ day }: { day: string }) {
       <Button variant="outline" disabled={approve.isPending || skip.isPending} onClick={() => skip.mutate()}>مش النهارده</Button>
       {exclude.length > 0 && <Button variant="ghost" onClick={() => setExclude([])}>رجّع الدروس المستبعدة</Button>}
     </div>
-      </div>}
+      </div>
     </DialogContent>
   </Dialog>;
 }
