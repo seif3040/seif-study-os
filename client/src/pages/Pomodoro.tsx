@@ -7,10 +7,10 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/PageHeader";
 import { errorText, money, minutesLabel } from "@/lib/study";
 import { trpc } from "@/lib/trpc";
-import { Coffee, Pause, Play, RotateCcw, Timer, Trophy } from "lucide-react";
+import { Coffee, Pause, Play, Square, Timer, Trophy } from "lucide-react";
 import { toast } from "sonner";
 
-type RoundPlan = { minutes: number; rest: number; rounds: number; round: number; subjectId?: number; sessionId: number };
+type RoundPlan = { minutes: number; rest: number; rounds: number; round: number; skippedBreak?: boolean; subjectId?: number; sessionId: number };
 const presets = [15, 25, 45, 60] as const;
 export default function Pomodoro({ embedded = false }: { embedded?: boolean }) { const utils = trpc.useUtils(); const { data: rates } = trpc.economy.rates.useQuery(); const { data, isLoading } = trpc.pomodoro.list.useQuery(); const active = data?.find(session => session.state === "running" || session.state === "paused"); const plan = trpc.studyPlan.list.useQuery(); const subjects = Array.from(new Map(plan.data?.rows.map(row => [row.subject.id, row.subject.title])).entries()); const [subject, setSubject] = useState(""); const [showHistory, setShowHistory] = useState(false); const history = data?.filter(session => session.state === "completed") ?? []; const [now, setNow] = useState(Date.now()); const [selected, setSelected] = useState(25);
 const [mode, setMode] = useState<"quick" | "custom">("quick");
@@ -44,7 +44,7 @@ const valid = [hours, minutes, rest, rounds].every(Number.isInteger) && hours >=
 const rateKey = isFocusPreset(customMinutes) ? "pomodoro_" + customMinutes : "pomodoro_60";
 const reward = focusReward(customMinutes, rates?.find(rate => rate.key === rateKey)?.amount ?? 0);
 const finishedRound = history.find(item => item.id === routine?.sessionId);
-const breakRemaining = routine && finishedRound?.completedAt
+const breakRemaining = routine && !routine.skippedBreak && routine.round < routine.rounds && finishedRound?.completedAt
   ? Math.max(0, Math.ceil((+new Date(finishedRound.completedAt) + routine.rest * 60_000 - now) / 1000)) : 0;
  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []); const elapsed = active ? Math.max(0, Math.floor((now - new Date(active.startedAt).getTime()) / 1000) - active.pausedSeconds - (active.state === "paused" && active.pausedAt ? Math.floor((now - new Date(active.pausedAt).getTime()) / 1000) : 0)) : 0; const remaining = active ? Math.max(0, active.plannedMinutes * 60 - elapsed) : (mode === "custom" && valid ? customMinutes : selected) * 60; const progress = active ? Math.min(100, elapsed * 100 / (active.plannedMinutes * 60)) : 0; const pretty = `${String(Math.floor(remaining / 60)).padStart(2, "0")}:${String(remaining % 60).padStart(2, "0")}`; const invalidate = () => Promise.all([utils.pomodoro.list.invalidate(), utils.dashboard.summary.invalidate(), utils.analytics.overview.invalidate(), utils.coins.ledger.invalidate()]); const start = trpc.pomodoro.start.useMutation({ onSuccess: async session => {
   if (startingRoutine && session) setRoutine({ ...startingRoutine, sessionId: session.id });
@@ -55,7 +55,7 @@ const breakRemaining = routine && finishedRound?.completedAt
   const betweenRounds = !active && routine && finishedRound && routine.round < routine.rounds;
   function startNextRound() {
     if (!routine || !betweenRounds || breakRemaining > 0 || start.isPending) return;
-      setStartingRoutine({ ...routine, round: routine.round + 1 });
+      setStartingRoutine({ ...routine, round: routine.round + 1, skippedBreak: false });
       start.mutate({ plannedMinutes: routine.minutes, subjectId: routine.subjectId });
   }
   function startFocus() {
@@ -69,6 +69,15 @@ const breakRemaining = routine && finishedRound?.completedAt
     ? active.state === "paused" ? "متوقف مؤقتًا" : "تركيز"
     : betweenRounds ? breakRemaining > 0 ? "بريك" : "جاهز للجولة الجاية"
       : mode === "custom" && !valid ? "راجع إعدادات الخطة في الصفحة" : "جاهز للبدء";
+  const finishEarly = () => {
+    if (active && !complete.isPending && !pause.isPending) complete.mutate({ sessionId: active.id, finishEarly: true });
+  };
+  const skipBreak = () => {
+    if (routine && betweenRounds && breakRemaining > 0) setRoutine({ ...routine, skippedBreak: true });
+  };
+  const floatingSecondary = active
+    ? { label: "إنهاء وحساب النقاط", disabled: complete.isPending || pause.isPending, run: finishEarly }
+    : betweenRounds && breakRemaining > 0 ? { label: "تخطّي البريك", disabled: start.isPending, run: skipBreak } : undefined;
   const floatingAction = active
     ? remaining === 0 && active.state === "running"
       ? { label: "سجّل الإكمال", disabled: complete.isPending, run: () => complete.mutate({ sessionId: active.id }) }
@@ -77,8 +86,8 @@ const breakRemaining = routine && finishedRound?.completedAt
     : betweenRounds
       ? { label: "ابدأ الجولة الجاية", disabled: breakRemaining > 0 || start.isPending, run: startNextRound }
       : { label: "ابدأ التركيز", disabled: !data || start.isPending || (mode === "custom" && !valid), run: startFocus };
- if (isLoading) return <div className="h-80 animate-pulse rounded-2xl bg-muted" />; return <div>{!embedded && <PageHeader title="Pomodoro" description="تُمنح Coins فقط بعد إكمال جلسة كاملة. يحسب الخادم وقت التركيز، وليس زر الإكمال فقط." />}<div className={embedded ? "grid gap-4" : "grid items-start gap-5 xl:grid-cols-[1fr_.65fr]"}><section className="surface flex min-h-[360px] flex-col items-center justify-center p-5 text-center sm:p-8"><p className="mb-5 text-sm font-semibold text-primary">{active ? (active.state === "paused" ? "الجلسة متوقفة مؤقتًا" : routine?.sessionId === active.id ? "جولة " + routine.round + " من " + routine.rounds : "حان وقت التركيز") : "اختر مدة جلسة"}</p><div className="study-focus-ring flex size-52 items-center justify-center rounded-full sm:size-64" data-running={active?.state === "running"} style={{ "--study-progress": progress + "%" } as CSSProperties}><div className="study-focus-face"><Timer className="mx-auto mb-2 size-5 text-primary" aria-hidden /><p className="font-[Manrope] text-5xl sm:text-6xl font-extrabold tracking-tighter text-primary">{pretty}</p><p className="mt-2 text-sm text-muted-foreground">{active ? `${active.plannedMinutes} دقيقة تركيز` : "جاهز للبدء"}</p></div></div><FloatingFocus seconds={betweenRounds ? breakRemaining || routine.minutes * 60 : remaining} status={floatingStatus}
-  action={floatingAction} round={routine && (betweenRounds || routine.sessionId === active?.id) ? routine.round + " / " + routine.rounds : undefined} />
+ if (isLoading) return <div className="h-80 animate-pulse rounded-2xl bg-muted" />; return <div>{!embedded && <PageHeader title="Pomodoro" description="مكافأتك حسب دقايق التركيز اللي خلصتها." />}<div className={embedded ? "grid gap-4" : "grid items-start gap-5 xl:grid-cols-[1fr_.65fr]"}><section className="surface flex min-h-[360px] flex-col items-center justify-center p-5 text-center sm:p-8"><p className="mb-5 text-sm font-semibold text-primary">{active ? (active.state === "paused" ? "الجلسة متوقفة مؤقتًا" : routine?.sessionId === active.id ? "جولة " + routine.round + " من " + routine.rounds : "حان وقت التركيز") : "اختر مدة جلسة"}</p><div className="study-focus-ring flex size-52 items-center justify-center rounded-full sm:size-64" data-running={active?.state === "running"} style={{ "--study-progress": progress + "%" } as CSSProperties}><div className="study-focus-face"><Timer className="mx-auto mb-2 size-5 text-primary" aria-hidden /><p className="font-[Manrope] text-5xl sm:text-6xl font-extrabold tracking-tighter text-primary">{pretty}</p><p className="mt-2 text-sm text-muted-foreground">{active ? `${active.plannedMinutes} دقيقة تركيز` : "جاهز للبدء"}</p></div></div><FloatingFocus seconds={betweenRounds ? breakRemaining || routine.minutes * 60 : remaining} status={floatingStatus}
+  action={floatingAction} secondary={floatingSecondary} round={routine && (betweenRounds || routine.sessionId === active?.id) ? routine.round + " / " + routine.rounds : undefined} />
 <div className="mt-7 flex flex-wrap justify-center gap-2">{!active ? <div className="w-full space-y-4">
   {routine && finishedRound && routine.round < routine.rounds ? <div className="space-y-3">
     <p>خلصت الجولة {routine.round} من {routine.rounds}</p>
@@ -86,6 +95,7 @@ const breakRemaining = routine && finishedRound?.completedAt
     <Button disabled={breakRemaining > 0 || start.isPending} onClick={() => {
       startNextRound();
     }}>ابدأ الجولة الجاية</Button>
+    {breakRemaining > 0 && <Button variant="outline" onClick={skipBreak}>تخطّي البريك</Button>}
     <Button variant="ghost" disabled={start.isPending} onClick={() => setRoutine(undefined)}>إنهاء الخطة</Button>
   </div> : <>
     <div className="flex justify-center gap-2" aria-label="نوع جلسة التركيز">
@@ -112,7 +122,7 @@ const breakRemaining = routine && finishedRound?.completedAt
       }}><Play />ابدأ التركيز</Button>
     </div>
   </>}
-</div> : <>{remaining === 0 ? <Button size="lg" disabled={complete.isPending} onClick={() => complete.mutate({ sessionId: active.id })}><Trophy />تسجيل الإكمال</Button> : <Button size="lg" variant={active.state === "paused" ? "default" : "outline"} disabled={pause.isPending} onClick={() => pause.mutate({ sessionId: active.id, paused: active.state === "running" })}>{active.state === "paused" ? <><Play />استئناف</> : <><Pause />إيقاف مؤقت</>}</Button>}<Button size="lg" variant="ghost" disabled><RotateCcw />إلغاء</Button></>}</div></section><aside className="space-y-4"><div className="surface p-5"><div className="mb-4 flex items-center gap-2"><Coffee className="size-5 text-orange-600" /><h2 className="font-bold">مكافآت الجلسات</h2></div><div className="space-y-3">{presets.map(x => <div key={x} className="flex items-center justify-between gap-2 rounded-xl bg-muted/65 px-3 py-2.5 text-sm"><span className="flex items-center gap-2"><Timer className="size-4 text-primary" aria-hidden />{x} دقيقة</span><b className="font-[Manrope] text-primary">{rates ? "+" + money.format(rates.find(rate => rate.key === "pomodoro_" + x)?.amount ?? 0) + " Coins" : "…"}</b></div>)}</div></div><div className="surface p-5"><div className="mb-4 flex items-center gap-2"><Timer className="size-5 text-primary" /><h2 className="font-bold">سجل الجلسات</h2></div>{history.length ? <>
+</div> : <>{remaining === 0 ? <Button size="lg" disabled={complete.isPending} onClick={() => complete.mutate({ sessionId: active.id })}><Trophy />تسجيل الإكمال</Button> : <Button size="lg" variant={active.state === "paused" ? "default" : "outline"} disabled={pause.isPending || complete.isPending} onClick={() => pause.mutate({ sessionId: active.id, paused: active.state === "running" })}>{active.state === "paused" ? <><Play />استئناف</> : <><Pause />إيقاف مؤقت</>}</Button>}<Button size="lg" variant="ghost" disabled><RotateCcw />إلغاء</Button></>}</div></section><aside className="space-y-4"><div className="surface p-5"><div className="mb-4 flex items-center gap-2"><Coffee className="size-5 text-orange-600" /><h2 className="font-bold">مكافآت الجلسات</h2></div><div className="space-y-3">{presets.map(x => <div key={x} className="flex items-center justify-between gap-2 rounded-xl bg-muted/65 px-3 py-2.5 text-sm"><span className="flex items-center gap-2"><Timer className="size-4 text-primary" aria-hidden />{x} دقيقة</span><b className="font-[Manrope] text-primary">{rates ? "+" + money.format(rates.find(rate => rate.key === "pomodoro_" + x)?.amount ?? 0) + " Coins" : "…"}</b></div>)}</div></div><div className="surface p-5"><div className="mb-4 flex items-center gap-2"><Timer className="size-5 text-primary" /><h2 className="font-bold">سجل الجلسات</h2></div>{history.length ? <>
   <div className="max-h-56 space-y-2 overflow-y-auto" aria-label="جلسات البومودورو المكتملة">
     {(showHistory ? history : history.slice(0, 5)).map(session => <div key={session.id} className="flex justify-between gap-2 rounded-lg bg-muted/45 px-3 py-2 text-sm">
       <span>{minutesLabel(session.completedMinutes || session.plannedMinutes)}</span>

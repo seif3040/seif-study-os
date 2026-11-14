@@ -214,7 +214,7 @@ export const appRouter = router({
     list: protectedProcedure.query(({ ctx }) => db.listPomodoros(ctx.user.id)),
     start: protectedProcedure.input(z.object({ plannedMinutes: z.number().int().min(5).max(720), subjectId: id.optional() })).mutation(({ ctx, input }) => db.startPomodoro(ctx.user.id, input)),
     setPaused: protectedProcedure.input(z.object({ sessionId: id, paused: z.boolean() })).mutation(({ ctx, input }) => db.pausePomodoro(ctx.user.id, input.sessionId, input.paused)),
-    complete: protectedProcedure.input(z.object({ sessionId: id })).mutation(({ ctx, input }) => db.completePomodoro(ctx.user.id, input.sessionId)),
+    complete: protectedProcedure.input(z.object({ sessionId: id, finishEarly: z.boolean().optional() })).mutation(({ ctx, input }) => db.completePomodoro(ctx.user.id, input.sessionId, input.finishEarly)),
   }),
   studySearch: router({ query: protectedProcedure.input(z.object({ query: z.string().trim().min(1).max(120) })).query(({ ctx, input }) => db.searchStudyWorkspace(ctx.user.id, input.query)) }),
   flashcards: router({

@@ -594,7 +594,7 @@ export async function startPomodoro(userId: number, input: { plannedMinutes: num
     return created;
   });
 }
-export async function completePomodoro(userId: number, sessionId: number) {
+export async function completePomodoro(userId: number, sessionId: number, finishEarly = false) {
   const db = await database();
   const result = await db.transaction(async tx => {
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
@@ -602,25 +602,35 @@ export async function completePomodoro(userId: number, sessionId: number) {
       .where(and(eq(pomodoroSessions.id, sessionId), eq(pomodoroSessions.userId, userId))).for("update");
     if (!session) throw new Error("جلسة Pomodoro غير موجودة.");
     if (session.state === "completed") return { alreadyCompleted: true, awarded: false, amount: 0, cycleId: session.cycleId };
-    if (session.state !== "running") throw new Error("استأنف الجلسة قبل إكمالها.");
+    if (session.state !== "running" && !(finishEarly && session.state === "paused")) {
+      throw new Error("الجلسة مش متاحة للإكمال.");
+    }
     const now = new Date();
-    if (+now - +session.startedAt - session.pausedSeconds * 1000 < session.plannedMinutes * 60_000) {
+    const stopTime = session.state === "paused" ? +(session.pausedAt ?? now) : +now;
+    const elapsedMinutes = Math.max(0, Math.floor((stopTime - +session.startedAt - session.pausedSeconds * 1000) / 60_000));
+    const minutes = Math.min(session.plannedMinutes, elapsedMinutes);
+    if (!finishEarly && minutes < session.plannedMinutes) {
       throw new Error("المكافأة بتنزل بعد اكتمال وقت التركيز.");
     }
+    if (minutes === 0) {
+      await tx.update(pomodoroSessions).set({ state: "cancelled", pausedAt: null }).where(eq(pomodoroSessions.id, sessionId));
+      return { alreadyCompleted: false, awarded: false, amount: 0, cycleId: session.cycleId };
+    }
     await tx.update(pomodoroSessions).set({
-      state: "completed", completedMinutes: session.plannedMinutes, completedAt: now, pausedAt: null,
+      state: "completed", completedMinutes: minutes, completedAt: now, pausedAt: null,
     }).where(eq(pomodoroSessions.id, sessionId));
     const reference = `pomodoro:${sessionId}:complete`;
     const key: CoinRateKey = isFocusPreset(session.plannedMinutes) ? `pomodoro_${session.plannedMinutes}` : "pomodoro_60";
     const [rate] = await tx.select({ amount: coinRateSettings.amount }).from(coinRateSettings).where(eq(coinRateSettings.rateKey, key));
-    const amount = focusReward(session.plannedMinutes, rate?.amount ?? coinRateCatalog[key][1]);
+    const fullReward = focusReward(session.plannedMinutes, rate?.amount ?? coinRateCatalog[key][1]);
+    const amount = Math.floor(fullReward * minutes / session.plannedMinutes);
     await tx.insert(studyEvents).values({
       userId, cycleId: session.cycleId, subjectId: session.subjectId, eventType: "pomodoro_complete",
-      referenceId: reference, durationMinutes: session.plannedMinutes, occurredAt: now,
+      referenceId: reference, durationMinutes: minutes, occurredAt: now,
     });
     if (amount > 0) await tx.insert(coinTransactions).values({
       userId, cycleId: session.cycleId, amount, type: "earn", referenceKey: reference,
-      reason: `Pomodoro مكتمل — ${session.plannedMinutes} دقيقة`,
+      reason: `Pomodoro مكتمل — ${minutes} دقيقة`,
     });
     return { alreadyCompleted: false, awarded: amount > 0, amount, cycleId: session.cycleId, balance: (await getCoinSummary(tx, userId)).balance };
   });
