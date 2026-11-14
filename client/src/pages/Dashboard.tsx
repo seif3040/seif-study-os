@@ -95,7 +95,7 @@ export default function Dashboard() {
           <div className="min-w-40 flex-1">
             <p className="font-bold">{task.title}</p>
             <p className="text-sm text-muted-foreground">{task.description}</p>
-            <p className="text-sm">{task.deadline ? (task.deadline.getTime() < Date.now() ? "متأخر · " : "التسليم · ") + new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Cairo" }).format(task.deadline) : "ميعاد التسليم لسه مش محدد"}</p>
+            <p className="text-sm">{task.deadline ? (task.deadline.getTime() < Date.now() ? "متأخر · " : "التسليم · ") + new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short", hour12: true, timeZone: "Africa/Cairo" }).format(task.deadline) : "ميعاد التسليم لسه مش محدد"}</p>
           </div>
           <Button size="sm" variant="outline" onClick={() => setEditingHomework(task)}>تعديل التسليم</Button>
           <Button size="sm" disabled={complete.isPending} onClick={() => complete.mutate({ taskId: task.id })}><Check /> خلصت</Button>

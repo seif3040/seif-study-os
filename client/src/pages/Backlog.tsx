@@ -1,3 +1,4 @@
+import { formatClock } from "@shared/clockFormat";
 import { useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
@@ -5,10 +6,6 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { completionToast, errorText } from "@/lib/study";
 import { plannerFreeTime, plannerMinutes, plannerToday, plannerWeekday } from "@shared/studyPlanner";
-
-function formatTime(minutes: number) {
-  return [Math.floor(minutes / 60), minutes % 60].map(value => String(value).padStart(2, "0")).join(":");
-}
 
 export default function Backlog({ compact = false }: { compact?: boolean }) {
   const [bulk, setBulk] = useState<number[]>([]);
@@ -82,7 +79,7 @@ export default function Backlog({ compact = false }: { compact?: boolean }) {
       </label>
       {selected.length > 0 && <p>{scheduled.length ? `ينفع تاخد ${scheduled.length} من ${selected.length} درس` : "الفترات الفاضية المتبقية ما تكفيش لأي درس من المادة دي."}</p>}
       <ul className="space-y-2">{scheduled.map(({ row, start, end }) => <li key={row.lesson!.id} className="flex flex-wrap items-center gap-2">
-        <span className="flex-1">{row.lesson!.title}</span><span dir="ltr">{formatTime(start)}–{formatTime(end)}</span>
+        <span className="flex-1">{row.lesson!.title}</span><span dir="ltr">{formatClock(start)}–{formatClock(end)}</span>
         <Button size="sm" disabled={complete.isPending} onClick={() => complete.mutate({ lessonId: row.lesson!.id })}>خلصت</Button>
       </li>)}</ul>
     </div>}

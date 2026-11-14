@@ -242,7 +242,7 @@
     const schedule = byId("schedule");
     if (snapshot.savedAt) {
       schedule.hidden = false;
-      byId("schedule-date").textContent = new Date(snapshot.savedAt).toLocaleString("ar-EG", { timeZone: "Africa/Cairo" });
+      byId("schedule-date").textContent = new Date(snapshot.savedAt).toLocaleString("ar-EG", { timeZone: "Africa/Cairo", hour12: true });
       if (snapshot.exam) byId("exam").textContent = "أقرب امتحان: " + snapshot.exam;
     }
     status.textContent = "جلساتك بتتحفظ على الجهاز وتتزامن لما الإنترنت يرجع.";

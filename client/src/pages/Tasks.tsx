@@ -156,7 +156,7 @@ export function TaskDialog({ task, initialTitle, day, onClose, onDone }: {
         {task.description && <p className="whitespace-pre-wrap text-sm">{task.description}</p>}
         <dl className="grid gap-2 rounded-lg bg-muted/50 p-3 text-sm">
           <div><dt className="inline font-semibold">اليوم المجدول: </dt><dd className="inline">{task.scheduledFor ? new Date(task.scheduledFor + "T12:00:00").toLocaleDateString("ar-EG") : "غير مجدولة"}</dd></div>
-          {task.deadline && <div><dt className="inline font-semibold">آخر موعد: </dt><dd className="inline">{new Date(task.deadline).toLocaleString("ar-EG", { dateStyle: "medium", timeStyle: "short" })}</dd></div>}
+          {task.deadline && <div><dt className="inline font-semibold">آخر موعد: </dt><dd className="inline">{new Date(task.deadline).toLocaleString("ar-EG", { dateStyle: "medium", timeStyle: "short", hour12: true })}</dd></div>}
           <div><dt className="inline font-semibold">التصنيف: </dt><dd className="inline">{task.category}</dd></div>
         </dl>
         <DialogFooter>

@@ -1,3 +1,4 @@
+import { formatClock } from "@shared/clockFormat";
 import { upcomingClassLessons } from "@shared/studyPlanner";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
@@ -127,7 +128,7 @@ export default function WeekPlanner() {
           </div>
         </form>}
         {datedSlots.map(slot => <article key={slot.id} className="flex justify-between gap-2 rounded-xl border p-3">
-          <h4 className="font-bold">{slot.title}</h4><span dir="ltr">{slot.start} – {slot.end}</span>
+          <h4 className="font-bold">{slot.title}</h4><span dir="ltr">{formatClock(slot.start)} – {formatClock(slot.end)}</span>
         </article>)}
         {!slots.length && !datedSlots.length && <p className="text-sm text-muted-foreground">مفيش مواعيد متكررة في اليوم ده.</p>}
         {slots.map(slot => {
@@ -141,7 +142,7 @@ export default function WeekPlanner() {
           return <article key={slot.id} className="space-y-2 rounded-xl border p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h4 className="font-bold">{slot.title}</h4>
-              <span dir="ltr" className="text-sm">{slot.start} – {slot.end}</span>
+              <span dir="ltr" className="text-sm">{formatClock(slot.start)} – {formatClock(slot.end)}</span>
             </div>
             {source && <div className="text-sm text-muted-foreground">
               {source.teacherName} · {source.platform}{source.location && " · " + source.location}
@@ -182,7 +183,7 @@ export default function WeekPlanner() {
       <div className="surface space-y-3 p-4">
         <h3 className="flex items-center gap-2 font-bold"><Clock3 className="size-5" /> الوقت الفاضي</h3>
         <p>{Math.floor(free / 60)} ساعة و{free % 60} دقيقة</p>
-        <ul className="space-y-2">{gaps.map(gap => <li key={gap.start} dir="ltr" className="rounded-lg bg-muted p-2 text-center text-sm">{timeLabel(gap.start)} – {timeLabel(gap.end)}</li>)}</ul>
+        <ul className="space-y-2">{gaps.map(gap => <li key={gap.start} dir="ltr" className="rounded-lg bg-muted p-2 text-center text-sm">{formatClock(gap.start)} – {formatClock(gap.end)}</li>)}</ul>
       </div>
     </div>
     {state.milestones.length > 0 && <div className="surface space-y-3 p-4">

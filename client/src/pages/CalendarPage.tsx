@@ -1,3 +1,4 @@
+import { formatClock } from "@shared/clockFormat";
 import { plannerWeekday } from "@shared/studyPlanner";
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
@@ -93,7 +94,7 @@ export default function CalendarPage() {
     for (const date of dates) {
       const day = dayKey(date);
       for (const slot of planner.data?.slots ?? []) if (slot.weekday === plannerWeekday(day)) {
-        add(day, { id: "class-" + slot.id, label: slot.start + " – " + slot.end + " · " + slot.title, kind: "class" });
+        add(day, { id: "class-" + slot.id, label: formatClock(slot.start) + " – " + formatClock(slot.end) + " · " + slot.title, kind: "class" });
       }
     }
     return map;
