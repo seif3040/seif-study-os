@@ -33,6 +33,7 @@ export type PlannerState = {
   backlog?: number[];
   backlogSubjects?: Record<string, number>;
   teacherNext?: Record<number, number>;
+  studySessions?: PlannedStudy[];
   wake: string;
   sleep: string;
   slots: PlannerSlot[];
@@ -97,4 +98,19 @@ export function upcomingClassLessons<T extends { lesson: {id:number} | null; pro
   const index = rows.findIndex(row => row.lesson?.id === cursor);
   return rows.slice(Math.max(0, index)).filter(row => row.lesson && !state.backlog?.includes(row.lesson.id)
     && !attended.has(row.lesson.id) && (index >= 0 || row.progress?.status !== "completed"));
+}
+
+export type PlannedStudy = {
+  id: string;
+  day: string;
+  start: string;
+  end: string;
+  title: string;
+  kind: "homework" | "review" | "backlog" | "study";
+  lessonId?: number;
+  done?: boolean;
+};
+export function studySlots(state: PlannerState, day: string) {
+  const weekday = plannerWeekday(day);
+  return (state.studySessions ?? []).filter(item => item.day === day).map(item => ({ ...item, weekday }));
 }

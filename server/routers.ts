@@ -121,6 +121,14 @@ export const appRouter = router({
     complete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.completeTask(ctx.user.id, input.taskId)),
   }),
   planner: router({
+    saveStudy: protectedProcedure.input(z.object({
+      id: z.string().uuid(), day: z.string().date(), title: z.string().trim().min(1).max(200),
+      start: plannerTime, end: plannerTime, kind: z.enum(["homework", "review", "backlog", "study"]), lessonId: id.optional(),
+    })).mutation(({ ctx, input }) => db.savePlannedStudy(ctx.user.id, input)),
+    finishStudy: protectedProcedure.input(z.object({ id: z.string().uuid() }))
+      .mutation(({ ctx, input }) => db.finishPlannedStudy(ctx.user.id, input.id)),
+    removeStudy: protectedProcedure.input(z.object({ id: z.string().uuid() }))
+      .mutation(({ ctx, input }) => db.removePlannedStudy(ctx.user.id, input.id)),
     chooseBacklogSubject: protectedProcedure.input(z.object({ subjectId: id }))
       .mutation(({ ctx, input }) => db.chooseBacklogSubject(ctx.user.id, input.subjectId)),
     markBacklog: protectedProcedure.input(z.object({ lessonIds: z.array(id).min(1).max(100), marked: z.boolean() }))

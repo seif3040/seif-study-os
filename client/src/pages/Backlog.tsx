@@ -1,3 +1,4 @@
+import { studySlots } from "@shared/studyPlanner";
 import { formatClock } from "@shared/clockFormat";
 import { useState } from "react";
 import { Link } from "wouter";
@@ -27,6 +28,10 @@ export default function Backlog({ compact = false }: { compact?: boolean }) {
     to: new Date(Date.parse(today + "T00:00:00+02:00") + 86_400_000),
   });
   const state = planner.data;
+  const saveStudy = trpc.planner.saveStudy.useMutation({
+    onSuccess: async () => { await utils.planner.list.invalidate(); toast.success("اتضاف لخطة مذاكرة النهارده."); },
+    onError: error => toast.error(errorText(error)),
+  });
   const subjectId = state?.backlogSubjects?.[today] ?? 0;
   const choose = trpc.planner.chooseBacklogSubject.useMutation({
     onSuccess: () => utils.planner.list.invalidate(),
@@ -49,10 +54,10 @@ export default function Backlog({ compact = false }: { compact?: boolean }) {
   const freeDay = Boolean(calendar.data) && !weekly.some(slot => slot.subjectId) && !exams
     && !events.some(event => !event.endsAt || state?.milestones.some(item => item.eventId === event.id));
   const now = plannerMinutes(cairoTime.format(new Date()));
-  const gaps = state && freeDay ? plannerFreeTime(state.wake, state.sleep, [...weekly, ...busy])
+  const gaps = state && freeDay ? plannerFreeTime(state.wake, state.sleep, [...weekly, ...busy, ...studySlots(state, today)])
     .map(gap => ({ ...gap, start: Math.max(now, gap.start) })).filter(gap => gap.start < gap.end) : [];
   const available = gaps.reduce((sum, gap) => sum + gap.end - gap.start, 0);
-  const scheduled = selected.flatMap(row => {
+  const scheduled = selected.filter(row => !state?.studySessions?.some(item => item.lessonId === row.lesson!.id && !item.done)).flatMap(row => {
     const duration = row.lesson!.estimatedMinutes;
     const gap = gaps.find(item => item.end - item.start >= duration);
     if (!gap) return [];
@@ -80,7 +85,11 @@ export default function Backlog({ compact = false }: { compact?: boolean }) {
       {selected.length > 0 && <p>{scheduled.length ? `ينفع تاخد ${scheduled.length} من ${selected.length} درس` : "الفترات الفاضية المتبقية ما تكفيش لأي درس من المادة دي."}</p>}
       <ul className="space-y-2">{scheduled.map(({ row, start, end }) => <li key={row.lesson!.id} className="flex flex-wrap items-center gap-2">
         <span className="flex-1">{row.lesson!.title}</span><span dir="ltr">{formatClock(start)}–{formatClock(end)}</span>
-        <Button size="sm" disabled={complete.isPending} onClick={() => complete.mutate({ lessonId: row.lesson!.id })}>خلصت</Button>
+        <Button size="sm" disabled={saveStudy.isPending} onClick={() => {
+          const time = (value: number) => [Math.floor(value / 60), value % 60].map(part => String(part).padStart(2, "0")).join(":");
+          saveStudy.mutate({ id: crypto.randomUUID(), day: today, start: time(start), end: time(end),
+            title: row.lesson!.title, kind: "backlog", lessonId: row.lesson!.id });
+        }}>ضيف للمذاكرة</Button>
       </li>)}</ul>
     </div>}
     {waiting.length > 0 && calendar.data && available === 0 && <p className="text-sm text-muted-foreground">

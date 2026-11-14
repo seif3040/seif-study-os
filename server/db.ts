@@ -1,4 +1,4 @@
-import { upcomingClassLessons } from "../shared/studyPlanner.js";
+import { upcomingClassLessons, plannerMinutes, plannerFreeTime, studySlots, type PlannedStudy } from "../shared/studyPlanner.js";
 import { emptyPlanner, overlapsPlannerSlot, plannerPolicy, plannerToday, plannerWeekday, shiftPlannerDay, type PlannerSlot, type PlannerState } from "../shared/studyPlanner.js";
 import { studyPlanner } from "../drizzle/schema.js";
 import { coinRateCatalog, coinRateKeys, type CoinRateKey } from "../shared/coinRates.js";
@@ -1559,5 +1559,53 @@ export async function reopenLesson(userId: number, lessonId: number) {
     await ownedLesson(tx, userId, lessonId);
     await tx.update(lessonProgress).set({ status: "not_started", progress: 0, completedAt: null, lastReviewedAt: null })
       .where(and(eq(lessonProgress.userId, userId), eq(lessonProgress.lessonId, lessonId), eq(lessonProgress.status, "completed")));
+  });
+}
+
+export function savePlannedStudy(userId: number, input: PlannedStudy) {
+  return changePlanner(userId, async (state, tx) => {
+    if (input.start >= input.end) throw new Error("النهاية لازم تبقى بعد البداية.");
+    const sessions = state.studySessions ?? [];
+    const previous = sessions.find(item => item.id === input.id);
+    if (previous?.done) throw new Error("المذاكرة دي خلصت بالفعل.");
+    if (input.lessonId) {
+      await ownedLesson(tx, userId, input.lessonId);
+      if (sessions.some(item => item.id !== input.id && item.lessonId === input.lessonId && !item.done)) {
+        throw new Error("الدرس ده متضاف بالفعل لخطة المذاكرة.");
+      }
+    }
+    const weekday = plannerWeekday(input.day);
+    const start = plannerMinutes(input.start);
+    const end = plannerMinutes(input.end);
+    const busy = [...state.slots.filter(slot => slot.weekday === weekday), ...studySlots(state, input.day).filter(slot => slot.id !== input.id)];
+    const gaps = plannerFreeTime(state.wake, state.sleep, busy);
+    if (!gaps.some(gap => gap.start <= start && gap.end >= end)) throw new Error("اختار وقت فاضي بين الصحوة والنوم.");
+    const from = cairoPlannerTime(input.day, input.start);
+    const to = cairoPlannerTime(input.day, input.end);
+    const events = await tx.select().from(calendarEvents)
+      .where(and(eq(calendarEvents.userId, userId), lte(calendarEvents.startsAt, to)));
+    if (events.some(item => item.startsAt < to && (item.endsAt ? item.endsAt > from : item.startsAt >= from))) {
+      throw new Error("الوقت ده فيه موعد في التقويم.");
+    }
+    const [exam] = await tx.select({ id: exams.id }).from(exams).where(and(eq(exams.userId, userId),
+      isNull(exams.archivedAt), gte(exams.scheduledAt, from), lte(exams.scheduledAt, to))).limit(1);
+    if (exam) throw new Error("فيه امتحان في الوقت ده. راجع التقويم.");
+    state.studySessions = [...sessions.filter(item => item.id !== input.id), input];
+  });
+}
+
+export async function finishPlannedStudy(userId: number, id: string) {
+  const session = (await getPlanner(userId)).studySessions?.find(item => item.id === id);
+  if (!session || session.done) return;
+  if (session.kind === "backlog" && session.lessonId) await completeLesson(userId, session.lessonId);
+  return changePlanner(userId, async state => {
+    const item = state.studySessions?.find(value => value.id === id);
+    if (item) item.done = true;
+  });
+}
+
+export function removePlannedStudy(userId: number, id: string) {
+  return changePlanner(userId, async state => {
+    state.studySessions = state.studySessions?.filter(item => item.id !== id);
   });
 }

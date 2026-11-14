@@ -1,3 +1,5 @@
+import DayStudy from "@/components/DayStudy";
+import { studySlots } from "@shared/studyPlanner";
 import { formatClock } from "@shared/clockFormat";
 import { upcomingClassLessons } from "@shared/studyPlanner";
 import { useState, type FormEvent } from "react";
@@ -34,7 +36,7 @@ export default function WeekPlanner() {
     const [hour, minute] = item.start.split(":").map(Number);
     return [{ id: item.id, weekday, start: item.start, end: timeLabel(Math.min(1440, hour * 60 + minute + item.minutes)), title: item.title }];
   });
-  const gaps = plannerFreeTime(state.wake, state.sleep, [...slots, ...datedSlots]);
+  const gaps = plannerFreeTime(state.wake, state.sleep, [...slots, ...datedSlots, ...studySlots(state, day)]);
   const free = gaps.reduce((sum, gap) => sum + gap.end - gap.start, 0);
   const teacherNext = trpc.planner.teacherNext.useMutation({
     onSuccess: () => utils.planner.list.invalidate(),
@@ -137,7 +139,9 @@ export default function WeekPlanner() {
           <h4 className="font-bold">{slot.title}</h4><span dir="ltr">{formatClock(slot.start)} – {formatClock(slot.end)}</span>
         </article>)}
         {!slots.length && !datedSlots.length && <p className="text-sm text-muted-foreground">مفيش مواعيد متكررة في اليوم ده.</p>}
-        {slots.map(slot => {
+        {[true, false].map(isClass => <section key={String(isClass)} className="space-y-2">
+          <h4 className="font-bold">{isClass ? "عندي حصة" : "الالتزامات"}</h4>
+          {slots.filter(slot => Boolean(slot.subjectId) === isClass).map(slot => {
           const source = sources.data?.find(item => item.id === slot.sourceId);
           const subject = subjects.find(item => item.id === slot.subjectId);
           const recorded = state.attendance.filter(item => item.slotId === slot.id && item.day === day);
@@ -185,6 +189,7 @@ export default function WeekPlanner() {
             </div>
           </article>;
         })}
+        </section>)}
       </div>
       <div className="surface space-y-3 p-4">
         <h3 className="flex items-center gap-2 font-bold"><Clock3 className="size-5" /> الوقت الفاضي</h3>
@@ -192,6 +197,7 @@ export default function WeekPlanner() {
         <ul className="space-y-2">{gaps.map(gap => <li key={gap.start} dir="ltr" className="rounded-lg bg-muted p-2 text-center text-sm">{formatClock(gap.start)} – {formatClock(gap.end)}</li>)}</ul>
       </div>
     </div>
+    <DayStudy key={day} day={day} />
     {state.milestones.length > 0 && <div className="surface space-y-3 p-4">
       <h3 className="font-bold">الورش والامتحانات ومعسكرات المراجعة</h3>
       {state.milestones.map(item => <form key={item.id + ":" + (state.milestones.find(value => value.id === item.follows)?.day ?? "")} className="flex flex-wrap items-end gap-2 rounded-lg border p-3"

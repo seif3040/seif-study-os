@@ -1,3 +1,4 @@
+import DayStudy from "@/components/DayStudy";
 import Backlog from "@/pages/Backlog";
 import { TaskDialog, type CalendarTask } from "./Tasks";
 import { useState } from "react";
@@ -102,6 +103,7 @@ export default function Dashboard() {
         </li>)}
       </ul> : <p className="text-sm text-muted-foreground">الواجب هيظهر هنا أول ما تسجّل حضور حصة.</p>}
     </section>
+    <DayStudy day={today} showSchedule />
     <Backlog compact />
     {editingHomework && <TaskDialog task={editingHomework} day={today} onClose={() => setEditingHomework(undefined)} onDone={() => utils.invalidate()} />}
 
