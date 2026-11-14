@@ -33,6 +33,7 @@ export type PlannerMilestone = {
 
 export type PlannerState = {
   backlog?: number[];
+  assessments?: Record<number, import('./assessments.js').AssessmentStatus>;
   backlogSubjects?: Record<string, number>;
   teacherNext?: Record<number, number>;
   studySessions?: PlannedStudy[];

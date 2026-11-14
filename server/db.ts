@@ -1,3 +1,4 @@
+import { assessmentCatalog, type AssessmentStatus } from "../shared/assessments.js";
 import { cairoPrayers, prayers, prayerNames, type Prayer } from "./prayerTimes.js";
 import { focusReward, isFocusPreset } from "../shared/focusDuration.js";
 import { slotOccurs } from "../shared/studyPlanner.js";
@@ -1625,7 +1626,8 @@ export function savePlannedStudy(userId: number, input: PlannedStudy) {
     const previous = sessions.find(item => item.id === input.id);
     if (previous?.done) throw new Error("المذاكرة دي خلصت بالفعل.");
     if (input.lessonId) {
-      await ownedLesson(tx, userId, input.lessonId);
+      if (input.lessonId > 0) await ownedLesson(tx, userId, input.lessonId);
+      else if (!previous || previous.lessonId !== input.lessonId) throw new Error("التقييم مش موجود في خطة اليوم.");
       if (sessions.some(item => item.id !== input.id && item.lessonId === input.lessonId && !item.done)) {
         throw new Error("الدرس ده متضاف بالفعل لخطة المذاكرة.");
       }
@@ -1652,7 +1654,10 @@ export function savePlannedStudy(userId: number, input: PlannedStudy) {
 export async function finishPlannedStudy(userId: number, id: string) {
   const session = (await getPlanner(userId)).studySessions?.find(item => item.id === id);
   if (!session || session.done) return;
-  if (session.kind === "backlog" && session.lessonId) await completeLesson(userId, session.lessonId);
+  if (session.kind === "backlog" && session.lessonId) {
+    if (session.lessonId < 0) return setAssessmentStatus(userId, -session.lessonId, "completed");
+    await completeLesson(userId, session.lessonId);
+  }
   return changePlanner(userId, async state => {
     const item = state.studySessions?.find(value => value.id === id);
     if (item) item.done = true;
@@ -1751,7 +1756,13 @@ async function suggestDailyStudy(tx: StudyTransaction, userId: number, state: Pl
   const available = free.reduce((sum, gap) => sum + gap.end - gap.start, 0);
   const queued = new Set((state.studySessions ?? []).filter(item => !item.done && item.day >= day).map(item => item.lessonId));
   const marked = new Set(state.backlog ?? []);
-  const waiting = rows.filter(row => row.lesson && marked.has(row.lesson.id) && row.progress?.status !== "completed" && !queued.has(row.lesson.id));
+  const waiting = rows.filter(row => row.lesson && marked.has(row.lesson.id) && row.progress?.status !== "completed" && !queued.has(row.lesson.id))
+    .map(row => ({ subject: row.subject, lesson: { id: row.lesson!.id, title: row.lesson!.title } }));
+  for (const item of assessmentCatalog) {
+    if (state.assessments?.[item.id] !== "backlog" || queued.has(-item.id)) continue;
+    const subject = rows.find(row => row.subject.title === item.subject)?.subject;
+    if (subject) waiting.push({ subject, lesson: { id: -item.id, title: item.title } });
+  }
   const groups = new Map<number, { title: string; count: number }>();
   for (const row of waiting) {
     const previous = groups.get(row.subject.id);
@@ -1882,5 +1893,16 @@ export async function awardActivityPoint(userId: number, action: string) {
     await tx.insert(coinTransactions).values({ userId, cycleId: cycle.id, amount: 1,
       type: "earn", referenceKey, reason: "نشاط في الموقع" });
     return { awarded: true };
+  });
+}
+
+export function setAssessmentStatus(userId: number, id: number, status: AssessmentStatus) {
+  return changePlanner(userId, async state => {
+    if (!assessmentCatalog.some(item => item.id === id)) throw new Error("التقييم مش موجود.");
+    state.assessments ??= {};
+    state.assessments[id] = status;
+    for (const session of state.studySessions ?? []) {
+      if (session.lessonId === -id) session.done = status === "completed";
+    }
   });
 }

@@ -1,3 +1,4 @@
+import { AssessmentOverview } from "@/pages/Assessments";
 import { slotOccurs } from "@shared/studyPlanner";
 import { studySlots } from "@shared/studyPlanner";
 import { formatClock } from "@shared/clockFormat";
@@ -66,7 +67,7 @@ export default function Backlog({ compact = false }: { compact?: boolean }) {
     gap.start += duration;
     return [{ row, start, end: gap.start }];
   });
-  return <section className="surface space-y-4 p-5">
+  return <div className="space-y-4">{!compact && <AssessmentOverview backlogOnly />}<section className="surface space-y-4 p-5">
     <div className="flex flex-wrap justify-between gap-2">
       <h2 className="text-xl font-bold">الدروس المتراكمة</h2>
       {compact && <Link href="/backlog" className="text-sm text-primary underline">افتح المتراكم</Link>}
@@ -115,5 +116,5 @@ export default function Backlog({ compact = false }: { compact?: boolean }) {
         <Button disabled={!bulk.length || mark.isPending} onClick={() => mark.mutate({ lessonIds: bulk, marked: true })}>علّم المحدد كمتراكم ({bulk.length})</Button>
       </div>}
     </>}
-  </section>;
+  </section></div>;
 }

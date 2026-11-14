@@ -45,7 +45,7 @@ const dailyPlanInput = z.object({
   count: z.number().int().min(1).max(20),
   reserve: z.number().int().min(0).max(1440),
   budget: z.number().int().min(5).max(1440),
-  exclude: z.array(id).max(200),
+  exclude: z.array(z.number().int()).max(200),
   subjectId: id.optional(),
 });
 
@@ -136,10 +136,12 @@ export const appRouter = router({
     complete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.completeTask(ctx.user.id, input.taskId)),
   }),
   planner: router({
+    assessmentStatus: protectedProcedure.input(z.object({ assessmentId: id, status: z.enum(["pending", "backlog", "completed"]) }))
+      .mutation(({ ctx, input }) => db.setAssessmentStatus(ctx.user.id, input.assessmentId, input.status)),
     previewDaily: protectedProcedure.input(dailyPlanInput)
       .query(({ ctx, input }) => db.previewDailyStudy(ctx.user.id, input)),
     approveDaily: protectedProcedure.input(dailyPlanInput.extend({
-      day: z.string().date(), expected: z.array(z.object({ lessonId: id, start: plannerTime, end: plannerTime })).min(1).max(20),
+      day: z.string().date(), expected: z.array(z.object({ lessonId: z.number().int(), start: plannerTime, end: plannerTime })).min(1).max(20),
     })).mutation(({ ctx, input }) => db.approveDailyStudy(ctx.user.id, input, input.day, input.expected)),
     skipDaily: protectedProcedure.mutation(({ ctx }) => db.skipDailyStudy(ctx.user.id)),
     fillStudyDay: protectedProcedure.input(z.object({ day: z.string().date(), subjectId: id }))
@@ -148,7 +150,7 @@ export const appRouter = router({
       .mutation(({ ctx, input }) => db.overridePlannerSlot(ctx.user.id, input.id, input.day, input.active)),
     saveStudy: protectedProcedure.input(z.object({
       id: z.string().uuid(), day: z.string().date(), title: z.string().trim().min(1).max(200),
-      start: plannerTime, end: plannerTime, kind: z.enum(["homework", "review", "backlog", "study"]), lessonId: id.optional(),
+      start: plannerTime, end: plannerTime, kind: z.enum(["homework", "review", "backlog", "study"]), lessonId: z.number().int().optional(),
     })).mutation(({ ctx, input }) => db.savePlannedStudy(ctx.user.id, input)),
     finishStudy: protectedProcedure.input(z.object({ id: z.string().uuid() }))
       .mutation(({ ctx, input }) => db.finishPlannedStudy(ctx.user.id, input.id)),

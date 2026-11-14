@@ -1,3 +1,4 @@
+import { AssessmentOverview } from "@/pages/Assessments";
 import DailyPrayers from "@/components/DailyPrayers";
 import DayStudy from "@/components/DayStudy";
 import { TaskDialog, type CalendarTask } from "./Tasks";
@@ -103,6 +104,7 @@ export default function Dashboard() {
       </ul> : <p className="text-sm text-muted-foreground">الواجب هيظهر هنا أول ما تسجّل حضور حصة.</p>}
     </section>
     <DailyPrayers day={today} />
+    <AssessmentOverview />
     <DayStudy day={today} showSchedule />
     {editingHomework && <TaskDialog task={editingHomework} day={today} onClose={() => setEditingHomework(undefined)} onDone={() => utils.invalidate()} />}
 
