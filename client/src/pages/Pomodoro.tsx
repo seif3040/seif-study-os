@@ -51,14 +51,40 @@ const breakRemaining = routine && finishedRound?.completedAt
   setStartingRoutine(undefined);
   toast.success("بدأت جلسة التركيز.");
   await invalidate();
-}, onError: e => { setStartingRoutine(undefined); toast.error(errorText(e)); } }); const pause = trpc.pomodoro.setPaused.useMutation({ onSuccess: invalidate, onError: e => toast.error(errorText(e)) }); const complete = trpc.pomodoro.complete.useMutation({ onSuccess: async r => { toast.success("amount" in r && r.amount ? `اكتملت الجلسة: +${money.format(r.amount)} Coins` : "اكتملت الجلسة."); (r.unlocks ?? []).forEach((x: any) => toast.success(`🏆 تم فتح: ${x.title}`)); await invalidate(); }, onError: e => toast.error(errorText(e)) }); useEffect(() => { if (active?.state === "running" && remaining === 0 && !complete.isPending) complete.mutate({ sessionId: active.id }); }, [remaining, active?.id, active?.state]); if (isLoading) return <div className="h-80 animate-pulse rounded-2xl bg-muted" />; return <div>{!embedded && <PageHeader title="Pomodoro" description="تُمنح Coins فقط بعد إكمال جلسة كاملة. يحسب الخادم وقت التركيز، وليس زر الإكمال فقط." />}<div className={embedded ? "grid gap-4" : "grid items-start gap-5 xl:grid-cols-[1fr_.65fr]"}><section className="surface flex min-h-[360px] flex-col items-center justify-center p-5 text-center sm:p-8"><p className="mb-5 text-sm font-semibold text-primary">{active ? (active.state === "paused" ? "الجلسة متوقفة مؤقتًا" : routine?.sessionId === active.id ? "جولة " + routine.round + " من " + routine.rounds : "حان وقت التركيز") : "اختر مدة جلسة"}</p><div className="study-focus-ring flex size-52 items-center justify-center rounded-full sm:size-64" data-running={active?.state === "running"} style={{ "--study-progress": progress + "%" } as CSSProperties}><div className="study-focus-face"><Timer className="mx-auto mb-2 size-5 text-primary" aria-hidden /><p className="font-[Manrope] text-5xl sm:text-6xl font-extrabold tracking-tighter text-primary">{pretty}</p><p className="mt-2 text-sm text-muted-foreground">{active ? `${active.plannedMinutes} دقيقة تركيز` : "جاهز للبدء"}</p></div></div><FloatingFocus seconds={breakRemaining || remaining} status={breakRemaining ? "بريك" : active?.state === "paused" ? "متوقف مؤقتًا" : active ? "تركيز" : "جاهز"} />
+}, onError: e => { setStartingRoutine(undefined); toast.error(errorText(e)); } }); const pause = trpc.pomodoro.setPaused.useMutation({ onSuccess: invalidate, onError: e => toast.error(errorText(e)) }); const complete = trpc.pomodoro.complete.useMutation({ onSuccess: async r => { toast.success("amount" in r && r.amount ? `اكتملت الجلسة: +${money.format(r.amount)} Coins` : "اكتملت الجلسة."); (r.unlocks ?? []).forEach((x: any) => toast.success(`🏆 تم فتح: ${x.title}`)); await invalidate(); }, onError: e => toast.error(errorText(e)) }); useEffect(() => { if (active?.state === "running" && remaining === 0 && !complete.isPending) complete.mutate({ sessionId: active.id }); }, [remaining, active?.id, active?.state]);
+  const betweenRounds = !active && routine && finishedRound && routine.round < routine.rounds;
+  function startNextRound() {
+    if (!routine || !betweenRounds || breakRemaining > 0 || start.isPending) return;
+      setStartingRoutine({ ...routine, round: routine.round + 1 });
+      start.mutate({ plannedMinutes: routine.minutes, subjectId: routine.subjectId });
+  }
+  function startFocus() {
+    if (active || !data || start.isPending || (mode === "custom" && !valid)) return;
+        const subjectId = subject ? Number(subject) : undefined;
+        setRoutine(undefined);
+        if (mode === "custom") setStartingRoutine({ minutes: customMinutes, rest, rounds, round: 1, subjectId });
+        start.mutate({ plannedMinutes: mode === "custom" ? customMinutes : selected, subjectId });
+  }
+  const floatingStatus = active
+    ? active.state === "paused" ? "متوقف مؤقتًا" : "تركيز"
+    : betweenRounds ? breakRemaining > 0 ? "بريك" : "جاهز للجولة الجاية"
+      : mode === "custom" && !valid ? "راجع إعدادات الخطة في الصفحة" : "جاهز للبدء";
+  const floatingAction = active
+    ? remaining === 0 && active.state === "running"
+      ? { label: "سجّل الإكمال", disabled: complete.isPending, run: () => complete.mutate({ sessionId: active.id }) }
+      : { label: active.state === "paused" ? "استئناف" : "إيقاف مؤقت", disabled: pause.isPending,
+          run: () => pause.mutate({ sessionId: active.id, paused: active.state === "running" }) }
+    : betweenRounds
+      ? { label: "ابدأ الجولة الجاية", disabled: breakRemaining > 0 || start.isPending, run: startNextRound }
+      : { label: "ابدأ التركيز", disabled: !data || start.isPending || (mode === "custom" && !valid), run: startFocus };
+ if (isLoading) return <div className="h-80 animate-pulse rounded-2xl bg-muted" />; return <div>{!embedded && <PageHeader title="Pomodoro" description="تُمنح Coins فقط بعد إكمال جلسة كاملة. يحسب الخادم وقت التركيز، وليس زر الإكمال فقط." />}<div className={embedded ? "grid gap-4" : "grid items-start gap-5 xl:grid-cols-[1fr_.65fr]"}><section className="surface flex min-h-[360px] flex-col items-center justify-center p-5 text-center sm:p-8"><p className="mb-5 text-sm font-semibold text-primary">{active ? (active.state === "paused" ? "الجلسة متوقفة مؤقتًا" : routine?.sessionId === active.id ? "جولة " + routine.round + " من " + routine.rounds : "حان وقت التركيز") : "اختر مدة جلسة"}</p><div className="study-focus-ring flex size-52 items-center justify-center rounded-full sm:size-64" data-running={active?.state === "running"} style={{ "--study-progress": progress + "%" } as CSSProperties}><div className="study-focus-face"><Timer className="mx-auto mb-2 size-5 text-primary" aria-hidden /><p className="font-[Manrope] text-5xl sm:text-6xl font-extrabold tracking-tighter text-primary">{pretty}</p><p className="mt-2 text-sm text-muted-foreground">{active ? `${active.plannedMinutes} دقيقة تركيز` : "جاهز للبدء"}</p></div></div><FloatingFocus seconds={betweenRounds ? breakRemaining || routine.minutes * 60 : remaining} status={floatingStatus}
+  action={floatingAction} round={routine && (betweenRounds || routine.sessionId === active?.id) ? routine.round + " / " + routine.rounds : undefined} />
 <div className="mt-7 flex flex-wrap justify-center gap-2">{!active ? <div className="w-full space-y-4">
   {routine && finishedRound && routine.round < routine.rounds ? <div className="space-y-3">
     <p>خلصت الجولة {routine.round} من {routine.rounds}</p>
     <p>{breakRemaining ? "البريك المتبقي: " + Math.floor(breakRemaining / 60) + ":" + String(breakRemaining % 60).padStart(2, "0") : "جاهز للجولة الجاية"}</p>
     <Button disabled={breakRemaining > 0 || start.isPending} onClick={() => {
-      setStartingRoutine({ ...routine, round: routine.round + 1 });
-      start.mutate({ plannedMinutes: routine.minutes, subjectId: routine.subjectId });
+      startNextRound();
     }}>ابدأ الجولة الجاية</Button>
     <Button variant="ghost" disabled={start.isPending} onClick={() => setRoutine(undefined)}>إنهاء الخطة</Button>
   </div> : <>
@@ -82,10 +108,7 @@ const breakRemaining = routine && finishedRound?.completedAt
         <option value="">من غير مادة</option>{subjects.map(([id, title]) => <option key={id} value={id}>{title}</option>)}
       </select>
       <Button size="lg" disabled={start.isPending || (mode === "custom" && !valid)} onClick={() => {
-        const subjectId = subject ? Number(subject) : undefined;
-        setRoutine(undefined);
-        if (mode === "custom") setStartingRoutine({ minutes: customMinutes, rest, rounds, round: 1, subjectId });
-        start.mutate({ plannedMinutes: mode === "custom" ? customMinutes : selected, subjectId });
+        startFocus();
       }}><Play />ابدأ التركيز</Button>
     </div>
   </>}
