@@ -1,4 +1,3 @@
-import DailyStudyPrompt from "@/components/DailyStudyPrompt";
 import DayStudy from "@/components/DayStudy";
 import { TaskDialog, type CalendarTask } from "./Tasks";
 import { useState } from "react";
@@ -104,7 +103,6 @@ export default function Dashboard() {
       </ul> : <p className="text-sm text-muted-foreground">الواجب هيظهر هنا أول ما تسجّل حضور حصة.</p>}
     </section>
     <DayStudy day={today} showSchedule />
-    <DailyStudyPrompt key={today} day={today} />
     {editingHomework && <TaskDialog task={editingHomework} day={today} onClose={() => setEditingHomework(undefined)} onDone={() => utils.invalidate()} />}
 
     <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">

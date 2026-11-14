@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { plannerToday } from "@shared/studyPlanner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
@@ -6,7 +8,21 @@ import { errorText } from "@/lib/study";
 import { formatClock } from "@shared/clockFormat";
 import { toast } from "sonner";
 
-export default function DailyStudyPrompt({ day }: { day: string }) {
+export default function DailyStudyPrompt() {
+  const [day, setDay] = useState(plannerToday);
+  useEffect(() => {
+    const refreshDay = () => setDay(plannerToday());
+    const timer = window.setInterval(refreshDay, 15_000);
+    window.addEventListener("focus", refreshDay);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshDay);
+    };
+  }, []);
+  return <DailyStudyDialog key={day} day={day} />;
+}
+
+function DailyStudyDialog({ day }: { day: string }) {
   const planner = trpc.planner.list.useQuery();
   const utils = trpc.useUtils();
   const [count, setCount] = useState(2);
@@ -26,10 +42,19 @@ export default function DailyStudyPrompt({ day }: { day: string }) {
     onSuccess: () => utils.planner.list.invalidate(),
     onError: error => toast.error(errorText(error)),
   });
-  if (!planner.data || answered) return null;
+  if (answered) return null;
   const data = preview.data;
-  return <section className="surface space-y-3 p-5">
-    <h2 className="text-lg font-bold">هتذاكر إيه من المتراكم النهارده؟</h2>
+  return <Dialog open>
+    <DialogContent dir="rtl" showCloseButton={false}
+      className="max-h-[85dvh] w-[calc(100%-2rem)] max-w-xl overflow-y-auto"
+      onEscapeKeyDown={event => event.preventDefault()}
+      onInteractOutside={event => event.preventDefault()}>
+      <DialogTitle>هتذاكر إيه من المتراكم النهارده؟</DialogTitle>
+      <DialogDescription>اعتمد خطة اليوم أو اختار «مش النهارده» عشان تكمل.</DialogDescription>
+      {!planner.data && <div className="text-sm" role="status">
+        {planner.isError ? <>تعذّر تحميل خطة اليوم. <Button size="sm" variant="outline" onClick={() => void planner.refetch()}>جرّب تاني</Button></> : "جارٍ تحميل خطة اليوم…"}
+      </div>}
+      {planner.data && <div className="space-y-3">
     {data && <p>متاح {Math.floor(data.available / 60)} ساعة و{data.available % 60} دقيقة بعد المواعيد المحجوزة.</p>}
     <div className="grid gap-2 sm:grid-cols-3">
       <label>عدد الدروس<Input type="number" min={1} max={20} value={count} onChange={e => setCount(Number(e.target.value))} /></label>
@@ -56,5 +81,7 @@ export default function DailyStudyPrompt({ day }: { day: string }) {
       <Button variant="outline" disabled={approve.isPending || skip.isPending} onClick={() => skip.mutate()}>مش النهارده</Button>
       {exclude.length > 0 && <Button variant="ghost" onClick={() => setExclude([])}>رجّع الدروس المستبعدة</Button>}
     </div>
-  </section>;
+      </div>}
+    </DialogContent>
+  </Dialog>;
 }

@@ -1,3 +1,4 @@
+import DailyStudyPrompt from "@/components/DailyStudyPrompt";
 import { StudyReminders } from "@/components/StudyReminders";
 import OfflineTools from "@/components/OfflineTools";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -20,7 +21,7 @@ const menu = [
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { loading, user } = useAuth();
   if (loading || !user) return <SignInGate />;
-  return <StudyNavigation>{children}</StudyNavigation>;
+  return <StudyNavigation>{children}<DailyStudyPrompt key={user.id} /></StudyNavigation>;
 }
 
 function SignInGate() { const [password, setPassword] = useState(""); const [busy, setBusy] = useState(false); const signIn = async () => { setBusy(true); try { const response = await fetch("/api/private-auth/sign-in", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ email: "seif94803@gmail.com", password }) }); const result = await response.json() as { success?: boolean; message?: string }; if (!response.ok || !result.success) { toast.error(result.message ?? "تعذّر تسجيل الدخول."); return; } window.location.reload(); } catch { toast.error("تعذّر الاتصال بخدمة تسجيل الدخول."); } finally { setBusy(false); } }; return <div className="app-shell flex min-h-screen items-center justify-center p-5"><div className="surface w-full max-w-md p-8 text-center"><img src="/study-logo.svg" alt="" className="mx-auto mb-5 size-16 rounded-2xl" /><h1 className="text-2xl font-bold">Seif Study OS</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">حساب شخصي خاص لحفظ خطة مذاكرتك، إنجازاتك، وCoins بأمان.</p><div className="mt-6 space-y-3 text-right"><label className="block text-sm font-semibold">البريد</label><Input dir="ltr" value="seif94803@gmail.com" readOnly aria-label="البريد المسموح له" /><label className="block text-sm font-semibold">كلمة المرور</label><Input dir="ltr" type="password" value={password} onChange={event => setPassword(event.target.value)} onKeyDown={event => event.key === "Enter" && signIn()} placeholder="أدخل كلمة المرور" autoComplete="current-password" /></div><Button disabled={!password || busy} onClick={signIn} className="mt-6 w-full">{busy ? "جارٍ التحقق…" : "تسجيل الدخول"}</Button></div></div>; }
