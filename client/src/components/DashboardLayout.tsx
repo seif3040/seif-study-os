@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { useState } from "react";
 
 const menu = [
-  ["النهارده", "/", LayoutDashboard], ["جارفيس", "/seify", Sparkles], ["جدول الأسبوع", "/lesson-sources", Users], ["خطة المنهج", "/study-plan", BookOpen], ["الامتحانات", "/exams", GraduationCap], ["Pomodoro", "/pomodoro", Timer], ["استراحة محسوبة", "/focus-lounge", Clock3], ["فيديو المذاكرة", "/study-video", Video], ["العادات", "/habits", Flame], ["التحليلات", "/analytics", BarChart3], ["التقويم", "/calendar", CalendarDays], ["الهدايا", "/rewards", Gift], ["Coins", "/coins", CircleDollarSign], ["الإعدادات", "/settings", Settings],
+  ["النهارده", "/", LayoutDashboard], ["جارفيس", "/seify", Sparkles], ["جدول الأسبوع", "/lesson-sources", Users], ["الدروس المتراكمة", "/backlog", BookOpen], ["خطة المنهج", "/study-plan", BookOpen], ["الامتحانات", "/exams", GraduationCap], ["Pomodoro", "/pomodoro", Timer], ["استراحة محسوبة", "/focus-lounge", Clock3], ["فيديو المذاكرة", "/study-video", Video], ["العادات", "/habits", Flame], ["التحليلات", "/analytics", BarChart3], ["التقويم", "/calendar", CalendarDays], ["الهدايا", "/rewards", Gift], ["Coins", "/coins", CircleDollarSign], ["الإعدادات", "/settings", Settings],
 ] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

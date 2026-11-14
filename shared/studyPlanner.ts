@@ -30,6 +30,9 @@ export type PlannerMilestone = {
 };
 
 export type PlannerState = {
+  backlog?: number[];
+  backlogSubjects?: Record<string, number>;
+  teacherNext?: Record<number, number>;
   wake: string;
   sleep: string;
   slots: PlannerSlot[];
@@ -84,4 +87,14 @@ export function plannerPolicy(title: string) {
   if (name === "برمجة") return "programming";
   if (name === "انجليزي") return "english";
   return "standard";
+}
+
+export function upcomingClassLessons<T extends { lesson: {id:number} | null; progress: {status:string} | null }>(
+  rows: T[], state: PlannerState, subjectId: number,
+) {
+  const attended = new Set(state.attendance.map(item => item.lessonId));
+  const cursor = state.teacherNext?.[subjectId];
+  const index = rows.findIndex(row => row.lesson?.id === cursor);
+  return rows.slice(Math.max(0, index)).filter(row => row.lesson && !state.backlog?.includes(row.lesson.id)
+    && !attended.has(row.lesson.id) && (index >= 0 || row.progress?.status !== "completed"));
 }

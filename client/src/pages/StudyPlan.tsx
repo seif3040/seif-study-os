@@ -45,12 +45,14 @@ function organize(rows: Plan["rows"]) {
 
 export default function StudyPlan() {
   const utils = trpc.useUtils();
+  const planner = trpc.planner.list.useQuery();
   const { data, isLoading, isError, refetch } = trpc.studyPlan.list.useQuery();
   const [subjectId, setSubjectId] = useState<number>();
   const [chapterId, setChapterId] = useState<number>();
   const [editor, setEditor] = useState<Editor>();
   const invalidate = () => Promise.all([
     utils.studyPlan.list.invalidate(),
+    utils.planner.list.invalidate(),
     utils.dashboard.summary.invalidate(),
     utils.analytics.overview.invalidate(),
     utils.achievements.list.invalidate(),
@@ -110,7 +112,7 @@ export default function StudyPlan() {
       </div> : <EmptyState title="لسه مفيش فصول" description="اضغط «فصل جديد» عشان تضيف أول فصل للمادة." />)}
 
       {chapter && (chapter.lessons.length ? <div className="surface divide-y overflow-hidden">
-        {chapter.lessons.map(lesson => <LessonRow key={lesson.id} lesson={lesson} onDone={invalidate}
+        {chapter.lessons.map(lesson => <LessonRow key={lesson.id} lesson={lesson} marked={lesson.progress?.status !== "completed" && (planner.data?.backlog?.includes(lesson.id) ?? false)} onDone={invalidate}
           onEdit={() => setEditor({ kind: "lesson", chapterId: chapter.id, item: lesson })} />)}
       </div> : <EmptyState title="لسه مفيش دروس" description="اضغط «درس جديد» عشان تضيف أول درس للفصل." />)}
 
@@ -149,7 +151,7 @@ function ResourceButtons({ title, onEdit }: { title: string; onEdit: () => void 
   </>;
 }
 
-function LessonRow({ lesson, onDone, onEdit }: { lesson: Lesson; onDone: () => Promise<unknown>; onEdit: () => void }) {
+function LessonRow({ lesson, marked, onDone, onEdit }: { lesson: Lesson; marked: boolean; onDone: () => Promise<unknown>; onEdit: () => void }) {
   const complete = trpc.studyPlan.complete.useMutation({
     onSuccess: async result => { completionToast(result, 75); await onDone(); },
     onError: error => toast.error(errorText(error)),
@@ -158,6 +160,7 @@ function LessonRow({ lesson, onDone, onEdit }: { lesson: Lesson; onDone: () => P
     onSuccess: async result => { completionToast(result, 15); await onDone(); },
     onError: error => toast.error(errorText(error)),
   });
+  const backlog = trpc.planner.markBacklog.useMutation({ onSuccess: onDone, onError: error => toast.error(errorText(error)) });
   const status = lesson.progress?.status ?? "not_started";
   return <article className="space-y-3 p-4 sm:p-5">
     <div className="flex items-start gap-3">
@@ -169,7 +172,7 @@ function LessonRow({ lesson, onDone, onEdit }: { lesson: Lesson; onDone: () => P
         <p className="text-sm text-muted-foreground">{money.format(lesson.estimatedMinutes)} دقيقة</p>
       </div>
       <Badge variant={status === "completed" ? "default" : "secondary"}>
-        {status === "completed" ? "مكتمل" : status === "in_progress" ? "قيد الدراسة" : "لم يبدأ"}
+        {marked ? "متراكم" : status === "completed" ? "مكتمل" : status === "in_progress" ? "قيد الدراسة" : "لم يبدأ"}
       </Badge>
     </div>
     {lesson.description && <p className="whitespace-pre-wrap text-sm text-muted-foreground">{lesson.description}</p>}
@@ -182,6 +185,9 @@ function LessonRow({ lesson, onDone, onEdit }: { lesson: Lesson; onDone: () => P
       {status === "completed"
         ? <Button size="sm" variant="outline" disabled={review.isPending} onClick={() => review.mutate({ lessonId: lesson.id })}><RefreshCw />مراجعة</Button>
         : <Button size="sm" disabled={complete.isPending} onClick={() => complete.mutate({ lessonId: lesson.id })}><CheckCircle2 />إكمال</Button>}
+      <Button size="sm" variant="outline" disabled={backlog.isPending} onClick={() => backlog.mutate({ lessonIds: [lesson.id], marked: !marked })}>
+        {marked ? "شيل من المتراكم" : "علّم كمتراكم"}
+      </Button>
       <ResourceButtons title={lesson.title} onEdit={onEdit} />
     </div>
   </article>;

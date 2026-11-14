@@ -1,3 +1,4 @@
+import { upcomingClassLessons } from "@shared/studyPlanner";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,7 +35,10 @@ export default function WeekPlanner() {
   });
   const gaps = plannerFreeTime(state.wake, state.sleep, [...slots, ...datedSlots]);
   const free = gaps.reduce((sum, gap) => sum + gap.end - gap.start, 0);
-  const attended = new Set(state.attendance.map(item => item.lessonId));
+  const teacherNext = trpc.planner.teacherNext.useMutation({
+    onSuccess: () => utils.planner.list.invalidate(),
+    onError: error => toast.error(errorText(error)),
+  });
   const onError = (error: unknown) => toast.error(errorText(error));
   const refresh = async () => { await utils.planner.list.invalidate(); };
   const hours = trpc.planner.hours.useMutation({ onSuccess: refresh, onError });
@@ -130,8 +134,8 @@ export default function WeekPlanner() {
           const source = sources.data?.find(item => item.id === slot.sourceId);
           const subject = subjects.find(item => item.id === slot.subjectId);
           const recorded = state.attendance.filter(item => item.slotId === slot.id && item.day === day);
-          const remaining = rows.filter(row => row.subject.id === slot.subjectId && row.lesson
-            && row.progress?.status !== "completed" && !attended.has(row.lesson.id));
+          const subjectRows = rows.filter(row => row.subject.id === slot.subjectId && row.lesson);
+          const remaining = slot.subjectId ? upcomingClassLessons(subjectRows, state, slot.subjectId) : [];
           const arabic = subject && plannerPolicy(subject.title) === "arabic";
           const next = remaining[0]?.lesson;
           return <article key={slot.id} className="space-y-2 rounded-xl border p-3">
@@ -144,6 +148,13 @@ export default function WeekPlanner() {
               {source.url && (source.url.startsWith("https://") || source.url.startsWith("http://")) && <a className="ms-2 inline-flex items-center gap-1 text-primary underline" href={source.url} target="_blank" rel="noreferrer">المصدر <ExternalLink className="size-3" /></a>}
             </div>}
             {recorded.length > 0 && <p className="text-sm">حضرْت · {recorded.map(item => item.lessonTitle).join("، ")}</p>}
+            {subject && !arabic && <label className="block text-sm">المدرس وصل لفين؟
+              <select className={selectStyle} value={state.teacherNext?.[subject.id] ?? ""} disabled={teacherNext.isPending}
+                onChange={event => teacherNext.mutate({ subjectId: subject.id, lessonId: Number(event.target.value) || undefined })}>
+                <option value="">حسب ترتيب المنهج والحضور</option>
+                {subjectRows.filter(row => !state.backlog?.includes(row.lesson!.id)).map(row => <option key={row.lesson!.id} value={row.lesson!.id}>{row.lesson!.title}</option>)}
+              </select>
+            </label>}
             {!recorded.length && next && !arabic && <p className="text-sm">الدرس التالي · {next.title}</p>}
             {attending === slot.id && arabic && <fieldset className="max-h-64 space-y-2 overflow-y-auto rounded border p-2">
               <legend>اختار كل الدروس اللي اتشرحت في المحاضرة</legend>

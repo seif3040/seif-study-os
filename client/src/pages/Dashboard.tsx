@@ -1,3 +1,4 @@
+import Backlog from "@/pages/Backlog";
 import { TaskDialog, type CalendarTask } from "./Tasks";
 import { useState } from "react";
 import { ArrowLeft, BookOpen, CalendarDays, Check, CircleDollarSign, Clock3, Flame, GraduationCap, Sparkles, Timer } from "lucide-react";
@@ -98,6 +99,7 @@ export default function Dashboard() {
         </li>)}
       </ul> : <p className="text-sm text-muted-foreground">الواجب هيظهر هنا أول ما تسجّل حضور حصة.</p>}
     </section>
+    <Backlog compact />
     {editingHomework && <TaskDialog task={editingHomework} day={today} onClose={() => setEditingHomework(undefined)} onDone={() => utils.invalidate()} />}
 
     <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">

@@ -119,6 +119,12 @@ export const appRouter = router({
     complete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.completeTask(ctx.user.id, input.taskId)),
   }),
   planner: router({
+    chooseBacklogSubject: protectedProcedure.input(z.object({ subjectId: id }))
+      .mutation(({ ctx, input }) => db.chooseBacklogSubject(ctx.user.id, input.subjectId)),
+    markBacklog: protectedProcedure.input(z.object({ lessonIds: z.array(id).min(1).max(100), marked: z.boolean() }))
+      .mutation(({ ctx, input }) => db.markBacklog(ctx.user.id, input.lessonIds, input.marked)),
+    teacherNext: protectedProcedure.input(z.object({ subjectId: id, lessonId: id.optional() }))
+      .mutation(({ ctx, input }) => db.setTeacherNext(ctx.user.id, input.subjectId, input.lessonId)),
     list: protectedProcedure.query(({ ctx }) => db.getPlanner(ctx.user.id)),
     hours: protectedProcedure.input(z.object({ wake: plannerTime, sleep: plannerTime }))
       .mutation(({ ctx, input }) => db.savePlannerHours(ctx.user.id, input.wake, input.sleep)),

@@ -1,3 +1,4 @@
+import { upcomingClassLessons } from "../shared/studyPlanner.js";
 import { emptyPlanner, overlapsPlannerSlot, plannerPolicy, plannerToday, plannerWeekday, shiftPlannerDay, type PlannerSlot, type PlannerState } from "../shared/studyPlanner.js";
 import { studyPlanner } from "../drizzle/schema.js";
 import { coinRateCatalog, coinRateKeys, type CoinRateKey } from "../shared/coinRates.js";
@@ -1425,7 +1426,7 @@ export async function attendPlannerClass(userId: number, input: { slotId: string
     const subject = subjectRows[0]?.subject;
     if (!subject) throw new Error("أضف دروس للمادة في خطة المنهج الأول.");
     const attended = new Set(state.attendance.map(item => item.lessonId));
-    const remaining = subjectRows.filter(row => row.progress?.status !== "completed" && !attended.has(row.lesson!.id));
+    const remaining = upcomingClassLessons(subjectRows, state, subject.id);
     const policy = plannerPolicy(subject.title);
     const next = policy === "arabic"
       ? input.lessonIds.map(id => remaining.find(row => row.lesson!.id === id)).filter(row => row !== undefined)
@@ -1497,5 +1498,50 @@ export async function schedulePlannerMilestone(userId: number, input: { id: stri
       const [result] = await tx.insert(calendarEvents).values({ userId, cycleId: cycle.id, title: item.title.slice(0, 200), startsAt, endsAt });
       item.eventId = result.insertId;
     }
+  });
+}
+
+export function markBacklog(userId: number, lessonIds: number[], marked: boolean) {
+  return changePlanner(userId, async (state, tx) => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const ids = new Set(state.backlog ?? []);
+    for (const lessonId of lessonIds) {
+      await ownedLesson(tx, userId, lessonId);
+      if (marked) {
+        ids.add(lessonId);
+        await tx.update(lessonProgress).set({ status: "not_started", progress: 0, completedAt: null, lastReviewedAt: null })
+          .where(and(eq(lessonProgress.userId, userId), eq(lessonProgress.lessonId, lessonId), eq(lessonProgress.status, "completed")));
+      } else ids.delete(lessonId);
+    }
+    state.backlog = Array.from(ids);
+  });
+}
+
+export function setTeacherNext(userId: number, subjectId: number, lessonId?: number) {
+  return changePlanner(userId, async (state, tx) => {
+    if (lessonId !== undefined) {
+      const lesson = await ownedLesson(tx, userId, lessonId);
+      if (lesson.subjectId !== subjectId) throw new Error("الدرس تابع لمادة تانية.");
+    }
+    state.teacherNext ??= {};
+    if (lessonId === undefined) delete state.teacherNext[subjectId];
+    else state.teacherNext[subjectId] = lessonId;
+  });
+}
+
+export function chooseBacklogSubject(userId: number, subjectId: number) {
+  return changePlanner(userId, async (state, tx) => {
+    const [subject] = await tx.select({ id: subjects.id }).from(subjects)
+      .where(and(eq(subjects.id, subjectId), eq(subjects.userId, userId)));
+    if (!subject) throw new Error("المادة مش موجودة.");
+    const day = plannerToday();
+    if (state.slots.some(slot => slot.weekday === plannerWeekday(day) && slot.subjectId)) {
+      throw new Error("فيه حصص مجدولة النهارده.");
+    }
+    state.backlogSubjects ??= {};
+    for (const prior of Object.keys(state.backlogSubjects)) {
+      if (prior < shiftPlannerDay(day, -30)) delete state.backlogSubjects[prior];
+    }
+    state.backlogSubjects[day] = subjectId;
   });
 }
