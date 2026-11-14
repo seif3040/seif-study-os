@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type PointerEvent } from "react";
 import { Button } from "@/components/ui/button";
 
 type Card = { id: string; text: string; x: number; y: number; sticky: boolean };
-type Stroke = { points: string; color: string; width: number; opacity: number };
+type Stroke = { erase?: boolean; points: string; color: string; width: number; opacity: number };
 type Board = { ink?: Stroke[]; cards: Card[]; links: [string, string][] };
 const prefix = "study-board:v1:";
 const audioPrefix = "study-audio:v1:";
@@ -50,7 +50,7 @@ function Whiteboard({ value, onChange }: { value: string; onChange?: (value: str
       Math.round((event.clientY - rect.top) * 600 / rect.height);
     if (event.type === "pointerdown") {
       event.currentTarget.setPointerCapture(event.pointerId);
-      ink.current = { points: point + " " + point, color, width: tool === "highlight" ? 24 : 4, opacity: tool === "highlight" ? .32 : 1 };
+      ink.current = { points: point + " " + point, color, erase: tool === "erase", width: tool === "erase" ? 36 : tool === "highlight" ? 24 : 4, opacity: tool === "highlight" ? .32 : 1 };
     } else if (ink.current && ink.current.points.length < 6000) ink.current = { ...ink.current, points: ink.current.points + " " + point };
     setDraft(ink.current);
   }
@@ -62,6 +62,8 @@ function Whiteboard({ value, onChange }: { value: string; onChange?: (value: str
     ink.current = undefined;
     setDraft(undefined);
   }
+  const strokes = [...(board.ink ?? []), ...(draft ? [draft] : [])];
+  const erasers = strokes.flatMap((stroke, index) => stroke.erase ? [{ stroke, index }] : []);
   function printBoard() {
     const popup = window.open("", "_blank");
     if (!popup || !surface.current) { window.alert("اسمح بفتح النوافذ المنبثقة للطباعة."); return; }
@@ -90,13 +92,13 @@ function Whiteboard({ value, onChange }: { value: string; onChange?: (value: str
       <Button type="button" size="sm" variant="outline" onClick={printBoard}>طباعة / PDF</Button>
     </div>
     {onChange && <div className="flex flex-wrap items-center gap-1">
-      {[["move", "تحريك"], ["pen", "قلم"], ["highlight", "هايلايتر"]].map(([key, label]) =>
+      {[["move", "تحريك"], ["pen", "قلم"], ["highlight", "هايلايتر"], ["erase", "استيكة"]].map(([key, label]) =>
         <Button key={key} type="button" size="sm" variant={tool === key ? "default" : "outline"} onClick={() => {
           setTool(key); if (key === "highlight") setColor("#facc15"); if (key === "pen") setColor("#2563eb");
         }}>{label}</Button>)}
       <input type="color" aria-label="لون القلم" value={color} onChange={event => setColor(event.target.value)} />
       <Button type="button" variant="ghost" size="sm" disabled={!board.ink?.length}
-        onClick={() => save({ ...board, ink: board.ink?.slice(0, -1) })}>تراجع عن آخر خط</Button>
+        onClick={() => save({ ...board, ink: board.ink?.slice(0, -1) })}>تراجع عن آخر تعديل</Button>
     </div>}
     {onChange && <div className="flex flex-wrap gap-1">
       {[false, true].map(sticky => <Button key={String(sticky)} size="sm" type="button" variant="outline" disabled={board.cards.length >= 30}
@@ -120,8 +122,22 @@ function Whiteboard({ value, onChange }: { value: string; onChange?: (value: str
         <defs><marker id={arrow} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
           <path d="M0 0 L8 4 L0 8 Z" fill="#334155" />
         </marker></defs>
-        {[...(board.ink ?? []), ...(draft ? [draft] : [])].map((stroke, index) => <polyline key={index}
-          points={stroke.points} fill="none" stroke={stroke.color} strokeWidth={stroke.width} opacity={stroke.opacity} strokeLinecap="round" strokeLinejoin="round" />)}
+        <defs>
+          {erasers.map(({ index }, offset) => <mask key={index} id={arrow + "-erase-" + index}
+            maskUnits="userSpaceOnUse" x="0" y="0" width="1000" height="600">
+            <rect width="1000" height="600" fill="white" />
+            {erasers.slice(offset).map(({ stroke, index: eraserIndex }) => <polyline key={eraserIndex}
+              points={stroke.points} fill="none" stroke="black" strokeWidth={stroke.width}
+              strokeLinecap="round" strokeLinejoin="round" />)}
+          </mask>)}
+        </defs>
+        {strokes.map((stroke, index) => {
+          if (stroke.erase) return null;
+          const eraser = erasers.find(item => item.index > index);
+          return <polyline key={index} points={stroke.points} fill="none" stroke={stroke.color}
+            strokeWidth={stroke.width} opacity={stroke.opacity} strokeLinecap="round" strokeLinejoin="round"
+            mask={eraser ? "url(#" + arrow + "-erase-" + eraser.index + ")" : undefined} />;
+        })}
         {board.links.map(([a, b]) => {
           const from = board.cards.find(card => card.id === a), to = board.cards.find(card => card.id === b);
           return from && to && <line key={a + b} x1={(from.x + 10) + "%"} y1={(from.y + 9) + "%"} x2={(to.x + 10) + "%"} y2={(to.y + 9) + "%"} stroke="#334155" strokeWidth="2" markerEnd={"url(#" + arrow + ")"} />;
