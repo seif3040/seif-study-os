@@ -9,6 +9,11 @@ import { EmptyState } from "@/components/PageHeader";
 import { errorText, minutesLabel, money } from "@/lib/study";
 import { trpc } from "@/lib/trpc";
 
+const finalExamDay = "2027-06-22";
+const finalExamLabel = new Intl.DateTimeFormat("ar-EG", {
+  day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
+}).format(new Date(finalExamDay));
+
 const cairoDate = new Intl.DateTimeFormat("ar-EG", {
   weekday: "long", day: "numeric", month: "long", timeZone: "Africa/Cairo",
 });
@@ -36,6 +41,7 @@ export default function Dashboard() {
   const progress = todaysTasks.length ? Math.round(finished * 100 / todaysTasks.length) : 0;
   const dayParts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()).map(part => [part.type, part.value]));
   const today = [dayParts.year, dayParts.month, dayParts.day].join("-");
+  const daysRemaining = (Date.parse(finalExamDay) - Date.parse(today)) / 86_400_000;
   const homework = (homeworkQuery.data ?? []).filter(task => task.category === "واجب" && task.status === "open")
     .sort((a, b) => (a.deadline?.getTime() ?? Infinity) - (b.deadline?.getTime() ?? Infinity) || a.id - b.id);
   const due = reviews.data?.filter(item => item.day <= today) ?? [];
@@ -60,6 +66,20 @@ export default function Dashboard() {
           <p className="mt-1 text-xs text-white/85">{money.format(finished)} من {money.format(todaysTasks.length)} مهام خلصت</p>
         </div>
       </div>
+    </section>
+    <section aria-label="العد التنازلي لنهاية البكالوريا"
+      className="surface flex flex-wrap items-center justify-between gap-4 rounded-3xl border-primary/30 bg-primary/10 p-5 sm:px-7">
+      <div className="flex items-center gap-3">
+        <div className="rounded-2xl bg-primary/15 p-3 text-primary"><GraduationCap className="size-7" aria-hidden="true" /></div>
+        <div>
+          <h2 className="text-lg font-bold">نهاية رحلة البكالوريا</h2>
+          <p className="text-sm text-muted-foreground">آخر امتحان يوم <time dateTime={finalExamDay}>{finalExamLabel}</time></p>
+        </div>
+      </div>
+      <p className="rounded-2xl bg-background px-4 py-2 font-bold text-primary">
+        {daysRemaining > 0 ? <>باقي <span className="text-3xl tabular-nums">{money.format(daysRemaining)}</span> يوم</>
+          : daysRemaining === 0 ? "النهارده آخر امتحان" : "رحلة البكالوريا خلصت 🎉"}
+      </p>
     </section>
     <section className="surface space-y-3 p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
