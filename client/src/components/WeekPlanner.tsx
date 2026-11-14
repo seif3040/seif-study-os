@@ -25,7 +25,7 @@ export default function WeekPlanner() {
   const weekday = plannerWeekday(day);
   const weekStart = shiftPlannerDay(day, -((weekday + 1) % 7));
   const rows = plan.data?.rows ?? [];
-  const subjects = [...new Map(rows.map(row => [row.subject.id, row.subject])).values()];
+  const subjects = Array.from(new Map(rows.map(row => [row.subject.id, row.subject])).values());
   const slots = state.slots.filter(slot => slot.weekday === weekday).sort((a, b) => a.start.localeCompare(b.start));
   const datedSlots = state.milestones.flatMap(item => {
     if (item.day !== day || !item.start || !item.minutes) return [];
