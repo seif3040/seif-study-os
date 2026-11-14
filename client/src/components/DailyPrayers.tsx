@@ -1,3 +1,4 @@
+import { nawafil, prayerLoggingEnd } from "@shared/nawafil";
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Check, Clock3 } from "lucide-react";
@@ -15,6 +16,12 @@ export default function DailyPrayers({ day }: { day: string }) {
   const minute = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
   const query = trpc.prayers.today.useQuery(undefined, { refetchInterval: 60_000 });
   const utils = trpc.useUtils();
+  const planner = trpc.planner.list.useQuery();
+  const naf = trpc.prayers.setNafl.useMutation({
+    onSuccess: () => utils.planner.list.invalidate(),
+    onError: error => toast.error(errorText(error)),
+  });
+  const dhuhr = query.data?.prayers.find(item => item.prayer === "Dhuhr")?.time;
   const log = trpc.prayers.log.useMutation({
     onSuccess: async result => {
       setConfirm(undefined);
@@ -25,21 +32,32 @@ export default function DailyPrayers({ day }: { day: string }) {
   });
   return <section className="surface space-y-3 p-5">
     <h2 className="flex items-center gap-2 font-bold"><Clock3 className="size-5" /> مواقيت الصلاة · القاهرة</h2>
-    <p className="text-sm text-muted-foreground">لكل صلاة ساعة من الأذان. سجّل في الوقت ده عشان تتحسب النقاط.</p>
+    <p className="text-sm text-muted-foreground">الفجر يتسجّل بالنقاط لحد أذان الظهر. باقي الصلوات خلال ساعة من الأذان.</p>
     {query.isError && <p role="alert">تعذّر تحميل الصلوات. <Button size="sm" variant="outline" onClick={() => void query.refetch()}>جرّب تاني</Button></p>}
     {query.isLoading && <p>جارٍ تحميل المواقيت…</p>}
     {query.data?.day === day && <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
       {query.data.prayers.map(item => {
-        const elapsed = item.time ? minute(now) - minute(item.time) : -1;
-        const canLog = elapsed >= 0 && elapsed < 60;
+        const start = item.time ? minute(item.time) : null;
+        const end = start !== null && dhuhr ? prayerLoggingEnd(item.prayer, start, minute(dhuhr)) : null;
+        const canLog = start !== null && end !== null && minute(now) >= start && minute(now) < end;
         return <li key={item.prayer} className="space-y-2 rounded-xl border p-3">
         <p className="font-bold">{item.name}</p>
-        <p className="text-sm text-muted-foreground">{item.time ? formatClock(item.time) + " – " + formatClock(minute(item.time) + 60) : "الموعد غير متاح"}</p>
+        <p className="text-sm text-muted-foreground">{item.time && end !== null ? formatClock(item.time) + " – " + formatClock(end) : "الموعد غير متاح"}</p>
         <Button size="sm" variant={item.done ? "secondary" : "outline"} disabled={item.done || log.isPending || !canLog}
-          onClick={() => setConfirm(item.prayer)}><Check />{item.done ? "اتسجّلت" : canLog ? "صلّيت · +٥٠٠" : elapsed >= 60 ? "انتهى وقت النقاط" : "لسه معادها مجاش"}</Button>
+          onClick={() => setConfirm(item.prayer)}><Check />{item.done ? "اتسجّلت" : canLog ? "صلّيت · +٥٠٠" : end !== null && minute(now) >= end ? "انتهى وقت النقاط" : "لسه معادها مجاش"}</Button>
       </li>;
       })}
     </ul>}
+    <details className="rounded-xl border p-3">
+      <summary className="cursor-pointer font-bold">النوافل والسنن</summary>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {nawafil.map(name => <label key={name} className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={planner.data?.nawafilByDay?.[day]?.includes(name) ?? false}
+            disabled={!planner.data || naf.isPending} onChange={event => naf.mutate({ day, name, done: event.target.checked })} />
+          {name}
+        </label>)}
+      </div>
+    </details>
     <Dialog open={Boolean(confirm)} onOpenChange={open => { if (!open && !log.isPending) setConfirm(undefined); }}>
       <DialogContent dir="rtl">
         <DialogTitle>تأكيد الصلاة</DialogTitle>

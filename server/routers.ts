@@ -1,3 +1,4 @@
+import { nawafil } from "../shared/nawafil.js";
 import { TRPCError } from "@trpc/server";
 import { coinRateKeys } from "../shared/coinRates.js";
 import { z } from "zod";
@@ -52,6 +53,8 @@ const dailyPlanInput = z.object({
 export const appRouter = router({
   system: systemRouter,
   prayers: router({
+    setNafl: protectedProcedure.input(z.object({ day: z.string().date(), name: z.enum(nawafil), done: z.boolean() }))
+      .mutation(({ ctx, input }) => db.setNafl(ctx.user.id, input.day, input.name, input.done)),
     today: protectedProcedure.query(({ ctx }) => db.dailyPrayers(ctx.user.id)),
     schedule: protectedProcedure.input(z.object({ day: z.string().date() })).query(({ input }) => db.prayerSchedule(input.day)),
     log: protectedProcedure.input(z.object({ day: z.string().date(), prayer: z.enum(["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]), location: z.enum(["home", "mosque"]) }))

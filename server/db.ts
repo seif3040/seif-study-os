@@ -1,3 +1,4 @@
+import { nawafil, prayerLoggingEnd } from "../shared/nawafil.js";
 import { defaultDesktopTabs, type NavigationPrefs } from "../shared/navigation.js";
 import { assessmentCatalog, type AssessmentStatus } from "../shared/assessments.js";
 import { cairoPrayers, prayers, prayerNames, type Prayer } from "./prayerTimes.js";
@@ -1909,8 +1910,9 @@ export async function logPrayer(userId: number, day: string, prayer: Prayer, loc
   if (day !== plannerToday()) throw new Error("حدّث الصفحة عشان تسجّل صلاة النهارده.");
   const times = await cairoPrayers(day);
   const start = +cairoPlannerTime(day, times[prayer]);
+  const end = start + (prayerLoggingEnd(prayer, plannerMinutes(times[prayer]), plannerMinutes(times.Dhuhr)) - plannerMinutes(times[prayer])) * 60_000;
   const now = Date.now();
-  if (now < start || now >= start + 60 * 60_000) throw new Error("النقاط بتتحسب خلال أول ساعة من الأذان.");
+  if (now < start || now >= end) throw new Error("وقت تسجيل الصلاة بالنقاط مش متاح دلوقتي.");
   const cycle = await getActiveCycle(userId);
   return awardCoins({
     userId, cycleId: cycle.id, amount: 500, reason: "صلاة " + prayerNames[prayer],
@@ -1964,4 +1966,15 @@ export function saveNavigation(userId: number, navigation: NavigationPrefs) {
   }
   if (!navigation.desktop.includes("/settings")) throw new Error("الإعدادات لازم تفضل متاحة في القائمة الجانبية.");
   return changePlanner(userId, async state => { state.navigation = navigation; });
+}
+
+export function setNafl(userId: number, day: string, name: typeof nawafil[number], done: boolean) {
+  return changePlanner(userId, async state => {
+    if (day !== plannerToday()) throw new Error("حدّث الصفحة عشان تسجل نوافل النهارده.");
+    state.nawafilByDay ??= {};
+    const entries = new Set(state.nawafilByDay[day] ?? []);
+    if (done) entries.add(name);
+    else entries.delete(name);
+    state.nawafilByDay[day] = Array.from(entries);
+  });
 }
