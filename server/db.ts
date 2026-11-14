@@ -642,12 +642,49 @@ export async function listVideoSessions(userId: number) { const db = await datab
 export async function createVideoNote(userId: number, input: { sessionId: number; title: string; content: string; timestampSeconds?: number }) { const db = await database(); const session = await db.select({ id: studyVideoSessions.id }).from(studyVideoSessions).where(and(eq(studyVideoSessions.id, input.sessionId), eq(studyVideoSessions.userId, userId))).limit(1); if (!session[0]) throw new Error("جلسة الفيديو غير موجودة."); await db.insert(videoNotes).values({ userId, sessionId: input.sessionId, title: input.title, content: input.content, timestampSeconds: input.timestampSeconds ?? null }); }
 export async function updateVideoNote(userId: number, noteId: number, input: { title: string; content: string; timestampSeconds?: number }) { const db = await database(); const result = await db.update(videoNotes).set({ title: input.title, content: input.content, timestampSeconds: input.timestampSeconds ?? null }).where(and(eq(videoNotes.id, noteId), eq(videoNotes.userId, userId))); if (!result) throw new Error("الملاحظة غير موجودة."); }
 export async function deleteVideoNote(userId: number, noteId: number) { const db = await database(); return db.delete(videoNotes).where(and(eq(videoNotes.id, noteId), eq(videoNotes.userId, userId))); }
-export async function trackVideoPlayback(userId: number, sessionId: number, input: { active: boolean; playbackPosition?: number; playbackRate?: number; reset?: boolean }) { const db = await database(); const session = await db.select().from(studyVideoSessions).where(and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId))).limit(1); if (!session[0]) throw new Error("جلسة الفيديو غير موجودة."); const item = session[0]; const now = new Date(); if (item.phase === "break") return { session: item, addedSeconds: 0, blockCompleted: false, phase: "break" as const }; if (item.phase !== "watching") return { session: item, addedSeconds: 0, blockCompleted: false, phase: item.phase };
-  const position = Math.max(0, Math.floor(input.playbackPosition ?? item.lastPlaybackPosition ?? 0)); 
-  if (input.reset || !item.lastPlaybackAt || item.lastPlaybackPosition === null) { await db.update(studyVideoSessions).set({ lastPlaybackAt: input.active ? now : null, lastPlaybackPosition: position }).where(eq(studyVideoSessions.id, sessionId)); const updated = await db.select().from(studyVideoSessions).where(eq(studyVideoSessions.id, sessionId)).limit(1); return { session: updated[0], addedSeconds: 0, blockCompleted: false, phase: "watching" as const }; }
-  const elapsedOnServer = Math.max(0, Math.floor((now.getTime() - item.lastPlaybackAt.getTime()) / 1000)); const rate = input.playbackRate ?? 1;
-  const mediaSeconds = validatedVideoIncrement(item.lastPlaybackPosition, position, elapsedOnServer * rate);
-  const addedSeconds = Math.min(elapsedOnServer, Math.floor(mediaSeconds / rate)); const previousBlocks = Math.floor(item.activeSeconds / 2700); const activeSeconds = item.activeSeconds + addedSeconds; const nextBlocks = Math.floor(activeSeconds / 2700); const blockCompleted = nextBlocks > previousBlocks; const breakEndsAt = blockCompleted ? new Date(now.getTime() + 15 * 60_000) : null; await db.update(studyVideoSessions).set({ activeSeconds, completedBlocks: nextBlocks, phase: blockCompleted ? "break" : "watching", breakEndsAt, lastPlaybackAt: blockCompleted || !input.active ? null : now, lastPlaybackPosition: position }).where(eq(studyVideoSessions.id, sessionId)); if (blockCompleted) { const ref = `video:${sessionId}:block:${nextBlocks}`; await recordStudyEvent({ userId, cycleId: item.cycleId, eventType: "video_block", referenceId: ref, durationMinutes: 45 }); await awardCoins({ userId, cycleId: item.cycleId, amount: 25, rateKey: "video_block", reason: "فيديو مذاكرة — 45 دقيقة", referenceKey: ref }); await evaluateAchievements(userId, item.cycleId); } const updated = await db.select().from(studyVideoSessions).where(eq(studyVideoSessions.id, sessionId)).limit(1); return { session: updated[0], addedSeconds, blockCompleted, phase: updated[0].phase }; }
+export async function trackVideoPlayback(userId: number, sessionId: number, input: { active: boolean; playbackPosition?: number }) {
+  const db = await database();
+  const result = await db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const owned = and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId));
+    const [item] = await tx.select().from(studyVideoSessions).where(owned).for("update");
+    if (!item) throw new Error("جلسة الفيديو غير موجودة.");
+    if (item.phase !== "watching" || item.sourceMode !== "embedded") {
+      return { session: item, addedSeconds: 0, blockCompleted: false, phase: item.phase };
+    }
+    const now = new Date();
+    const position = Math.max(0, Math.floor(input.playbackPosition ?? item.lastPlaybackPosition ?? 0));
+    const activeSeconds = Math.max(item.activeSeconds, position);
+    const completedBlocks = Math.floor(activeSeconds / 2700);
+    const blockCompleted = completedBlocks > item.completedBlocks;
+    const phase = blockCompleted ? "break" as const : "watching" as const;
+    const changes = {
+      activeSeconds, completedBlocks, phase,
+      breakEndsAt: blockCompleted ? new Date(+now + 15 * 60_000) : null,
+      lastPlaybackAt: blockCompleted || !input.active ? null : now,
+      lastPlaybackPosition: position,
+    };
+    await tx.update(studyVideoSessions).set(changes).where(owned);
+    if (blockCompleted) {
+      const [rate] = await tx.select({ amount: coinRateSettings.amount }).from(coinRateSettings)
+        .where(eq(coinRateSettings.rateKey, "video_block"));
+      const amount = rate?.amount ?? 25;
+      for (let block = item.completedBlocks + 1; block <= completedBlocks; block++) {
+        const reference = `video:${sessionId}:block:${block}`;
+        await tx.insert(studyEvents).values({
+          userId, cycleId: item.cycleId, eventType: "video_block", referenceId: reference, durationMinutes: 45,
+        }).onDuplicateKeyUpdate({ set: { referenceId: reference } });
+        if (amount > 0) await tx.insert(coinTransactions).values({
+          userId, cycleId: item.cycleId, type: "earn", amount, referenceKey: reference,
+          reason: "فيديو مذاكرة — 45 دقيقة",
+        }).onDuplicateKeyUpdate({ set: { referenceKey: reference } });
+      }
+    }
+    return { session: { ...item, ...changes }, addedSeconds: activeSeconds - item.activeSeconds, blockCompleted, phase };
+  });
+  if (result.blockCompleted) await evaluateAchievements(userId, result.session.cycleId).catch(() => []);
+  return result;
+}
 export async function resumeVideoSession(userId: number, sessionId: number) { const db = await database(); const item = await db.select().from(studyVideoSessions).where(and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId))).limit(1); if (!item[0]) throw new Error("جلسة الفيديو غير موجودة."); if (item[0].phase === "break" && item[0].breakEndsAt && item[0].breakEndsAt.getTime() > Date.now()) throw new Error("فترة الاستراحة لم تنتهِ بعد."); await db.update(studyVideoSessions).set({ phase: "watching", breakEndsAt: null, lastPlaybackAt: null }).where(eq(studyVideoSessions.id, sessionId)); return { resumed: true }; }
 export async function setVideoManualProgress(userId: number, sessionId: number, progress: "started" | "middle" | "finished" | "reviewed") { const db = await database(); const result = await db.update(studyVideoSessions).set({ manualProgress: progress }).where(and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId))); if (!result[0]?.affectedRows) throw new Error("جلسة الفيديو غير موجودة."); return { progress }; }
 export async function setExternalVideoTimer(userId: number, sessionId: number, running: boolean) { const db = await database(); const rows = await db.select().from(studyVideoSessions).where(and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId))).limit(1); const item = rows[0]; if (!item) throw new Error("جلسة الفيديو غير موجودة."); if (item.sourceMode !== "external") throw new Error("هذا المؤقت مخصص للدروس الخارجية فقط."); if (item.phase === "completed") throw new Error("تم إنهاء الجلسة بالفعل."); const now = new Date(); if (running) { if (item.phase === "break" && item.breakEndsAt && item.breakEndsAt.getTime() > now.getTime()) throw new Error("فترة الاستراحة لم تنتهِ بعد."); await db.update(studyVideoSessions).set({ timerRunning: true, phase: "watching", breakEndsAt: null, lastPlaybackAt: now }).where(eq(studyVideoSessions.id, sessionId)); return { running: true, activeSeconds: item.activeSeconds }; }
