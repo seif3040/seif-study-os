@@ -32,6 +32,7 @@ const restoreTables = {
   flashcards: schema.flashcards,
   calendarEvents: schema.calendarEvents,
   lessonSources: schema.lessonSources,
+  studyPlanner: schema.studyPlanner,
   rewardPurchases: schema.rewardPurchases,
   userAchievements: schema.userAchievements,
   coinTransactions: schema.coinTransactions,
@@ -69,7 +70,7 @@ export async function restoreStudyBackup(userId: number, raw: string, preview: b
   const current = await exportStudyBackup(userId, false);
   const plan = names.map(name => {
     const present = new Set(current.records[name].map(row => row.id));
-    const source = file.records[name] as BackupRow[];
+    const source = (file.records[name] ?? []) as BackupRow[];
     const missing = source.filter(row => !present.has(row.id));
     return { name, missing, retained: source.length - missing.length };
   });

@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import WeekPlanner from "@/components/WeekPlanner";
+import React, { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -6,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader, EmptyState } from "@/components/PageHeader";
 import { trpc } from "@/lib/trpc";
-import { BookOpen, CalendarClock, ExternalLink, GraduationCap, MapPin, MonitorPlay, Pencil, Plus, RefreshCw, Trash2, Users } from "lucide-react";
+import { BookOpen, CalendarClock, ExternalLink, MapPin, MonitorPlay, Pencil, Plus, RefreshCw, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 
 type SourceForm = {
@@ -31,24 +32,23 @@ export default function LessonSources() {
   const { data, isLoading } = trpc.lessonSources.list.useQuery();
   const seed = trpc.lessonSources.seedDefaults.useMutation({ onSuccess: async () => { await utils.lessonSources.list.invalidate(); toast.success("تمت إضافة مصادر دروسك."); }, onError: () => toast.error("تعذرت إضافة المصادر الآن.") });
   const sources = data ?? [];
-  const counts = useMemo(() => ({ subjects: new Set(sources.map(source => source.subject)).size, primary: sources.filter(source => source.role === "primary").length, review: sources.filter(source => source.role === "review").length }), [sources]);
 
   useEffect(() => { if (!isLoading && sources.length === 0 && !seed.isPending) seed.mutate(); }, [isLoading, sources.length]);
 
   if (isLoading || (sources.length === 0 && seed.isPending)) return <div className="h-80 animate-pulse rounded-3xl bg-muted" />;
 
   return <div>
-    <PageHeader title="مصادر دروسي" description="كل مدرس ومنصة وحصة حضور في مكان واحد، مع دور واضح لكل مصدر بدل تكرار نفس الدرس." action={{ label: "مصدر جديد", onClick: () => document.getElementById("source-trigger")?.click() }} />
+    <PageHeader title="جدول الأسبوع" description="رتّب حصصك والتزاماتك واربط كل حصة بمصدرها." action={{ label: "مصدر جديد", onClick: () => document.getElementById("source-trigger")?.click() }} />
     <SourceDialog onDone={() => utils.lessonSources.list.invalidate()} />
 
+    <WeekPlanner />
     {!sources.length ? <EmptyState title="مصادرك لم تُضف بعد" description="أضف المنصة أو الحصة الحضورية، ثم حدد دورها داخل خطتك." /> : <>
-      <section className="mb-6 overflow-hidden rounded-3xl bg-slate-950 p-6 text-white shadow-2xl sm:p-8"><div className="grid gap-5 lg:grid-cols-[1.4fr_.6fr]"><div><Badge className="border-0 bg-cyan-400/15 text-cyan-100 hover:bg-cyan-400/15"><GraduationCap className="ml-1 size-3.5" />مركز التحكم في الدروس</Badge><h2 className="mt-4 text-3xl font-black leading-tight sm:text-4xl">خليك على منصة واحدة،<br />حتى لو دروسك في خمس أماكن.</h2><p className="mt-4 max-w-2xl leading-7 text-slate-300">الحضور مع أحمد غنيم هو أساس التاريخ، ومراجعة نادر الجورج على Massar Academy تكمل الدرس. نفس الفكرة تنطبق على كل مادة: مصدر رئيسي ثم مراجعة عند الحاجة.</p></div><div className="grid grid-cols-3 gap-2 self-end"><MiniMetric value={counts.subjects} label="مواد" /><MiniMetric value={counts.primary} label="أساسي" /><MiniMetric value={counts.review} label="مراجعة" /></div></div></section>
+      <h2 className="mb-3 text-lg font-bold">مصادر دروسي</h2>
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{sources.map(source => <SourceCard key={source.id} source={source} onDone={() => utils.lessonSources.list.invalidate()} />)}</section>
     </>}
   </div>;
 }
 
-function MiniMetric({ value, label }: { value: number; label: string }) { return <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-center"><p className="text-2xl font-black">{value}</p><p className="mt-1 text-xs text-slate-400">{label}</p></div>; }
 
 function SourceCard({ source, onDone }: { source: any; onDone: () => Promise<unknown> }) {
   const remove = trpc.lessonSources.delete.useMutation({ onSuccess: async () => { await onDone(); toast.success("تم حذف المصدر."); }, onError: () => toast.error("تعذر حذف المصدر.") });

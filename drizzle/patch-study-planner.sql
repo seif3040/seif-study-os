@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS studyPlanner (
+  id INT NOT NULL PRIMARY KEY,
+  state JSON NOT NULL,
+  CONSTRAINT study_planner_user_fk FOREIGN KEY (id) REFERENCES users(id) ON DELETE CASCADE
+);

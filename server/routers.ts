@@ -33,6 +33,13 @@ const lessonSourceInput = z.object({
   notes: z.string().trim().max(5000).optional(),
 });
 
+const plannerTime = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
+const plannerSlot = z.object({
+  id: z.string().uuid(), weekday: z.number().int().min(0).max(6),
+  start: plannerTime, end: plannerTime, title: z.string().trim().min(1).max(200),
+  subjectId: id.optional(), sourceId: id.optional(),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -110,6 +117,19 @@ export const appRouter = router({
     update: protectedProcedure.input(z.object({ taskId: id, title: z.string().trim().min(1).max(200), description: z.string().max(2000).optional(), scheduledFor: z.string().date().optional(), deadline: date.optional(), priority, category: z.string().trim().min(1).max(80).optional() })).mutation(({ ctx, input }) => db.updateTask(ctx.user.id, input.taskId, input)),
     delete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.deleteTask(ctx.user.id, input.taskId)),
     complete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.completeTask(ctx.user.id, input.taskId)),
+  }),
+  planner: router({
+    list: protectedProcedure.query(({ ctx }) => db.getPlanner(ctx.user.id)),
+    hours: protectedProcedure.input(z.object({ wake: plannerTime, sleep: plannerTime }))
+      .mutation(({ ctx, input }) => db.savePlannerHours(ctx.user.id, input.wake, input.sleep)),
+    saveSlot: protectedProcedure.input(z.object({ slot: plannerSlot, allowOverlap: z.boolean() }))
+      .mutation(({ ctx, input }) => db.savePlannerSlot(ctx.user.id, input.slot, input.allowOverlap)),
+    removeSlot: protectedProcedure.input(z.object({ id: z.string().uuid() }))
+      .mutation(({ ctx, input }) => db.removePlannerSlot(ctx.user.id, input.id)),
+    attend: protectedProcedure.input(z.object({ slotId: z.string().uuid(), day: z.string().date(), lessonIds: z.array(id).min(1).max(100) }))
+      .mutation(({ ctx, input }) => db.attendPlannerClass(ctx.user.id, input)),
+    schedule: protectedProcedure.input(z.object({ id: z.string().max(100), day: z.string().date(), start: plannerTime, minutes: z.number().int().min(5).max(1440) }))
+      .mutation(({ ctx, input }) => db.schedulePlannerMilestone(ctx.user.id, input)),
   }),
   lessonSources: router({
     list: protectedProcedure.query(({ ctx }) => db.listLessonSources(ctx.user.id)),

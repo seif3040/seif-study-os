@@ -1,3 +1,5 @@
+import { emptyPlanner, overlapsPlannerSlot, plannerPolicy, plannerToday, plannerWeekday, shiftPlannerDay, type PlannerSlot, type PlannerState } from "../shared/studyPlanner.js";
+import { studyPlanner } from "../drizzle/schema.js";
 import { coinRateCatalog, coinRateKeys, type CoinRateKey } from "../shared/coinRates.js";
 import { and, count, desc, eq, gte, inArray, isNotNull, isNull, like, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
@@ -1030,6 +1032,7 @@ export async function exportStudyBackup(userId: number, includeCatalog: boolean)
       notebooks: await tx.select().from(notebooks).where(eq(notebooks.userId, userId)),
       flashcardDecks: await tx.select().from(flashcardDecks).where(eq(flashcardDecks.userId, userId)),
       calendarEvents: await tx.select().from(calendarEvents).where(eq(calendarEvents.userId, userId)),
+      studyPlanner: await tx.select().from(studyPlanner).where(eq(studyPlanner.id, userId)),
       lessonSources: await tx.select().from(lessonSources).where(eq(lessonSources.userId, userId)),
       rewardPurchases: await tx.select().from(rewardPurchases).where(eq(rewardPurchases.userId, userId)),
       userAchievements: await tx.select().from(userAchievements).where(eq(userAchievements.userId, userId)),
@@ -1349,4 +1352,150 @@ export async function syncOfflineExam(userId: number, input: {
   });
   if (result.cycleId !== null) await evaluateAchievements(userId, result.cycleId).catch(() => []);
   return { alreadySynced: result.alreadySynced, attemptId: result.attemptId };
+}
+
+export async function getPlanner(userId: number) {
+  const db = await database();
+  const [row] = await db.select().from(studyPlanner).where(eq(studyPlanner.id, userId));
+  return row?.state ?? emptyPlanner;
+}
+
+async function changePlanner<T>(userId: number, change: (state: PlannerState, tx: Parameters<Parameters<Awaited<ReturnType<typeof database>>["transaction"]>[0]>[0]) => Promise<T>) {
+  const db = await database();
+  return db.transaction(async tx => {
+    await tx.insert(studyPlanner).values({ id: userId, state: emptyPlanner })
+      .onDuplicateKeyUpdate({ set: { id: userId } });
+    const [row] = await tx.select().from(studyPlanner).where(eq(studyPlanner.id, userId)).for("update");
+    const result = await change(row.state, tx);
+    await tx.update(studyPlanner).set({ state: row.state }).where(eq(studyPlanner.id, userId));
+    return result;
+  });
+}
+
+export function savePlannerHours(userId: number, wake: string, sleep: string) {
+  return changePlanner(userId, async state => {
+    if (wake >= sleep) throw new Error("وقت النوم لازم يبقى بعد وقت الصحوة في نفس اليوم.");
+    state.wake = wake;
+    state.sleep = sleep;
+  });
+}
+
+export function savePlannerSlot(userId: number, slot: PlannerSlot, allowOverlap: boolean) {
+  return changePlanner(userId, async (state, tx) => {
+    if (slot.start >= slot.end) throw new Error("وقت النهاية لازم يبقى بعد البداية.");
+    if (overlapsPlannerSlot(slot, state.slots) && !allowOverlap) throw new Error("الموعد ده متداخل مع موعد تاني.");
+    if (slot.subjectId) {
+      const [subject] = await tx.select({ id: subjects.id }).from(subjects)
+        .where(and(eq(subjects.id, slot.subjectId), eq(subjects.userId, userId)));
+      if (!subject) throw new Error("المادة مش موجودة.");
+    }
+    if (slot.sourceId) await ownedLessonSource(tx, userId, slot.sourceId);
+    const previous = state.slots.find(item => item.id === slot.id);
+    if (previous && previous.subjectId !== slot.subjectId && state.attendance.some(item => item.slotId === slot.id)) {
+      throw new Error("الحصة دي ليها سجل حضور. أضف موعد جديد للمادة التانية.");
+    }
+    if (!previous && state.slots.length >= 100) throw new Error("الجدول فيه ١٠٠ موعد بالفعل.");
+    state.slots = [...state.slots.filter(item => item.id !== slot.id), slot];
+  });
+}
+
+export function removePlannerSlot(userId: number, slotId: string) {
+  return changePlanner(userId, async state => {
+    state.slots = state.slots.filter(slot => slot.id !== slotId);
+  });
+}
+
+function cairoPlannerTime(day: string, time: string) {
+  const utc = Date.parse(day + "T" + time + ":00Z");
+  const zone = new Intl.DateTimeFormat("en", { timeZone: "Africa/Cairo", timeZoneName: "longOffset" })
+    .formatToParts(new Date(utc)).find(part => part.type === "timeZoneName")?.value;
+  const offset = zone?.match(/GMT([+-]\d{2}:\d{2})/)?.[1] ?? "+02:00";
+  return new Date(day + "T" + time + ":00" + offset);
+}
+
+export async function attendPlannerClass(userId: number, input: { slotId: string; day: string; lessonIds: number[] }) {
+  const { cycle, rows } = await listStudyPlan(userId);
+  return changePlanner(userId, async (state, tx) => {
+    if (state.attendance.some(item => item.slotId === input.slotId && item.day === input.day)) return;
+    const slot = state.slots.find(item => item.id === input.slotId);
+    if (!slot?.subjectId || plannerWeekday(input.day) !== slot.weekday || input.day > plannerToday()) {
+      throw new Error("اختار تاريخ حصة موجودة في الجدول.");
+    }
+    const subjectRows = rows.filter(row => row.subject.id === slot.subjectId && row.lesson);
+    const subject = subjectRows[0]?.subject;
+    if (!subject) throw new Error("أضف دروس للمادة في خطة المنهج الأول.");
+    const attended = new Set(state.attendance.map(item => item.lessonId));
+    const remaining = subjectRows.filter(row => row.progress?.status !== "completed" && !attended.has(row.lesson!.id));
+    const policy = plannerPolicy(subject.title);
+    const next = policy === "arabic"
+      ? input.lessonIds.map(id => remaining.find(row => row.lesson!.id === id)).filter(row => row !== undefined)
+      : remaining.slice(0, 1);
+    if (!next.length || next.length !== input.lessonIds.length || new Set(input.lessonIds).size !== next.length
+      || next.some(row => !input.lessonIds.includes(row.lesson!.id))) {
+      throw new Error("الدروس المتبقية اتغيّرت. حدّث الصفحة واختار الدرس من جديد.");
+    }
+
+    const nextSlot = Array.from({ length: 8 }, (_, index) => shiftPlannerDay(input.day, index))
+      .flatMap(day => state.slots.filter(item => item.subjectId === subject.id && item.weekday === plannerWeekday(day))
+        .filter(item => day > input.day || item.start > slot.start)
+        .map(item => ({ day, start: item.start })))
+      .sort((a, b) => (a.day + a.start).localeCompare(b.day + b.start))[0];
+    const deadline = nextSlot ? cairoPlannerTime(nextSlot.day, nextSlot.start) : null;
+    const homework = policy === "history" ? ["واجب مقالي", "واجب تاريخ", "تلخيص"] : ["واجب"];
+    const previousClasses = new Set(state.attendance.filter(item => item.subjectId === subject.id).map(item => item.slotId + item.day)).size;
+    if (policy === "arabic") {
+      const titles = next.map(row => row.chapter?.title + " · " + row.lesson!.title);
+      await tx.insert(tasks).values({
+        userId, cycleId: cycle.id, title: ("واجب محاضرة العربي · " + next[0].lesson!.title).slice(0, 200),
+        description: titles.join("\n").slice(0, 2000), category: "واجب", scheduledFor: input.day, deadline,
+      });
+    }
+    for (const row of next) {
+      const lesson = row.lesson!;
+      state.attendance.push({ slotId: slot.id, day: input.day, subjectId: subject.id, lessonId: lesson.id, lessonTitle: lesson.title });
+      attended.add(lesson.id);
+      if (policy !== "arabic") await tx.insert(tasks).values(homework.map(label => ({
+        userId, cycleId: cycle.id, title: (label + " · " + lesson.title).slice(0, 200),
+        description: subject.title + " / " + (row.chapter?.title ?? "") + " / " + lesson.title,
+        category: "واجب", scheduledFor: input.day, deadline,
+      })));
+      const unitComplete = subjectRows.every(item => item.chapter?.id !== row.chapter?.id
+        || item.progress?.status === "completed" || attended.has(item.lesson!.id));
+      if (unitComplete && (policy === "programming" || policy === "english")) {
+        addPlannerMilestone(state, "unit-workshop-" + row.chapter!.id, "ورشة " + subject.title + " · " + row.chapter!.title);
+        addPlannerMilestone(state, "unit-exam-" + row.chapter!.id, "شامل " + subject.title + " · " + row.chapter!.title);
+      }
+    }
+    const count = previousClasses + 1;
+    if (policy === "history" && count % 4 === 0) {
+      addPlannerMilestone(state, "history-" + subject.id + "-" + count, "معسكر مراجعة التاريخ");
+    }
+    if (policy === "arabic" && count % 4 === 0) {
+      addPlannerMilestone(state, "arabic-workshop-" + subject.id + "-" + count, "ورشة العربي", 600);
+      addPlannerMilestone(state, "arabic-exam-" + subject.id + "-" + count, "امتحان العربي الشامل", undefined, "arabic-workshop-" + subject.id + "-" + count);
+    }
+  });
+}
+
+function addPlannerMilestone(state: PlannerState, id: string, title: string, duration?: number, follows?: string) {
+  if (!state.milestones.some(item => item.id === id)) state.milestones.push({ id, title, duration, follows });
+}
+
+export async function schedulePlannerMilestone(userId: number, input: { id: string; day: string; start: string; minutes: number }) {
+  const cycle = await getActiveCycle(userId);
+  return changePlanner(userId, async (state, tx) => {
+    const item = state.milestones.find(value => value.id === input.id);
+    if (!item) throw new Error("الموعد مش موجود.");
+    item.day = input.day;
+    item.start = input.start;
+    item.minutes = item.duration ?? input.minutes;
+    const startsAt = cairoPlannerTime(input.day, input.start);
+    const endsAt = new Date(startsAt.getTime() + (item.duration ?? input.minutes) * 60_000);
+    if (item.eventId) {
+      await tx.update(calendarEvents).set({ startsAt, endsAt }).where(and(eq(calendarEvents.id, item.eventId), eq(calendarEvents.userId, userId)));
+    } else {
+      const [result] = await tx.insert(calendarEvents).values({ userId, cycleId: cycle.id, title: item.title.slice(0, 200), startsAt, endsAt });
+      item.eventId = result.insertId;
+    }
+  });
 }

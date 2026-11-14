@@ -1,3 +1,4 @@
+import type { PlannerState } from "../shared/studyPlanner.js";
 import { boolean, date, index, int, json, longtext, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
@@ -410,3 +411,8 @@ export const offlineExamWrites = mysqlTable("offlineExamWrites", {
   attemptId: int("attemptId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => [uniqueIndex("offlineExamWrites_user_request").on(table.userId, table.requestKey)]);
+
+export const studyPlanner = mysqlTable("studyPlanner", {
+  id: int("id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  state: json("state").$type<PlannerState>().notNull(),
+});

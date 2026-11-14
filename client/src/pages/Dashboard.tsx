@@ -1,3 +1,5 @@
+import { TaskDialog, type CalendarTask } from "./Tasks";
+import { useState } from "react";
 import { ArrowLeft, BookOpen, CalendarDays, Check, CircleDollarSign, Clock3, Flame, GraduationCap, Sparkles, Timer } from "lucide-react";
 import type { CSSProperties } from "react";
 import { Link } from "wouter";
@@ -12,6 +14,8 @@ const cairoDate = new Intl.DateTimeFormat("ar-EG", {
 });
 
 export default function Dashboard() {
+  const homeworkQuery = trpc.tasks.list.useQuery();
+  const [editingHomework, setEditingHomework] = useState<CalendarTask>();
   const summary = trpc.dashboard.summary.useQuery();
   const reviews = trpc.studyPlan.reviews.useQuery();
   const utils = trpc.useUtils();
@@ -32,6 +36,8 @@ export default function Dashboard() {
   const progress = todaysTasks.length ? Math.round(finished * 100 / todaysTasks.length) : 0;
   const dayParts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()).map(part => [part.type, part.value]));
   const today = [dayParts.year, dayParts.month, dayParts.day].join("-");
+  const homework = (homeworkQuery.data ?? []).filter(task => task.category === "واجب" && task.status === "open")
+    .sort((a, b) => (a.deadline?.getTime() ?? Infinity) - (b.deadline?.getTime() ?? Infinity) || a.id - b.id);
   const due = reviews.data?.filter(item => item.day <= today) ?? [];
 
   return <div className="space-y-5">
@@ -55,6 +61,24 @@ export default function Dashboard() {
         </div>
       </div>
     </section>
+    <section className="surface space-y-3 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 font-bold"><BookOpen className="size-5" /> الواجبات القادمة</h2>
+        <Link href="/lesson-sources" className="text-sm text-primary underline">جدول الحصص</Link>
+      </div>
+      {homeworkQuery.isLoading ? <p>جارٍ تحميل الواجبات…</p> : homeworkQuery.isError ? <p role="alert">تعذّر تحميل الواجبات.</p> : homework.length ? <ul className="divide-y">
+        {homework.map(task => <li key={task.id} className="flex flex-wrap items-center gap-2 py-3">
+          <div className="min-w-40 flex-1">
+            <p className="font-bold">{task.title}</p>
+            <p className="text-sm text-muted-foreground">{task.description}</p>
+            <p className="text-sm">{task.deadline ? (task.deadline.getTime() < Date.now() ? "متأخر · " : "التسليم · ") + new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Cairo" }).format(task.deadline) : "ميعاد التسليم لسه مش محدد"}</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setEditingHomework(task)}>تعديل التسليم</Button>
+          <Button size="sm" disabled={complete.isPending} onClick={() => complete.mutate({ taskId: task.id })}><Check /> خلصت</Button>
+        </li>)}
+      </ul> : <p className="text-sm text-muted-foreground">الواجب هيظهر هنا أول ما تسجّل حضور حصة.</p>}
+    </section>
+    {editingHomework && <TaskDialog task={editingHomework} day={today} onClose={() => setEditingHomework(undefined)} onDone={() => utils.invalidate()} />}
 
     <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
       <section className="surface overflow-hidden">

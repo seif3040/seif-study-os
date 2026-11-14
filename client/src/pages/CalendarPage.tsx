@@ -1,3 +1,4 @@
+import { plannerWeekday } from "@shared/studyPlanner";
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,9 +21,10 @@ function dayKey(date: Date) {
   return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
 }
 
-type Entry = { id: string; label: string; kind: "task" | "deadline" | "exam" | "goal" | "event" | "focus" | "review"; task?: CalendarTask };
-const labels = { task: "مهمة", deadline: "آخر موعد", exam: "امتحان", goal: "هدف", event: "تاريخ مهم", focus: "تركيز", review: "مراجعة" };
+type Entry = { id: string; label: string; kind: "task" | "deadline" | "exam" | "goal" | "event" | "focus" | "review" | "class"; task?: CalendarTask };
+const labels = { class: "جدول الأسبوع", task: "مهمة", deadline: "آخر موعد", exam: "امتحان", goal: "هدف", event: "تاريخ مهم", focus: "تركيز", review: "مراجعة" };
 const colors = {
+  class: "bg-cyan-100 text-cyan-900",
   task: "bg-teal-100 text-teal-900",
   deadline: "bg-orange-100 text-orange-900",
   exam: "bg-rose-100 text-rose-900",
@@ -50,6 +52,7 @@ export default function CalendarPage() {
     from: dates[0],
     to: new Date(dates[41].getFullYear(), dates[41].getMonth(), dates[41].getDate() + 1),
   }), [dates]);
+  const planner = trpc.planner.list.useQuery();
   const taskQuery = trpc.tasks.list.useQuery();
   const calendar = trpc.calendar.list.useQuery(range);
   const reviews = trpc.studyPlan.reviews.useQuery();
@@ -87,8 +90,14 @@ export default function CalendarPage() {
     for (const [date, minutes] of focus) {
       add(date, { id: "focus-" + date, label: numbers.format(minutes) + " دقيقة تركيز", kind: "focus" });
     }
+    for (const date of dates) {
+      const day = dayKey(date);
+      for (const slot of planner.data?.slots ?? []) if (slot.weekday === plannerWeekday(day)) {
+        add(day, { id: "class-" + slot.id, label: slot.start + " – " + slot.end + " · " + slot.title, kind: "class" });
+      }
+    }
     return map;
-  }, [taskQuery.data, calendar.data, reviews.data]);
+  }, [taskQuery.data, calendar.data, reviews.data, planner.data, dates]);
 
   const refreshTasks = () => Promise.all([
     utils.tasks.list.invalidate(), utils.calendar.list.invalidate(), utils.dashboard.summary.invalidate(),
