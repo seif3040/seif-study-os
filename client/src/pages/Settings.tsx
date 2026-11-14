@@ -1,3 +1,4 @@
+import { useAuth } from "@/_core/hooks/useAuth";
 import NavigationSettings from "@/components/NavigationSettings";
 import { useState, type FormEvent } from "react";
 import { ReminderSettings } from "@/components/StudyReminders";
@@ -23,9 +24,18 @@ export default function Settings() {
     .filter(item => item.title.toLocaleLowerCase("ar-EG").includes(query.trim().toLocaleLowerCase("ar-EG")));
   const groups = [...new Set(rates.data?.map(item => item.group) ?? [])];
   const manage = catalog.data?.canManage;
+  const isAdmin = useAuth().user?.role === "admin";
+  const videoReward = rates.data?.find(item => item.key === "video_block");
   return <div className="space-y-5">
     <PageHeader title="الإعدادات" description="عدّل مظهر الموقع وأسعار الهدايا ومكافآت Coins." />
     <ThemePicker />
+    {isAdmin && <section className="surface space-y-2 p-5">
+      <h2 className="text-lg font-bold">مكافأة فيديو المذاكرة</h2>
+      <p className="text-sm text-muted-foreground">الكوينز لكل ٤٥ دقيقة تقدّم جديدة في الفيديو.</p>
+      {videoReward ? <PriceRow key={videoReward.amount} label="مكافأة الدورة" amount={videoReward.amount} min={0}
+        onSave={async amount => { await setRate.mutateAsync({ key: "video_block", amount }); await utils.economy.rates.invalidate(); }} />
+        : rates.isError ? <Button variant="outline" onClick={() => void rates.refetch()}>إعادة تحميل المكافأة</Button> : <p>جارٍ تحميل المكافأة…</p>}
+    </section>}
     <NavigationSettings />
     <StudyBackup />
     <StudyTrash />
@@ -40,7 +50,7 @@ export default function Settings() {
         {groups.map(group => <div key={group} className="mb-5 last:mb-0">
           <h3 className="mb-2 text-sm font-bold text-primary">{group}</h3>
           <div className="divide-y rounded-xl border px-3">
-            {rates.data?.filter(item => item.group === group).map(item =>
+            {rates.data?.filter(item => item.group === group && item.key !== "video_block").map(item =>
               <PriceRow key={item.key + ":" + item.amount} label={item.label} amount={item.amount} min={0}
                 onSave={async amount => { await setRate.mutateAsync({ key: item.key, amount }); await utils.economy.rates.invalidate(); }} />)}
           </div>
