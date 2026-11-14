@@ -1,3 +1,5 @@
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { plannerToday, shiftPlannerDay } from "@shared/studyPlanner";
 import { useState } from "react";
 import { PageHeader, EmptyState } from "@/components/PageHeader";
 import { money, minutesLabel } from "@/lib/study";
@@ -86,6 +88,7 @@ function Overview() {
         </div>
       </article>)}
     </div>
+    <AchievementTrend daily={data.daily} />
     <div className="surface space-y-3 p-4 sm:p-6">
       <h2 className="font-bold">إنجازات يوم بيوم</h2>
       {!daily.length && <p>أول يوم مذاكرة هيتسجل هنا.</p>}
@@ -98,6 +101,69 @@ function Overview() {
         <p className="text-sm text-muted-foreground">{money.format(Number(day.lessons))} درس · {money.format(Number(day.tasks))} مهمة · {money.format(Number(day.exams))} امتحان · {money.format(Number(day.events))} نشاط</p>
       </article>)}
       {daily.length > limit && <button className="text-primary underline" onClick={() => setLimit(daily.length)}>اعرض كل الأيام</button>}
+    </div>
+  </section>;
+}
+
+const trendMetrics = [
+  ["minutes", "وقت المذاكرة"], ["lessons", "الدروس"], ["tasks", "المهام"], ["exams", "الامتحانات"],
+] as const;
+type TrendMetric = typeof trendMetrics[number][0];
+type DailyTrend = { day: string; minutes: number; lessons: number; tasks: number; exams: number };
+
+function AchievementTrend({ daily }: { daily: DailyTrend[] }) {
+  const [metric, setMetric] = useState<TrendMetric>("minutes");
+  const [range, setRange] = useState(14);
+  const today = plannerToday();
+  const days = new Map(daily.map(row => [String(row.day).slice(0, 10), row]));
+  const value = (day: string, key: TrendMetric) => Number(days.get(day)?.[key] ?? 0);
+  const label = new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "short", timeZone: "UTC" });
+  const chart = Array.from({ length: range }, (_, index) => {
+    const day = shiftPlannerDay(today, index - range + 1);
+    return { day, label: label.format(new Date(day)), value: value(day, metric) };
+  });
+  const total = (key: TrendMetric, offset: number) => Array.from({ length: 7 }, (_, i) =>
+    value(shiftPlannerDay(today, offset - i), key)).reduce((sum, item) => sum + item, 0);
+  const format = (key: TrendMetric, amount: number) => key === "minutes" ? minutesLabel(amount) : money.format(amount);
+  return <section className="surface space-y-4 p-4 sm:p-6">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h2 className="font-bold">مستوى إنجازك</h2>
+      <label className="text-sm">الفترة <select className="rounded-md border bg-background p-1.5" value={range}
+        onChange={event => setRange(Number(event.target.value))}>
+        <option value={14}>آخر ١٤ يوم</option><option value={30}>آخر ٣٠ يوم</option><option value={90}>آخر ٩٠ يوم</option>
+      </select></label>
+    </div>
+    <p className="text-sm text-muted-foreground">المقارنة بين آخر ٧ أيام مكتملة والـ٧ اللي قبلهم. الرسم بيشمل النهارده.</p>
+    <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+      {trendMetrics.map(([key, name]) => {
+        const current = total(key, -1), before = total(key, -8), difference = current - before;
+        return <button type="button" key={key} aria-pressed={metric === key} onClick={() => setMetric(key)}
+          className={"space-y-1 rounded-xl border p-3 text-start " + (metric === key ? "border-primary bg-primary/10" : "hover:bg-muted")}>
+          <span className="block font-semibold">{name}</span>
+          <span className="block text-sm">{format(key, before)} ← {format(key, current)}</span>
+          <span className="block text-xs font-semibold">{difference > 0 ? "↑ زاد " + format(key, difference) : difference < 0
+            ? "↓ قلّ " + format(key, -difference) : "↔ ثابت"}</span>
+        </button>;
+      })}
+    </div>
+    <div dir="ltr" className="h-64 w-full min-w-0">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chart} margin={{ top: 12, right: 16, bottom: 6, left: 0 }}>
+          <CartesianGrid stroke="currentColor" opacity={0.14} vertical={false} />
+          <XAxis dataKey="label" minTickGap={24} tick={{ fontSize: 11, fill: "currentColor" }} />
+          <YAxis width={46} allowDecimals={false} tick={{ fontSize: 11, fill: "currentColor" }}
+            tickFormatter={value => money.format(Number(value))} unit={metric === "minutes" ? " د" : undefined} />
+          <Tooltip content={({ active, payload }) => {
+            const point = payload?.[0]?.payload;
+            if (!active || !point) return null;
+            return <div dir="rtl" className="rounded-lg border bg-background p-2 text-sm">
+              <p>{point.label}</p><strong>{format(metric, point.value)}</strong>
+            </div>;
+          }} />
+          <Line type="linear" dataKey="value" stroke="currentColor" className="text-primary" strokeWidth={3}
+            dot={range === 14} activeDot={{ r: 5 }} isAnimationActive={false} />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   </section>;
 }
