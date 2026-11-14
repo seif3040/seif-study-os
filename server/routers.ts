@@ -41,6 +41,14 @@ const plannerSlot = z.object({
   subjectId: id.optional(), sourceId: id.optional(),
 });
 
+const dailyPlanInput = z.object({
+  count: z.number().int().min(1).max(20),
+  reserve: z.number().int().min(0).max(1440),
+  budget: z.number().int().min(5).max(1440),
+  exclude: z.array(id).max(200),
+  subjectId: id.optional(),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -122,6 +130,12 @@ export const appRouter = router({
     complete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.completeTask(ctx.user.id, input.taskId)),
   }),
   planner: router({
+    previewDaily: protectedProcedure.input(dailyPlanInput)
+      .query(({ ctx, input }) => db.previewDailyStudy(ctx.user.id, input)),
+    approveDaily: protectedProcedure.input(dailyPlanInput.extend({
+      day: z.string().date(), expected: z.array(z.object({ lessonId: id, start: plannerTime, end: plannerTime })).min(1).max(20),
+    })).mutation(({ ctx, input }) => db.approveDailyStudy(ctx.user.id, input, input.day, input.expected)),
+    skipDaily: protectedProcedure.mutation(({ ctx }) => db.skipDailyStudy(ctx.user.id)),
     fillStudyDay: protectedProcedure.input(z.object({ day: z.string().date(), subjectId: id }))
       .mutation(({ ctx, input }) => db.fillStudyDay(ctx.user.id, input.day, input.subjectId)),
     overrideSlot: protectedProcedure.input(z.object({ id: z.string().uuid(), day: z.string().date(), active: z.boolean() }))

@@ -1667,3 +1667,102 @@ export function fillStudyDay(userId: number, day: string, subjectId: number) {
     return gaps.length;
   });
 }
+
+type DailyPlanInput = { count: number; reserve: number; budget: number; exclude: number[]; subjectId?: number };
+
+async function suggestDailyStudy(tx: StudyTransaction, userId: number, state: PlannerState, rows: Awaited<ReturnType<typeof listStudyPlan>>["rows"], input: DailyPlanInput) {
+  const day = plannerToday();
+  const from = cairoPlannerTime(day, state.wake);
+  const to = cairoPlannerTime(day, state.sleep);
+  const events = await tx.select().from(calendarEvents).where(and(eq(calendarEvents.userId, userId),
+    lte(calendarEvents.startsAt, to), or(gte(calendarEvents.startsAt, from), gte(calendarEvents.endsAt, from))));
+  const assessments = await tx.select({ subjectId: exams.subjectId, at: exams.scheduledAt }).from(exams)
+    .where(and(eq(exams.userId, userId), isNull(exams.archivedAt),
+      gte(exams.scheduledAt, from), lte(exams.scheduledAt, cairoPlannerTime(shiftPlannerDay(day, 7), state.sleep))));
+  const minuteOf = (value: Date) => plannerMinutes(state.wake) + Math.ceil((+value - +from) / 60_000);
+  const gaps = plannerFreeTime(state.wake, state.sleep, [...state.slots.filter(slot => slotOccurs(slot, day)), ...studySlots(state, day)])
+    .map(gap => ({ start: Math.max(gap.start, minuteOf(new Date())), end: gap.end }));
+  const blocked = events.map(event => ({
+    start: minuteOf(event.startsAt),
+    end: event.endsAt ? minuteOf(event.endsAt) : plannerMinutes(state.sleep),
+  }));
+  for (const exam of assessments) if (exam.at && exam.at <= to) {
+    blocked.push({ start: minuteOf(exam.at), end: plannerMinutes(state.sleep) });
+  }
+  const free = blocked.reduce((periods, block) => periods.flatMap(gap =>
+    block.start >= gap.end || block.end <= gap.start ? [gap] : [
+      { start: gap.start, end: block.start }, { start: block.end, end: gap.end },
+    ]), gaps).filter(gap => gap.end > gap.start);
+  const available = free.reduce((sum, gap) => sum + gap.end - gap.start, 0);
+  const queued = new Set((state.studySessions ?? []).filter(item => !item.done && item.day >= day).map(item => item.lessonId));
+  const marked = new Set(state.backlog ?? []);
+  const waiting = rows.filter(row => row.lesson && marked.has(row.lesson.id) && row.progress?.status !== "completed" && !queued.has(row.lesson.id));
+  const groups = new Map<number, { title: string; count: number }>();
+  for (const row of waiting) {
+    const previous = groups.get(row.subject.id);
+    groups.set(row.subject.id, { title: row.subject.title, count: (previous?.count ?? 0) + 1 });
+  }
+  const ranked = Array.from(groups.entries()).sort((a, b) => b[1].count - a[1].count);
+  const primary = input.subjectId ?? ranked[0]?.[0];
+  const urgent = ranked.filter(([id]) => id !== primary).map(([id]) => {
+    const days = Array.from({ length: 7 }, (_, i) => shiftPlannerDay(day, i + 1));
+    const next = days.find(date => state.slots.some(slot => slot.subjectId === id && slotOccurs(slot, date)));
+    const exam = assessments.find(item => item.subjectId === id)?.at;
+    return { id, next: Math.min(next ? +cairoPlannerTime(next, "00:00") : Infinity, exam ? +exam : Infinity) };
+  }).sort((a, b) => a.next - b.next);
+  const secondary = urgent[0]?.id;
+  const excluded = new Set(input.exclude);
+  const candidates = waiting.filter(row => !excluded.has(row.lesson!.id));
+  const main = candidates.filter(row => row.subject.id === primary);
+  const support = candidates.filter(row => row.subject.id === secondary);
+  const order = input.subjectId ? main : [...main.slice(0, 1), ...support.slice(0, 1), ...main.slice(1),
+    ...support.slice(1), ...candidates.filter(row => row.subject.id !== primary && row.subject.id !== secondary)];
+  let budget = Math.max(0, Math.min(input.budget, available - input.reserve));
+  const clock = (minutes: number) => [Math.floor(minutes / 60), minutes % 60].map(value => String(value).padStart(2, "0")).join(":");
+  const suggestions: { lessonId: number; title: string; subject: string; start: string; end: string; reason: string }[] = [];
+  for (const row of order) {
+    if (suggestions.length >= input.count) break;
+    const lesson = row.lesson!;
+    const duration = Math.max(5, lesson.estimatedMinutes);
+    const gap = free.find(period => period.end - period.start >= duration);
+    if (!gap || duration > budget) continue;
+    suggestions.push({ lessonId: lesson.id, title: lesson.title, subject: row.subject.title,
+      start: clock(gap.start), end: clock(gap.start + duration),
+      reason: row.subject.id === primary && !input.subjectId ? "أكبر تراكم" :
+        row.subject.id === secondary && Number.isFinite(urgent[0]?.next) ? "متابعة مادة لها موعد قريب" : "من المتراكم" });
+    gap.start += duration;
+    budget -= duration;
+  }
+  return { day, available, suggestions, subjects: ranked.map(([id, entry]) => ({ id, ...entry })) };
+}
+
+export async function previewDailyStudy(userId: number, input: DailyPlanInput) {
+  const { rows } = await listStudyPlan(userId);
+  const db = await database();
+  const state = await getPlanner(userId);
+  return db.transaction(tx => suggestDailyStudy(tx, userId, state, rows, input));
+}
+
+export async function approveDailyStudy(userId: number, input: DailyPlanInput, day: string, expected: { lessonId: number; start: string; end: string }[]) {
+  const { rows } = await listStudyPlan(userId);
+  return changePlanner(userId, async (state, tx) => {
+    if (day !== plannerToday() || state.dailyPrompt?.day === day) throw new Error("حدّث الصفحة عشان تشوف حالة خطة اليوم.");
+    const preview = await suggestDailyStudy(tx, userId, state, rows, input);
+    if (preview.suggestions.length !== expected.length || preview.suggestions.some((item, index) =>
+      item.lessonId !== expected[index].lessonId || item.start !== expected[index].start || item.end !== expected[index].end)) {
+      throw new Error("الوقت أو الدروس اتغيّروا. اعرض الاقتراح تاني قبل الاعتماد.");
+    }
+    state.studySessions = [...(state.studySessions ?? []), ...preview.suggestions.map((item): PlannedStudy => ({
+      id: crypto.randomUUID(), day, title: item.title, lessonId: item.lessonId,
+      start: item.start, end: item.end, kind: "backlog",
+    }))];
+    state.dailyPrompt = { day, outcome: "approved" };
+  });
+}
+
+export function skipDailyStudy(userId: number) {
+  return changePlanner(userId, async state => {
+    const day = plannerToday();
+    if (state.dailyPrompt?.day !== day) state.dailyPrompt = { day, outcome: "skipped" };
+  });
+}
