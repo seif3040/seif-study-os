@@ -1,3 +1,4 @@
+import { slotOccurs } from "@shared/studyPlanner";
 import DayStudy from "@/components/DayStudy";
 import { studySlots } from "@shared/studyPlanner";
 import { formatClock } from "@shared/clockFormat";
@@ -30,12 +31,13 @@ export default function WeekPlanner() {
   const weekStart = shiftPlannerDay(day, -((weekday + 1) % 7));
   const rows = plan.data?.rows ?? [];
   const subjects = Array.from(new Map(rows.map(row => [row.subject.id, row.subject])).values());
-  const slots = state.slots.filter(slot => slot.weekday === weekday).sort((a, b) => a.start.localeCompare(b.start));
+  const slots = state.slots.filter(slot => slotOccurs(slot, day)).sort((a, b) => a.start.localeCompare(b.start));
   const datedSlots = state.milestones.flatMap(item => {
     if (item.day !== day || !item.start || !item.minutes) return [];
     const [hour, minute] = item.start.split(":").map(Number);
     return [{ id: item.id, weekday, start: item.start, end: timeLabel(Math.min(1440, hour * 60 + minute + item.minutes)), title: item.title }];
   });
+  const inactiveSlots = state.slots.filter(slot => slot.weekday === weekday && !slotOccurs(slot, day));
   const gaps = plannerFreeTime(state.wake, state.sleep, [...slots, ...datedSlots, ...studySlots(state, day)]);
   const free = gaps.reduce((sum, gap) => sum + gap.end - gap.start, 0);
   const teacherNext = trpc.planner.teacherNext.useMutation({
@@ -49,12 +51,13 @@ export default function WeekPlanner() {
     onSuccess: async () => { await refresh(); setEditing(undefined); },
     onError,
   });
+  const override = trpc.planner.overrideSlot.useMutation({ onSuccess: refresh, onError });
   const remove = trpc.planner.removeSlot.useMutation({ onSuccess: refresh, onError });
   const attend = trpc.planner.attend.useMutation({
     onSuccess: async () => {
-      await Promise.all([refresh(), utils.tasks.list.invalidate(), utils.dashboard.summary.invalidate()]);
+      await utils.invalidate();
       setAttending(undefined);
-      toast.success("اتسجّل الحضور واتضاف الواجب.");
+      toast.success("اتسجّل الحضور، والدرس اتعلّم مكتمل، والواجب اتضاف.");
     },
     onError,
   });
@@ -115,6 +118,13 @@ export default function WeekPlanner() {
             <label>من<Input type="time" required value={editing.start} onChange={event => setEditing({ ...editing, start: event.target.value })} /></label>
             <label>لحد<Input type="time" required value={editing.end} onChange={event => setEditing({ ...editing, end: event.target.value })} /></label>
           </div>
+          <label>التكرار<select className={selectStyle} value={editing.everyOtherWeekFrom ? "alternate" : "weekly"} onChange={event => setEditing({
+            ...editing, everyOtherWeekFrom: event.target.value === "alternate" ? day : undefined,
+          })}>
+            <option value="weekly">كل أسبوع</option><option value="alternate">أسبوع آه وأسبوع لأ</option>
+          </select></label>
+          {editing.everyOtherWeekFrom && <label>أول حصة<Input type="date" required value={editing.everyOtherWeekFrom}
+            onChange={event => setEditing({ ...editing, everyOtherWeekFrom: event.target.value || day })} /></label>}
           <label>نوع الموعد<select className={selectStyle} value={editing.subjectId ? "class" : "commitment"} onChange={event => {
             const subjectId = event.target.value === "class" ? subjects[0]?.id : undefined;
             setEditing({ ...editing, subjectId });
@@ -135,6 +145,10 @@ export default function WeekPlanner() {
             <Button type="button" variant="ghost" onClick={() => setEditing(undefined)}>إلغاء</Button>
           </div>
         </form>}
+        {inactiveSlots.map(slot => <div key={slot.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3">
+          <span>{slot.title} · مفيش موعد الأسبوع ده</span>
+          <Button size="sm" variant="outline" disabled={override.isPending} onClick={() => override.mutate({ id: slot.id, day, active: true })}>أكد الموعد لليوم ده</Button>
+        </div>)}
         {datedSlots.map(slot => <article key={slot.id} className="flex justify-between gap-2 rounded-xl border p-3">
           <h4 className="font-bold">{slot.title}</h4><span dir="ltr">{formatClock(slot.start)} – {formatClock(slot.end)}</span>
         </article>)}
@@ -182,6 +196,8 @@ export default function WeekPlanner() {
                   if (arabic && attending !== slot.id) { setChosen([]); setAttending(slot.id); return; }
                   attend.mutate({ slotId: slot.id, day, lessonIds: arabic ? chosen : [next.id] });
                 }}><Check /> {attending === slot.id ? "حفظ المحاضرة" : "حضرت الحصة"}</Button>}
+              {!recorded.length && <Button size="sm" variant="outline" disabled={override.isPending}
+                onClick={() => override.mutate({ id: slot.id, day, active: false })}>إلغاء اليوم بس</Button>}
               <Button size="sm" variant="outline" onClick={() => { setEditing(slot); setAllowOverlap(false); }}>تعديل</Button>
               <Button size="sm" variant="ghost" disabled={remove.isPending} onClick={() => {
                 if (window.confirm("تشيل الميعاد المتكرر من جدول الأسبوع؟")) remove.mutate({ id: slot.id });

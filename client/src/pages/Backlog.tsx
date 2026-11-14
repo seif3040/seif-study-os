@@ -1,3 +1,4 @@
+import { slotOccurs } from "@shared/studyPlanner";
 import { studySlots } from "@shared/studyPlanner";
 import { formatClock } from "@shared/clockFormat";
 import { useState } from "react";
@@ -42,7 +43,7 @@ export default function Backlog({ compact = false }: { compact?: boolean }) {
   const subjects = Array.from(new Map(waiting.map(row => [row.subject.id, row.subject.title])));
   const selected = waiting.filter(row => row.subject.id === subjectId);
   const weekday = plannerWeekday(today);
-  const weekly = state?.slots.filter(slot => slot.weekday === weekday) ?? [];
+  const weekly = state?.slots.filter(slot => slotOccurs(slot, today)) ?? [];
   const cairoDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" });
   const cairoTime = new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
   const events = (calendar.data?.events ?? []).filter(event => cairoDate.format(event.startsAt) === today);

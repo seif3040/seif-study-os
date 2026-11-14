@@ -1,3 +1,4 @@
+import { slotOccurs } from "../shared/studyPlanner.js";
 import { upcomingClassLessons, plannerMinutes, plannerFreeTime, studySlots, type PlannedStudy } from "../shared/studyPlanner.js";
 import { emptyPlanner, overlapsPlannerSlot, plannerPolicy, plannerToday, plannerWeekday, shiftPlannerDay, type PlannerSlot, type PlannerState } from "../shared/studyPlanner.js";
 import { studyPlanner } from "../drizzle/schema.js";
@@ -303,34 +304,38 @@ export async function updateLessonProgress(userId: number, lessonId: number, pro
   if (prior[0]) await db.update(lessonProgress).set({ status: value ? "in_progress" : "not_started", progress: value }).where(eq(lessonProgress.id, prior[0].id));
   else await db.insert(lessonProgress).values({ userId, lessonId, status: value ? "in_progress" : "not_started", progress: value });
 }
+type StudyTransaction = Parameters<Parameters<Awaited<ReturnType<typeof database>>["transaction"]>[0]>[0];
+
+async function completeLessonInTransaction(tx: StudyTransaction, userId: number, lessonId: number, completedAt: Date) {
+  await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+  const lesson = await ownedLesson(tx, userId, lessonId);
+  const [prior] = await tx.select().from(lessonProgress)
+    .where(and(eq(lessonProgress.userId, userId), eq(lessonProgress.lessonId, lessonId))).for("update");
+  if (prior?.status === "completed") return { alreadyCompleted: true, awarded: false, amount: 0, cycleId: lesson.cycleId };
+
+  const reference = "lesson:" + lessonId + ":complete";
+  if (prior) await tx.update(lessonProgress).set({ status: "completed", progress: 100, completedAt }).where(eq(lessonProgress.id, prior.id));
+  else await tx.insert(lessonProgress).values({ userId, lessonId, status: "completed", progress: 100, completedAt });
+  const [event] = await tx.select({ id: studyEvents.id }).from(studyEvents)
+    .where(and(eq(studyEvents.userId, userId), eq(studyEvents.referenceId, reference))).limit(1);
+  if (!event) await tx.insert(studyEvents).values({
+    userId, cycleId: lesson.cycleId, subjectId: lesson.subjectId, eventType: "lesson_complete", referenceId: reference, occurredAt: completedAt,
+  });
+  const [priorReward] = await tx.select({ id: coinTransactions.id }).from(coinTransactions)
+    .where(eq(coinTransactions.referenceKey, reference)).limit(1);
+  const [rate] = await tx.select({ amount: coinRateSettings.amount }).from(coinRateSettings)
+    .where(eq(coinRateSettings.rateKey, "lesson_complete")).limit(1);
+  const amount = priorReward ? 0 : rate?.amount ?? 75;
+  if (amount > 0) await tx.insert(coinTransactions).values({
+    userId, cycleId: lesson.cycleId, amount, type: "earn", referenceKey: reference,
+    reason: "إكمال درس: " + lesson.title, createdAt: completedAt,
+  });
+  return { alreadyCompleted: false, awarded: amount > 0, amount, cycleId: lesson.cycleId, balance: (await getCoinSummary(tx, userId)).balance };
+}
+
 export async function completeLesson(userId: number, lessonId: number, completedAt = new Date()) {
   const db = await database();
-  const result = await db.transaction(async tx => {
-    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
-    const lesson = await ownedLesson(tx, userId, lessonId);
-    const [prior] = await tx.select().from(lessonProgress)
-      .where(and(eq(lessonProgress.userId, userId), eq(lessonProgress.lessonId, lessonId))).for("update");
-    if (prior?.status === "completed") return { alreadyCompleted: true, awarded: false, amount: 0, cycleId: lesson.cycleId };
-
-    const reference = "lesson:" + lessonId + ":complete";
-    if (prior) await tx.update(lessonProgress).set({ status: "completed", progress: 100, completedAt }).where(eq(lessonProgress.id, prior.id));
-    else await tx.insert(lessonProgress).values({ userId, lessonId, status: "completed", progress: 100, completedAt });
-    const [event] = await tx.select({ id: studyEvents.id }).from(studyEvents)
-      .where(and(eq(studyEvents.userId, userId), eq(studyEvents.referenceId, reference))).limit(1);
-    if (!event) await tx.insert(studyEvents).values({
-      userId, cycleId: lesson.cycleId, subjectId: lesson.subjectId, eventType: "lesson_complete", referenceId: reference, occurredAt: completedAt,
-    });
-    const [priorReward] = await tx.select({ id: coinTransactions.id }).from(coinTransactions)
-      .where(eq(coinTransactions.referenceKey, reference)).limit(1);
-    const [rate] = await tx.select({ amount: coinRateSettings.amount }).from(coinRateSettings)
-      .where(eq(coinRateSettings.rateKey, "lesson_complete")).limit(1);
-    const amount = priorReward ? 0 : rate?.amount ?? 75;
-    if (amount > 0) await tx.insert(coinTransactions).values({
-      userId, cycleId: lesson.cycleId, amount, type: "earn", referenceKey: reference,
-      reason: "إكمال درس: " + lesson.title, createdAt: completedAt,
-    });
-    return { alreadyCompleted: false, awarded: amount > 0, amount, cycleId: lesson.cycleId, balance: (await getCoinSummary(tx, userId)).balance };
-  });
+  const result = await db.transaction(tx => completeLessonInTransaction(tx, userId, lessonId, completedAt));
   const { cycleId, ...completion } = result;
   const unlocks = result.alreadyCompleted ? [] : await evaluateAchievements(userId, cycleId).catch(() => []);
   return { ...completion, unlocks };
@@ -1396,7 +1401,10 @@ export function savePlannerSlot(userId: number, slot: PlannerSlot, allowOverlap:
       throw new Error("الحصة دي ليها سجل حضور. أضف موعد جديد للمادة التانية.");
     }
     if (!previous && state.slots.length >= 100) throw new Error("الجدول فيه ١٠٠ موعد بالفعل.");
-    state.slots = [...state.slots.filter(item => item.id !== slot.id), slot];
+    if (slot.everyOtherWeekFrom && plannerWeekday(slot.everyOtherWeekFrom) !== slot.weekday) {
+      throw new Error("تاريخ أول حصة لازم يوافق يوم الموعد.");
+    }
+    state.slots = [...state.slots.filter(item => item.id !== slot.id), { ...slot, dateOverrides: previous?.dateOverrides }];
   });
 }
 
@@ -1416,10 +1424,11 @@ function cairoPlannerTime(day: string, time: string) {
 
 export async function attendPlannerClass(userId: number, input: { slotId: string; day: string; lessonIds: number[] }) {
   const { cycle, rows } = await listStudyPlan(userId);
-  return changePlanner(userId, async (state, tx) => {
-    if (state.attendance.some(item => item.slotId === input.slotId && item.day === input.day)) return;
+  const completed = await changePlanner(userId, async (state, tx) => {
+    const previous = state.attendance.filter(item => item.slotId === input.slotId && item.day === input.day);
+    if (previous.length) return false;
     const slot = state.slots.find(item => item.id === input.slotId);
-    if (!slot?.subjectId || plannerWeekday(input.day) !== slot.weekday || input.day > plannerToday()) {
+    if (!slot?.subjectId || !slotOccurs(slot, input.day) || input.day > plannerToday()) {
       throw new Error("اختار تاريخ حصة موجودة في الجدول.");
     }
     const subjectRows = rows.filter(row => row.subject.id === slot.subjectId && row.lesson);
@@ -1436,8 +1445,8 @@ export async function attendPlannerClass(userId: number, input: { slotId: string
       throw new Error("الدروس المتبقية اتغيّرت. حدّث الصفحة واختار الدرس من جديد.");
     }
 
-    const nextSlot = Array.from({ length: 8 }, (_, index) => shiftPlannerDay(input.day, index))
-      .flatMap(day => state.slots.filter(item => item.subjectId === subject.id && item.weekday === plannerWeekday(day))
+    const nextSlot = Array.from({ length: 15 }, (_, index) => shiftPlannerDay(input.day, index))
+      .flatMap(day => state.slots.filter(item => item.subjectId === subject.id && slotOccurs(item, day))
         .filter(item => day > input.day || item.start > slot.start)
         .map(item => ({ day, start: item.start })))
       .sort((a, b) => (a.day + a.start).localeCompare(b.day + b.start))[0];
@@ -1475,7 +1484,11 @@ export async function attendPlannerClass(userId: number, input: { slotId: string
       addPlannerMilestone(state, "arabic-workshop-" + subject.id + "-" + count, "ورشة العربي", 600);
       addPlannerMilestone(state, "arabic-exam-" + subject.id + "-" + count, "امتحان العربي الشامل", undefined, "arabic-workshop-" + subject.id + "-" + count);
     }
+    for (const row of next) await completeLessonInTransaction(tx, userId, row.lesson!.id, new Date());
+    return true;
   });
+  if (completed) await evaluateAchievements(userId, cycle.id).catch(() => []);
+
 }
 
 function addPlannerMilestone(state: PlannerState, id: string, title: string, duration?: number, follows?: string) {
@@ -1535,7 +1548,7 @@ export function chooseBacklogSubject(userId: number, subjectId: number) {
       .where(and(eq(subjects.id, subjectId), eq(subjects.userId, userId)));
     if (!subject) throw new Error("المادة مش موجودة.");
     const day = plannerToday();
-    if (state.slots.some(slot => slot.weekday === plannerWeekday(day) && slot.subjectId)) {
+    if (state.slots.some(slot => slotOccurs(slot, day) && slot.subjectId)) {
       throw new Error("فيه حصص مجدولة النهارده.");
     }
     state.backlogSubjects ??= {};
@@ -1574,10 +1587,9 @@ export function savePlannedStudy(userId: number, input: PlannedStudy) {
         throw new Error("الدرس ده متضاف بالفعل لخطة المذاكرة.");
       }
     }
-    const weekday = plannerWeekday(input.day);
     const start = plannerMinutes(input.start);
     const end = plannerMinutes(input.end);
-    const busy = [...state.slots.filter(slot => slot.weekday === weekday), ...studySlots(state, input.day).filter(slot => slot.id !== input.id)];
+    const busy = [...state.slots.filter(slot => slotOccurs(slot, input.day)), ...studySlots(state, input.day).filter(slot => slot.id !== input.id)];
     const gaps = plannerFreeTime(state.wake, state.sleep, busy);
     if (!gaps.some(gap => gap.start <= start && gap.end >= end)) throw new Error("اختار وقت فاضي بين الصحوة والنوم.");
     const from = cairoPlannerTime(input.day, input.start);
@@ -1607,5 +1619,17 @@ export async function finishPlannedStudy(userId: number, id: string) {
 export function removePlannedStudy(userId: number, id: string) {
   return changePlanner(userId, async state => {
     state.studySessions = state.studySessions?.filter(item => item.id !== id);
+  });
+}
+
+export function overridePlannerSlot(userId: number, id: string, day: string, active: boolean) {
+  return changePlanner(userId, async state => {
+    const slot = state.slots.find(item => item.id === id);
+    if (!slot || plannerWeekday(day) !== slot.weekday) throw new Error("الموعد ده مش موجود في اليوم المختار.");
+    if (!active && state.attendance.some(item => item.slotId === id && item.day === day)) {
+      throw new Error("الحصة دي اتسجّل حضورها بالفعل.");
+    }
+    slot.dateOverrides ??= {};
+    slot.dateOverrides[day] = active;
   });
 }

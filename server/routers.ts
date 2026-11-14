@@ -35,6 +35,7 @@ const lessonSourceInput = z.object({
 
 const plannerTime = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
 const plannerSlot = z.object({
+  everyOtherWeekFrom: z.string().date().optional(),
   id: z.string().uuid(), weekday: z.number().int().min(0).max(6),
   start: plannerTime, end: plannerTime, title: z.string().trim().min(1).max(200),
   subjectId: id.optional(), sourceId: id.optional(),
@@ -121,6 +122,8 @@ export const appRouter = router({
     complete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.completeTask(ctx.user.id, input.taskId)),
   }),
   planner: router({
+    overrideSlot: protectedProcedure.input(z.object({ id: z.string().uuid(), day: z.string().date(), active: z.boolean() }))
+      .mutation(({ ctx, input }) => db.overridePlannerSlot(ctx.user.id, input.id, input.day, input.active)),
     saveStudy: protectedProcedure.input(z.object({
       id: z.string().uuid(), day: z.string().date(), title: z.string().trim().min(1).max(200),
       start: plannerTime, end: plannerTime, kind: z.enum(["homework", "review", "backlog", "study"]), lessonId: id.optional(),

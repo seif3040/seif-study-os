@@ -1,3 +1,4 @@
+import { slotOccurs } from "@shared/studyPlanner";
 import { useState } from "react";
 import { Link } from "wouter";
 import { BookOpen, GraduationCap, CalendarClock } from "lucide-react";
@@ -7,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { errorText } from "@/lib/study";
 import { formatClock } from "@shared/clockFormat";
-import { plannerWeekday, studySlots, upcomingClassLessons, plannerPolicy, type PlannedStudy } from "@shared/studyPlanner";
+import { studySlots, upcomingClassLessons, plannerPolicy, type PlannedStudy } from "@shared/studyPlanner";
 
 const kinds = { study: "مذاكرة", homework: "واجب", review: "مراجعة", backlog: "متراكم" };
 
@@ -27,7 +28,7 @@ export default function DayStudy({ day, showSchedule = false }: { day: string; s
   if (planner.isError) return <p role="alert">تعذّر تحميل خطة اليوم.</p>;
   if (!state) return <p>جارٍ تحميل خطة اليوم…</p>;
   const sessions = studySlots(state, day).sort((a, b) => a.start.localeCompare(b.start));
-  const slots = state.slots.filter(item => item.weekday === plannerWeekday(day)).sort((a, b) => a.start.localeCompare(b.start));
+  const slots = state.slots.filter(item => slotOccurs(item, day)).sort((a, b) => a.start.localeCompare(b.start));
   const classes = slots.filter(slot => slot.subjectId);
   const commitments = slots.filter(slot => !slot.subjectId);
 
@@ -46,7 +47,9 @@ export default function DayStudy({ day, showSchedule = false }: { day: string; s
           ? upcomingClassLessons(rows, state, slot.subjectId!)[0]?.lesson?.title : undefined;
         return <div key={slot.id} className="rounded-xl border p-3">
           <p className="font-bold">{slot.title} · {formatClock(slot.start)} – {formatClock(slot.end)}</p>
-          {source && <p className="text-sm text-muted-foreground">{source.teacherName}</p>}
+          {source && <p className="text-sm text-muted-foreground">{source.teacherName}
+            {source.url && /^https?:\/\//i.test(source.url) && <> · <a href={source.url} target="_blank" rel="noreferrer" className="text-primary underline">افتح الحصة أو ارجع للتسجيل</a></>}
+          </p>}
           {attended.length ? <p className="text-sm">حضرت · {attended.map(item => item.lessonTitle).join("، ")}</p>
             : next && <p className="text-sm">الدرس المتوقع · {next}</p>}
         </div>;

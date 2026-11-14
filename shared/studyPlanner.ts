@@ -3,6 +3,8 @@ export const plannerDays = ["الأحد", "الاثنين", "الثلاثاء", 
 export type PlannerSlot = {
   id: string;
   weekday: number;
+  everyOtherWeekFrom?: string;
+  dateOverrides?: Record<string, boolean>;
   start: string;
   end: string;
   title: string;
@@ -113,4 +115,14 @@ export type PlannedStudy = {
 export function studySlots(state: PlannerState, day: string) {
   const weekday = plannerWeekday(day);
   return (state.studySessions ?? []).filter(item => item.day === day).map(item => ({ ...item, weekday }));
+}
+
+export function slotOccurs(slot: PlannerSlot, day: string) {
+  if (slot.weekday !== plannerWeekday(day)) return false;
+  const override = slot.dateOverrides?.[day];
+  if (override !== undefined) return override;
+  const anchor = slot.everyOtherWeekFrom;
+  if (!anchor) return true;
+  const days = (Date.parse(day) - Date.parse(anchor)) / 86_400_000;
+  return days >= 0 && days % 14 === 0;
 }
