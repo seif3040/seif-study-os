@@ -40,7 +40,7 @@ export const chapters = mysqlTable("chapters", {
 }, table => [index("chapters_subject_idx").on(table.subjectId)]);
 
 export const lessons = mysqlTable("lessons", {
-  deletedAt: timestamp("deletedAt"),
+  // Drizzle uses the first selected column to detect a missing joined row.
   id: int("id").autoincrement().primaryKey(),
   chapterId: int("chapterId").notNull().references(() => chapters.id, { onDelete: "cascade" }),
   title: varchar("title", { length: 200 }).notNull(),
@@ -49,6 +49,7 @@ export const lessons = mysqlTable("lessons", {
   notes: text("notes"),
   sortOrder: int("sortOrder").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
+  deletedAt: timestamp("deletedAt"),
 }, table => [index("lessons_chapter_idx").on(table.chapterId)]);
 
 export const lessonProgress = mysqlTable("lessonProgress", {
