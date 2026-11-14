@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-type Player = { getCurrentTime(): number; destroy(): void };
+type Player = { getCurrentTime(): number; getPlaybackRate(): number; destroy(): void };
 type PlayerEvent = { target: Player; data: number };
 type YouTubeAPI = { Player: new (frame: HTMLIFrameElement, options: {
   events: { onStateChange(event: PlayerEvent): void; onError(): void };
@@ -38,7 +38,7 @@ function loadYouTube() {
 
 export function YouTubeStudyPlayer({ embed, onPlaying, onStopped }: {
   embed: string;
-  onPlaying(readPosition: () => number): void;
+  onPlaying(readPosition: () => number, readRate: () => number): void;
   onStopped(position?: number): void;
 }) {
   const host = useRef<HTMLDivElement>(null);
@@ -74,7 +74,7 @@ export function YouTubeStudyPlayer({ embed, onPlaying, onStopped }: {
           if (disposed) return;
           if (event.data === 1) {
             playing = true;
-            callbacks.current.onPlaying(() => event.target.getCurrentTime());
+            callbacks.current.onPlaying(() => event.target.getCurrentTime(), () => event.target.getPlaybackRate());
           } else stop(event.target.getCurrentTime());
         },
         onError() { if (!disposed) { stop(); setError(true); } },
