@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 type Player = { getCurrentTime(): number; getPlaybackRate(): number; destroy(): void };
 type PlayerEvent = { target: Player; data: number };
 type YouTubeAPI = { Player: new (frame: HTMLIFrameElement, options: {
-  events: { onStateChange(event: PlayerEvent): void; onError(): void };
+  events: { onReady(event: { target: Player }): void; onStateChange(event: PlayerEvent): void; onError(): void };
 }) => Player };
 type YouTubeWindow = Window & { YT?: YouTubeAPI; onYouTubeIframeAPIReady?: () => void };
 
@@ -44,7 +44,7 @@ export function YouTubeStudyPlayer({ embed, onPlaying, onStopped, onPosition }: 
 }) {
   const host = useRef<HTMLDivElement>(null);
   const callbacks = useRef({ onPlaying, onStopped, onPosition });
-  callbacks.current = { onPlaying, onStopped };
+  callbacks.current = { onPlaying, onStopped, onPosition };
   const [error, setError] = useState(false);
   useEffect(() => {
     const container = host.current;
@@ -52,11 +52,13 @@ export function YouTubeStudyPlayer({ embed, onPlaying, onStopped, onPosition }: 
     let disposed = false;
     let player: Player | undefined;
     let playing = false;
-    const refreshPosition = () => {
-      const position = player?.getCurrentTime?.();
+    let ready = false;
+    const refreshPosition = (source = player) => {
+      if (!ready) return;
+      const position = source?.getCurrentTime?.();
       if (typeof position === "number" && Number.isFinite(position)) callbacks.current.onPosition(position);
     };
-    const interval = window.setInterval(refreshPosition, 200);
+    const interval = window.setInterval(() => refreshPosition(), 200);
     const url = new URL(embed);
     url.searchParams.set("enablejsapi", "1");
     url.searchParams.set("origin", window.location.origin);
@@ -76,9 +78,15 @@ export function YouTubeStudyPlayer({ embed, onPlaying, onStopped, onPosition }: 
       frame.src = url.toString();
       container.append(frame);
       player = new api.Player(frame, { events: {
+        onReady(event) {
+          if (disposed) return;
+          ready = true;
+          refreshPosition(event.target);
+        },
         onStateChange(event) {
           if (disposed) return;
-          refreshPosition();
+          ready = true;
+          refreshPosition(event.target);
           if (event.data === 1) {
             playing = true;
             callbacks.current.onPlaying(() => event.target.getCurrentTime(), () => event.target.getPlaybackRate());
@@ -95,7 +103,7 @@ export function YouTubeStudyPlayer({ embed, onPlaying, onStopped, onPosition }: 
     return () => {
       disposed = true;
       window.clearInterval(interval);
-      stop(player?.getCurrentTime());
+      stop(ready ? player?.getCurrentTime?.() : undefined);
       player?.destroy();
       frame.remove();
     };
