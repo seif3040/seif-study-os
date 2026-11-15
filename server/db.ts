@@ -2148,6 +2148,7 @@ export async function saveStudyResource(userId: number, change: StudyResourceCha
       const lesson = await ownedLesson(tx, userId, change.lessonId);
       if (!book || book.subjectId !== lesson.subjectId) throw new Error("اختار درس من نفس مادة الكتاب.");
       const solved = book.solvedLessonIds ??= [];
+      if (book.backlogMode === "manual") book.backlog = book.backlog.filter(id => id !== change.lessonId);
       if (solved.includes(change.lessonId)) return;
       if (cycle) await awardPlannerCoins(tx, userId, cycle.id, "book_lesson_solved", `book:${book.id}:${change.lessonId}`, "إكمال حل درس في كتاب: " + book.title);
       solved.push(change.lessonId);
@@ -2182,15 +2183,23 @@ export async function saveStudyResource(userId: number, change: StudyResourceCha
       if (old && old.subjectId !== book.subjectId && resources.homework.some(row => row.bookId === book.id)) {
         throw new Error("الكتاب مرتبط بواجبات. اختار كتاب جديد للمادة التانية.");
       }
-      const lessonIds = Array.from(new Set([...book.backlog, ...(book.through ? [book.through] : [])]));
+      const branchThrough = Object.entries(book.branchThrough ?? {});
+      const lessonIds = Array.from(new Set([...book.backlog, ...branchThrough.map(([, id]) => id), ...(book.through ? [book.through] : [])]));
       if (lessonIds.length) {
-        const valid = await tx.select({ id: lessons.id }).from(lessons).innerJoin(chapters, eq(chapters.id, lessons.chapterId))
+        const valid = await tx.select({ id: lessons.id, chapterId: lessons.chapterId }).from(lessons).innerJoin(chapters, eq(chapters.id, lessons.chapterId))
           .where(and(eq(chapters.subjectId, book.subjectId), inArray(lessons.id, lessonIds), isNull(lessons.deletedAt)));
         if (valid.length !== lessonIds.length) throw new Error("اختار دروس من نفس مادة الكتاب.");
+        const chaptersByLesson = new Map(valid.map(row => [row.id, row.chapterId]));
+        if (branchThrough.some(([chapter, id]) => Number(chapter) !== chaptersByLesson.get(id))) {
+          throw new Error("اختار آخر درس محلول من نفس الفرع.");
+        }
       }
       if (!old && resources.books.length >= 100) throw new Error("وصلت للحد الأقصى للكتب.");
       resources.books = [...resources.books.filter(row => row.id !== item.id), {
-        ...book, solvedLessonIds: old?.subjectId === book.subjectId ? old.solvedLessonIds : undefined,
+        ...book,
+        backlogMode: book.backlogMode ?? (old?.subjectId === book.subjectId ? old.backlogMode : undefined),
+        branchThrough: book.branchThrough ?? (old?.subjectId === book.subjectId ? old.branchThrough : undefined),
+        solvedLessonIds: old?.subjectId === book.subjectId ? old.solvedLessonIds : undefined,
       }];
       return;
     }

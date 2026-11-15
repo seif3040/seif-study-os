@@ -7,12 +7,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/PageHeader";
 import { trpc } from "@/lib/trpc";
 import { errorText } from "@/lib/study";
-import { bookBacklogLessons, buildYearReviews, yearReviewDate } from "@shared/studyResources";
+import { bookBacklogLessons, buildYearReviews, yearReviewDate, type BookBacklogMode } from "@shared/studyResources";
 import { plannerToday } from "@shared/studyPlanner";
 
 const select = "h-10 w-full rounded-md border bg-background px-2";
 const fields = (form: HTMLFormElement) => new FormData(form);
 const str = (form: FormData, key: string) => String(form.get(key) ?? "");
+
+const backlogModes: Record<BookBacklogMode, string> = {
+  automatic: "تلقائي للمادة كلها",
+  branches: "تلقائي حسب الفروع والوحدات",
+  manual: "تحديد يدوي",
+};
 
 const sectionDescriptions = {
   "الكتب": "تابع تقدّم الحل والدروس المتراكمة لكل كتاب.",
@@ -38,6 +44,9 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
   const assignedTasks = trpc.tasks.list.useQuery(undefined, { enabled: tab === "الواجبات" });
   const [editBook, setEditBook] = useState("");
   const [through, setThrough] = useState<number | null>(null);
+  const [backlogMode, setBacklogMode] = useState<BookBacklogMode>("automatic");
+  const [branchThrough, setBranchThrough] = useState<Record<string, number>>({});
+  const [manualBacklog, setManualBacklog] = useState<number[]>([]);
   const [kind, setKind] = useState<"essay" | "choice">("essay");
   const [response, setResponse] = useState("");
   const [show, setShow] = useState(false);
@@ -56,15 +65,25 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
   const subjects = Array.from(new Map(rows.map(row => [row.subject.id, row.subject.title])));
   const books = resources?.books ?? [];
   const book = books.find(item => item.id === editBook);
-  const bookBacklog = bookBacklogLessons({ subjectId: subject, through, solvedLessonIds: book?.subjectId === subject ? book.solvedLessonIds : undefined }, rows);
+  const bookBacklog = bookBacklogLessons({ subjectId: subject, through, backlogMode, branchThrough, backlog: manualBacklog,
+    solvedLessonIds: book?.subjectId === subject ? book.solvedLessonIds : undefined }, rows);
   const assignment = resources?.homework.find(item => item.id === editHomework);
   const homeworkBook = books.find(item => item.id === bookId);
   const items = rows.filter(row => row.subject.id === (tab === "الواجبات" ? homeworkBook?.subjectId : subject) && row.lesson && (tab !== "الواجبات" || !attendanceLessons || attendanceLessons.includes(row.lesson.id)));
+  const branches = Array.from(new Map(items.flatMap(row => row.chapter ? [[row.chapter.id, row.chapter] as const] : [])).values());
+  const visibleLessons = new Set(items.map(row => row.lesson?.id));
   const questions = resources?.mistakes ?? [];
   const due = questions.find(item => item.due <= plannerToday());
   const lessonOptions = items.map(row => <option value={row.lesson!.id} key={row.lesson!.id}>{row.chapter?.title} · {row.lesson!.title}</option>);
   const openBook = (item?: (typeof books)[number]) => {
-    setEditBook(item?.id ?? ""); setSubject(item?.subjectId ?? 0); setThrough(item?.through ?? null); setBookFormOpen(true);
+    const chapterId = rows.find(row => row.lesson?.id === item?.through)?.chapter?.id;
+    setEditBook(item?.id ?? "");
+    setSubject(item?.subjectId ?? 0);
+    setThrough(item?.through ?? null);
+    setBacklogMode(item?.backlogMode ?? "automatic");
+    setBranchThrough(item?.branchThrough ?? (chapterId && item?.through ? { [chapterId]: item.through } : {}));
+    setManualBacklog(item?.backlog ?? []);
+    setBookFormOpen(true);
   };
   return <div className="space-y-4">
     {!attendanceLessons && <PageHeader title={section === "الكتب" ? "كتبي" : section} description={sectionDescriptions[section]}
@@ -88,24 +107,64 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
         event.preventDefault();
         const form = fields(event.currentTarget);
         change.mutate({ type: "book", item: { id: book?.id ?? crypto.randomUUID(), title: str(form, "title"),
-          subjectId: subject, through, backlog: book?.subjectId === subject ? book.backlog : [] } });
+          subjectId: subject, through: visibleLessons.has(through ?? undefined) ? through : null, backlogMode,
+          backlog: manualBacklog.filter(id => visibleLessons.has(id)),
+          branchThrough: Object.fromEntries(Object.entries(branchThrough).filter(([, id]) => visibleLessons.has(id))) } });
       }}>
         <label>اسم الكتاب<Input name="title" required maxLength={180} defaultValue={book?.title} /></label>
-        <label>المادة<select required className={select} value={subject || ""} onChange={event => { setSubject(Number(event.target.value)); setThrough(null); }}>
+        <label>المادة<select required className={select} value={subject || ""} onChange={event => { setSubject(Number(event.target.value)); setThrough(null); setBranchThrough({}); setManualBacklog([]); }}>
           <option value="">اختار المادة</option>{subjects.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
         </select></label>
-        <fieldset key={subject} className="space-y-2">
-          <label>حلّيت لحد درس<select name="through" className={select} value={through ?? ""} onChange={event => setThrough(Number(event.target.value) || null)}>
+        {subject > 0 && <fieldset key={subject} className="space-y-3">
+          <label className="block space-y-1">طريقة حساب المتراكم
+            <select className={select} value={backlogMode} onChange={event => setBacklogMode(event.target.value as BookBacklogMode)}>
+              {Object.entries(backlogModes).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+            </select>
+          </label>
+          {backlogMode === "automatic" && <label>حلّيت لحد درس<select name="through" className={select} value={through ?? ""} onChange={event => setThrough(Number(event.target.value) || null)}>
             <option value="">لسه مفيش</option>{lessonOptions}
-          </select></label>
-          {subject > 0 && <details className="rounded border p-2">
+          </select></label>}
+          {backlogMode === "branches" && <div className="grid gap-3 sm:grid-cols-2">
+            {branches.map(branch => <label key={branch.id} className="block space-y-1 rounded-lg border p-3">
+              <span className="block font-medium">{branch.title}</span>
+              <span className="block text-sm text-muted-foreground">آخر درس محلول</span>
+              <select className={select} value={branchThrough[branch.id] ?? ""} onChange={event => {
+                const value = Number(event.target.value);
+                setBranchThrough(previous => {
+                  const next = { ...previous };
+                  if (value) next[branch.id] = value;
+                  else delete next[branch.id];
+                  return next;
+                });
+              }}>
+                <option value="">لسه مفيش</option>
+                {items.filter(row => row.chapter?.id === branch.id).map(row => <option key={row.lesson!.id} value={row.lesson!.id}>{row.lesson!.title}</option>)}
+              </select>
+            </label>)}
+          </div>}
+          {backlogMode === "manual" && <div className="grid gap-3 sm:grid-cols-2">
+            {branches.map(branch => <fieldset key={branch.id} className="space-y-2 rounded-lg border p-3">
+              <legend className="px-1 font-medium">{branch.title}</legend>
+              {items.filter(row => row.chapter?.id === branch.id).map(row => {
+                const lesson = row.lesson!;
+                return <label key={lesson.id} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={manualBacklog.includes(lesson.id)} onChange={event => {
+                    const checked = event.target.checked;
+                    setManualBacklog(previous => checked ? [...previous, lesson.id] : previous.filter(id => id !== lesson.id));
+                  }} />
+                  {lesson.title}
+                </label>;
+              })}
+            </fieldset>)}
+          </div>}
+          {backlogMode !== "manual" && <details className="rounded border p-2">
             <summary>المتراكم تلقائيًا · {bookBacklog.length} درس</summary>
-            <p className="text-sm text-muted-foreground">الدروس المكتملة بعد آخر درس حلّيته في الكتاب.</p>
+            <p className="text-sm text-muted-foreground">{backlogMode === "branches" ? "الدروس المكتملة بعد آخر درس حلّيته في كل فرع." : "الدروس المكتملة بعد آخر درس حلّيته في الكتاب."}</p>
             {bookBacklog.length > 0 && <ul className="max-h-48 overflow-y-auto">
               {items.filter(row => bookBacklog.includes(row.lesson!.id)).map(row => <li key={row.lesson!.id}>{row.lesson!.title}</li>)}
             </ul>}
           </details>}
-        </fieldset>
+        </fieldset>}
         <div className="flex gap-2"><Button disabled={!subject || change.isPending}>حفظ الكتاب</Button>
           <Button type="button" variant="outline" onClick={() => setBookFormOpen(false)}>إغلاق</Button></div>
       </form></section>}
@@ -116,7 +175,7 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
           return <article key={item.id} className="surface flex flex-col gap-3 p-4">
             <BookOpen className="size-5 text-primary" aria-hidden />
             <div><h2 className="font-bold">{item.title}</h2><p className="text-sm text-muted-foreground">{subjects.find(([id]) => id === item.subjectId)?.[1]}</p></div>
-            <p className="text-sm">آخر درس محلول · {last ?? "لسه مفيش"}</p>
+            <p className="text-sm">{item.backlogMode === "manual" || item.backlogMode === "branches" ? backlogModes[item.backlogMode] : "آخر درس محلول · " + (last ?? "لسه مفيش")}</p>
             <div className="mt-auto flex flex-wrap items-center justify-between gap-2"><span className="rounded-full bg-secondary px-3 py-1 text-sm">{backlog} متراكم</span>
               <Button size="sm" variant="outline" onClick={() => openBook(item)}><Pencil /> تعديل</Button></div>
           </article>;

@@ -3,7 +3,14 @@ import { z } from "zod";
 const id = z.string().uuid();
 const title = z.string().trim().min(1).max(180);
 const lesson = z.number().int().positive();
-export const bookSchema = z.object({ id, title, subjectId: lesson, through: lesson.nullable(), backlog: z.array(lesson).max(300) });
+const bookBacklogModes = ["automatic", "branches", "manual"] as const;
+export type BookBacklogMode = (typeof bookBacklogModes)[number];
+export const bookSchema = z.object({
+  id, title, subjectId: lesson, through: lesson.nullable(), backlog: z.array(lesson).max(300),
+  backlogMode: z.enum(bookBacklogModes).optional(),
+  branchThrough: z.record(z.string().regex(/^[1-9][0-9]*$/), lesson)
+    .refine(value => Object.keys(value).length <= 300).optional(),
+});
 export const homeworkSchema = z.object({ id, bookId: id, lessonId: lesson, pages: z.string().trim().min(1).max(120), prompt: z.string().trim().max(900) });
 export const mistakeSchema = z.object({
   id, subjectId: lesson, question: z.string().trim().min(1).max(1500),
@@ -31,15 +38,23 @@ export type StudyResourceChange = z.infer<typeof studyResourceChange>;
 export const emptyResources: StudyResources = { books: [], homework: [], mistakes: [] };
 
 export function bookBacklogLessons(
-  book: { subjectId: number; through: number | null; solvedLessonIds?: number[] },
-  rows: readonly { subject: { id: number }; lesson: { id: number } | null; progress: { status: string } | null }[],
+  book: Pick<StudyResources["books"][number], "subjectId" | "through" | "backlogMode" | "branchThrough" | "solvedLessonIds">
+    & { backlog?: number[] },
+  rows: readonly { subject: { id: number }; chapter?: { id: number } | null; lesson: { id: number } | null; progress: { status: string } | null }[],
 ) {
-  const lessons = rows.filter(row => row.subject.id === book.subjectId && row.lesson);
-  const throughIndex = lessons.findIndex(row => row.lesson?.id === book.through);
+  const lessons = rows.flatMap(row => row.subject.id === book.subjectId && row.lesson ? [{ ...row, lesson: row.lesson }] : []);
+  if (book.backlogMode === "manual") {
+    const marked = new Set(book.backlog);
+    return lessons.filter(row => marked.has(row.lesson.id)).map(row => row.lesson.id);
+  }
+  const positions = new Map(lessons.map((row, index) => [row.lesson.id, index]));
   const solved = new Set(book.solvedLessonIds);
-  return lessons.slice(throughIndex + 1).flatMap(row =>
-    row.lesson && row.progress?.status === "completed" && !solved.has(row.lesson.id) ? [row.lesson.id] : [],
-  );
+  return lessons.flatMap((row, index) => {
+    const limit = book.backlogMode === "branches"
+      ? row.chapter && book.branchThrough?.[row.chapter.id] : book.through;
+    if (index <= (limit ? positions.get(limit) ?? -1 : -1)) return [];
+    return row.progress?.status === "completed" && !solved.has(row.lesson.id) ? [row.lesson.id] : [];
+  });
 }
 
 export function yearReviewDate(timestamp: number) {
