@@ -31,6 +31,6 @@ self.addEventListener("fetch", event => {
   if (assets.includes(url.pathname)) {
     event.respondWith(caches.open(CACHE).then(async cache => (await cache.match(url.pathname)) ?? fetch(request)));
   } else if (request.mode === "navigate" && !url.pathname.startsWith("/api/") && !url.pathname.startsWith("/manus-storage/")) {
-    event.respondWith(fetch(request).catch(async () => (await caches.match(PAGE)) ?? Response.error()));
+    event.respondWith(fetch(request, { cache: "no-store" }).catch(async () => (await caches.match(PAGE)) ?? Response.error()));
   }
 });

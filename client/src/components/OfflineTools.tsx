@@ -33,6 +33,7 @@ export default function OfflineTools({ ownerId }: { ownerId: number }) {
   const summary = trpc.dashboard.summary.useQuery();
   const [updateOpen, setUpdateOpen] = useState(false);
   const [deferUpdate, setDeferUpdate] = useState(false);
+  const [newVersion, setNewVersion] = useState(false);
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null);
 
   useEffect(() => {
@@ -116,7 +117,18 @@ export default function OfflineTools({ ownerId }: { ownerId: number }) {
       candidate?.addEventListener("statechange", inspect);
       inspect();
     }
-    const check = () => { if (navigator.onLine) void registration?.update().catch(() => undefined); };
+    const currentVersion = document.querySelector('meta[name="study-build"]')?.getAttribute("content");
+    const check = () => {
+      if (!navigator.onLine) return;
+      void registration?.update().then(inspect).catch(() => undefined);
+      if (!currentVersion) return;
+      void fetch("/study-worker.js", { cache: "no-store" }).then(async response => {
+        if (!response.ok) return;
+        const version = (await response.text()).match(/const CACHE = "seif-offline-([a-f0-9]{20})"/)?.[1];
+        if (active && version) setNewVersion(version !== currentVersion);
+      }).catch(() => undefined);
+    };
+    check();
     const controllerChanged = () => setWaiting(null);
     navigator.serviceWorker.addEventListener("controllerchange", controllerChanged);
     void navigator.serviceWorker.register("/study-worker.js", { updateViaCache: "none" }).then(result => {
@@ -127,6 +139,7 @@ export default function OfflineTools({ ownerId }: { ownerId: number }) {
       check();
     }).catch(() => undefined);
     window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
     window.addEventListener("online", check);
     const poll = window.setInterval(check, 60_000);
     return () => {
@@ -135,13 +148,14 @@ export default function OfflineTools({ ownerId }: { ownerId: number }) {
       registration?.removeEventListener("updatefound", watch);
       navigator.serviceWorker.removeEventListener("controllerchange", controllerChanged);
       window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
       window.removeEventListener("online", check);
       window.clearInterval(poll);
     };
   }, []);
 
   async function applyUpdate(afterTimer = false) {
-    if (!waiting) return;
+    if (!waiting && !newVersion) return;
     try {
       const activeTimer = await window.StudyOffline?.get("timer:" + ownerId);
       if (activeTimer) {
@@ -154,22 +168,30 @@ export default function OfflineTools({ ownerId }: { ownerId: number }) {
     }
     setDeferUpdate(false);
     setUpdateOpen(false);
-    navigator.serviceWorker.addEventListener("controllerchange", () => window.location.reload(), { once: true });
+    if (!waiting) {
+      window.location.reload();
+      return;
+    }
+    const reload = () => window.location.reload();
+    navigator.serviceWorker.addEventListener("controllerchange", reload, { once: true });
     waiting.postMessage({ type: "APPLY_UPDATE" });
+    window.setTimeout(() => {
+      navigator.serviceWorker.removeEventListener("controllerchange", reload);
+      reload();
+    }, 4000);
   }
 
   useEffect(() => {
-    if (!deferUpdate || !waiting) return;
+    if (!deferUpdate || (!waiting && !newVersion)) return;
     const timer = window.setInterval(() => void applyUpdate(true), 3000);
     return () => window.clearInterval(timer);
-  }, [deferUpdate, waiting, ownerId]);
+  }, [deferUpdate, waiting, newVersion, ownerId]);
 
   return <div className="flex items-center gap-1">
-    {waiting && <Button size="sm" onClick={() => setUpdateOpen(true)}><Download />{deferUpdate ? "التحديث بعد الجلسة" : "حدّث"}</Button>}
+    {(waiting || newVersion) && <Button size="sm" onClick={() => setUpdateOpen(true)}><Download />{deferUpdate ? "التحديث بعد الجلسة" : "حدّث"}</Button>}
     <Dialog open={updateOpen} onOpenChange={setUpdateOpen}>
       <DialogContent dir="rtl">
         <DialogHeader><DialogTitle>تحديث Seif Study OS</DialogTitle><DialogDescription>النسخة الجديدة جاهزة. لو فيه جلسة أوفلاين شغالة، التحديث هيتطبق بعد ما تخلص.</DialogDescription></DialogHeader>
-        <p className="text-sm">آخر الإضافات تشمل إكمال المهام من غير نت وتحويل أخطاء الامتحانات لمهام مراجعة.</p>
         <DialogFooter><Button variant="outline" onClick={() => { setDeferUpdate(false); setUpdateOpen(false); }}>بعد شوية</Button><Button onClick={() => void applyUpdate()}>حدّث</Button></DialogFooter>
       </DialogContent>
     </Dialog>

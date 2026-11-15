@@ -162,7 +162,11 @@ function versionStudyWorker(): Plugin {
       for (const file of files) hash.update(fs.readFileSync(path.join(output, file)));
       const worker = path.join(output, "study-worker.js");
       const contents = fs.readFileSync(worker, "utf8");
-      fs.writeFileSync(worker, contents.replace("__STUDY_BUILD_VERSION__", hash.digest("hex").slice(0, 20)));
+      const version = hash.digest("hex").slice(0, 20);
+      fs.writeFileSync(worker, contents.replace("__STUDY_BUILD_VERSION__", version));
+      const entry = path.join(output, "index.html");
+      const html = fs.readFileSync(entry, "utf8");
+      fs.writeFileSync(entry, html.replace("</head>", `<meta name="study-build" content="${version}"></head>`));
     },
   };
 }
