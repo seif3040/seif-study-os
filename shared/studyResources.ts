@@ -19,15 +19,28 @@ export const studyResourceChange = z.discriminatedUnion("type", [
   z.object({ type: z.literal("homework"), item: homeworkSchema }),
   z.object({ type: z.literal("mistake"), item: mistakeSchema }),
   z.object({ type: z.literal("check"), id, correct: z.boolean() }),
+  z.object({ type: z.literal("solveBookLesson"), id, lessonId: lesson }),
 ]);
 export type StudyResources = {
   published?: Record<string, number>;
-  books: z.infer<typeof bookSchema>[];
+  books: (z.infer<typeof bookSchema> & { solvedLessonIds?: number[] })[];
   homework: z.infer<typeof homeworkSchema>[];
   mistakes: (z.infer<typeof mistakeSchema> & { due: string; streak: number })[];
 };
 export type StudyResourceChange = z.infer<typeof studyResourceChange>;
 export const emptyResources: StudyResources = { books: [], homework: [], mistakes: [] };
+
+export function bookBacklogLessons(
+  book: { subjectId: number; through: number | null; solvedLessonIds?: number[] },
+  rows: readonly { subject: { id: number }; lesson: { id: number } | null; progress: { status: string } | null }[],
+) {
+  const lessons = rows.filter(row => row.subject.id === book.subjectId && row.lesson);
+  const throughIndex = lessons.findIndex(row => row.lesson?.id === book.through);
+  const solved = new Set(book.solvedLessonIds);
+  return lessons.slice(throughIndex + 1).flatMap(row =>
+    row.lesson && row.progress?.status === "completed" && !solved.has(row.lesson.id) ? [row.lesson.id] : [],
+  );
+}
 
 export const finalReviewDay = "2027-04-30";
 export function reviewWeekday(day: string, offset: number) {

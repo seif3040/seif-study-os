@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/PageHeader";
 import { trpc } from "@/lib/trpc";
 import { errorText } from "@/lib/study";
-import { buildYearReviews } from "@shared/studyResources";
+import { bookBacklogLessons, buildYearReviews } from "@shared/studyResources";
 import { plannerToday } from "@shared/studyPlanner";
 
 const select = "h-10 w-full rounded-md border bg-background px-2";
@@ -23,6 +23,7 @@ export default function StudyLibrary({ attendanceLessons }: { attendanceLessons?
   const [editHomework, setEditHomework] = useState("");
   const assignedTasks = trpc.tasks.list.useQuery(undefined, { enabled: tab === "الواجبات" });
   const [editBook, setEditBook] = useState("");
+  const [through, setThrough] = useState<number | null>(null);
   const [kind, setKind] = useState<"essay" | "choice">("essay");
   const [response, setResponse] = useState("");
   const [show, setShow] = useState(false);
@@ -36,6 +37,7 @@ export default function StudyLibrary({ attendanceLessons }: { attendanceLessons?
   const subjects = Array.from(new Map(rows.map(row => [row.subject.id, row.subject.title])));
   const books = resources?.books ?? [];
   const book = books.find(item => item.id === editBook);
+  const bookBacklog = bookBacklogLessons({ subjectId: subject, through, solvedLessonIds: book?.subjectId === subject ? book.solvedLessonIds : undefined }, rows);
   const assignment = resources?.homework.find(item => item.id === editHomework);
   const homeworkBook = books.find(item => item.id === bookId);
   const items = rows.filter(row => row.subject.id === (tab === "الواجبات" ? homeworkBook?.subjectId : subject) && row.lesson && (tab !== "الواجبات" || !attendanceLessons || attendanceLessons.includes(row.lesson.id)));
@@ -51,30 +53,32 @@ export default function StudyLibrary({ attendanceLessons }: { attendanceLessons?
     {tab === "مراجعة آخر السنة" && <YearReviewSchedule />}
     {tab === "الكتب" && <div className="surface space-y-4 p-4">
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onClick={() => { setEditBook(""); setSubject(0); }}>كتاب جديد</Button>
+        <Button size="sm" variant="outline" onClick={() => { setEditBook(""); setSubject(0); setThrough(null); }}>كتاب جديد</Button>
         {books.map(item => <Button key={item.id} size="sm" variant={editBook === item.id ? "default" : "outline"} onClick={() => {
-          setEditBook(item.id); setSubject(item.subjectId);
-        }}>{item.title} · {item.backlog.length} متراكم</Button>)}
+          setEditBook(item.id); setSubject(item.subjectId); setThrough(item.through);
+        }}>{item.title} · {bookBacklogLessons(item, rows).length} متراكم</Button>)}
       </div>
       <form key={editBook} className="space-y-3" onSubmit={event => {
         event.preventDefault();
         const form = fields(event.currentTarget);
         change.mutate({ type: "book", item: { id: book?.id ?? crypto.randomUUID(), title: str(form, "title"),
-          subjectId: subject, through: Number(str(form, "through")) || null, backlog: form.getAll("backlog").map(Number) } });
+          subjectId: subject, through, backlog: book?.subjectId === subject ? book.backlog : [] } });
       }}>
         <label>اسم الكتاب<Input name="title" required maxLength={180} defaultValue={book?.title} /></label>
-        <label>المادة<select required className={select} value={subject || ""} onChange={event => setSubject(Number(event.target.value))}>
+        <label>المادة<select required className={select} value={subject || ""} onChange={event => { setSubject(Number(event.target.value)); setThrough(null); }}>
           <option value="">اختار المادة</option>{subjects.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
         </select></label>
         <fieldset key={subject} className="space-y-2">
-          <label>حلّيت لحد درس<select name="through" className={select} defaultValue={book?.through ?? ""}>
+          <label>حلّيت لحد درس<select name="through" className={select} value={through ?? ""} onChange={event => setThrough(Number(event.target.value) || null)}>
             <option value="">لسه مفيش</option>{lessonOptions}
           </select></label>
-          <details className="rounded border p-2"><summary>علّم الدروس المتراكمة في الكتاب</summary>
-            <div className="max-h-48 overflow-y-auto">{items.map(row => <label key={row.lesson!.id} className="block p-1">
-              <input type="checkbox" name="backlog" value={row.lesson!.id} defaultChecked={book?.backlog.includes(row.lesson!.id)} /> {row.lesson!.title}
-            </label>)}</div>
-          </details>
+          {subject > 0 && <details className="rounded border p-2">
+            <summary>المتراكم تلقائيًا · {bookBacklog.length} درس</summary>
+            <p className="text-sm text-muted-foreground">الدروس المكتملة بعد آخر درس حلّيته في الكتاب.</p>
+            {bookBacklog.length > 0 && <ul className="max-h-48 overflow-y-auto">
+              {items.filter(row => bookBacklog.includes(row.lesson!.id)).map(row => <li key={row.lesson!.id}>{row.lesson!.title}</li>)}
+            </ul>}
+          </details>}
         </fieldset>
         <Button disabled={!subject || change.isPending}>حفظ الكتاب</Button>
       </form>
@@ -176,16 +180,17 @@ export function BookBacklog() {
     onSuccess: () => utils.planner.list.invalidate(),
     onError: error => toast.error(errorText(error)),
   });
-  const books = data?.resources?.books.filter(book => book.backlog.length) ?? [];
+  const rows = plan.data?.rows ?? [];
+  const books = (data?.resources?.books ?? []).map(book => ({ ...book, due: bookBacklogLessons(book, rows) })).filter(book => book.due.length);
   if (!books.length) return null;
   return <section className="surface space-y-2 p-4">
     <h2 className="font-bold">حل الكتب المتراكم</h2>
     {books.map(book => <article key={book.id} className="rounded border p-3">
       <h3 className="font-semibold">{book.title}</h3>
-      {book.backlog.map(id => <div key={id} className="flex flex-wrap items-center justify-between gap-2 py-1">
+      {book.due.map(id => <div key={id} className="flex flex-wrap items-center justify-between gap-2 py-1">
         <span>{plan.data?.rows.find(row => row.lesson?.id === id)?.lesson?.title ?? "درس غير متاح"}</span>
         <Button size="sm" variant="outline" disabled={change.isPending} onClick={() => change.mutate({
-          type: "book", item: { ...book, backlog: book.backlog.filter(value => value !== id) },
+          type: "solveBookLesson", id: book.id, lessonId: id,
         })}>خلصت حلّه</Button>
       </div>)}
     </article>)}

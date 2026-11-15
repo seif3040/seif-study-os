@@ -275,7 +275,7 @@ export async function listStudyPlan(userId: number) {
   const rows = await db.select({ subject: subjects, chapter: chapters, lesson: lessons, progress: lessonProgress })
     .from(subjects).leftJoin(chapters, eq(chapters.subjectId, subjects.id)).leftJoin(lessons, and(eq(lessons.chapterId, chapters.id), isNull(lessons.deletedAt)))
     .leftJoin(lessonProgress, and(eq(lessonProgress.lessonId, lessons.id), eq(lessonProgress.userId, userId)))
-    .where(eq(subjects.userId, userId)).orderBy(subjects.createdAt, chapters.sortOrder, lessons.sortOrder);
+    .where(eq(subjects.userId, userId)).orderBy(subjects.createdAt, subjects.id, chapters.sortOrder, chapters.id, lessons.sortOrder, lessons.id);
   return { cycle, rows };
 }
 
@@ -2063,6 +2063,14 @@ export async function saveStudyResource(userId: number, change: StudyResourceCha
       item.due = shiftPlannerDay(day, [1, 3, 7, 14, 30][Math.min(item.streak, 4)]);
       return;
     }
+    if (change.type === "solveBookLesson") {
+      const book = resources.books.find(row => row.id === change.id);
+      const lesson = await ownedLesson(tx, userId, change.lessonId);
+      if (!book || book.subjectId !== lesson.subjectId) throw new Error("اختار درس من نفس مادة الكتاب.");
+      const solved = book.solvedLessonIds ??= [];
+      if (!solved.includes(change.lessonId)) solved.push(change.lessonId);
+      return;
+    }
     const item = change.item;
     if (change.type === "homework") {
       const existing = resources.homework.find(row => row.id === change.item.id);
@@ -2099,7 +2107,9 @@ export async function saveStudyResource(userId: number, change: StudyResourceCha
         if (valid.length !== lessonIds.length) throw new Error("اختار دروس من نفس مادة الكتاب.");
       }
       if (!old && resources.books.length >= 100) throw new Error("وصلت للحد الأقصى للكتب.");
-      resources.books = [...resources.books.filter(row => row.id !== item.id), book];
+      resources.books = [...resources.books.filter(row => row.id !== item.id), {
+        ...book, solvedLessonIds: old?.subjectId === book.subjectId ? old.solvedLessonIds : undefined,
+      }];
       return;
     }
     const previous = resources.mistakes.find(row => row.id === item.id);
