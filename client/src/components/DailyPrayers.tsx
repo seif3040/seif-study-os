@@ -1,4 +1,4 @@
-import { nawafil, prayerLoggingEnd } from "@shared/nawafil";
+import { nawafil } from "@shared/nawafil";
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Check, Clock3 } from "lucide-react";
@@ -25,7 +25,6 @@ export default function DailyPrayers({ day }: { day: string }) {
     },
     onError: error => toast.error(errorText(error)),
   });
-  const dhuhr = query.data?.prayers.find(item => item.prayer === "Dhuhr")?.time;
   const log = trpc.prayers.log.useMutation({
     onSuccess: async result => {
       setConfirm(undefined);
@@ -36,18 +35,18 @@ export default function DailyPrayers({ day }: { day: string }) {
   });
   return <section className="surface space-y-3 p-5">
     <h2 className="flex items-center gap-2 font-bold"><Clock3 className="size-5" /> مواقيت الصلاة · القاهرة</h2>
-    <p className="text-sm text-muted-foreground">الفجر يتسجّل بالنقاط لحد أذان الظهر. باقي الصلوات خلال ساعة من الأذان.</p>
+    <p className="text-sm text-muted-foreground">الفجر يتسجّل بالنقاط لحد أذان الظهر. باقي الصلوات خلال ساعة من الأذان. لو فيه حصة متعارضة، التسجيل يمتد لآخر اليوم.</p>
     <p className="text-sm font-semibold">{query.data?.awarded ? "نقاط صلاة اليوم اتحسبت." : "٢٥٠٠ نقطة بعد تسجيل الفروض الخمسة في مواعيدها وتأكيد كل النوافل."}</p>
     {query.isError && <p role="alert">تعذّر تحميل الصلوات. <Button size="sm" variant="outline" onClick={() => void query.refetch()}>جرّب تاني</Button></p>}
     {query.isLoading && <p>جارٍ تحميل المواقيت…</p>}
     {query.data?.day === day && <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
       {query.data.prayers.map(item => {
         const start = item.time ? minute(item.time) : null;
-        const end = start !== null && dhuhr ? prayerLoggingEnd(item.prayer, start, minute(dhuhr)) : null;
+        const end = item.endMinute;
         const canLog = start !== null && end !== null && minute(now) >= start && minute(now) < end;
         return <li key={item.prayer} className="space-y-2 rounded-xl border p-3">
         <p className="font-bold">{item.name}</p>
-        <p className="text-sm text-muted-foreground">{item.time && end !== null ? formatClock(item.time) + " – " + formatClock(end) : "الموعد غير متاح"}</p>
+        <p className="text-sm text-muted-foreground">{item.time && end !== null ? formatClock(item.time) + " – " + (end === 1440 ? "آخر اليوم" : formatClock(end)) : "الموعد غير متاح"}</p>
         <Button size="sm" variant={item.done ? "secondary" : "outline"} disabled={item.done || log.isPending || !canLog}
           onClick={() => setConfirm(item.prayer)}><Check />{item.done ? "اتسجّلت" : canLog ? "سجّل الصلاة" : end !== null && minute(now) >= end ? "انتهى وقت النقاط" : "لسه معادها مجاش"}</Button>
       </li>;

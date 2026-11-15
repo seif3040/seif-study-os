@@ -1,3 +1,5 @@
+import StudyLibrary from "@/pages/StudyLibrary";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { slotOccurs } from "@shared/studyPlanner";
 import DayStudy from "@/components/DayStudy";
 import { studySlots } from "@shared/studyPlanner";
@@ -23,6 +25,7 @@ export default function WeekPlanner() {
   const today = plannerToday();
   const [day, setDay] = useState(today);
   const [editing, setEditing] = useState<PlannerSlot>();
+  const [missingHomework, setMissingHomework] = useState<number[]>([]);
   const [attending, setAttending] = useState<string>();
   const [chosen, setChosen] = useState<number[]>([]);
   const [allowOverlap, setAllowOverlap] = useState(false);
@@ -54,10 +57,11 @@ export default function WeekPlanner() {
   const override = trpc.planner.overrideSlot.useMutation({ onSuccess: refresh, onError });
   const remove = trpc.planner.removeSlot.useMutation({ onSuccess: refresh, onError });
   const attend = trpc.planner.attend.useMutation({
-    onSuccess: async () => {
+    onSuccess: async result => {
       await utils.invalidate();
       setAttending(undefined);
-      toast.success("اتسجّل الحضور، والدرس اتعلّم مكتمل، والواجب اتضاف.");
+      setMissingHomework(result.missingHomework);
+      toast.success(result.missingHomework.length ? "اتسجّل الحضور. كمّل تفاصيل الواجب." : "اتسجّل الحضور واتضاف الواجب المحفوظ.");
     },
     onError,
   });
@@ -76,6 +80,12 @@ export default function WeekPlanner() {
   if (planner.isError || plan.isError) return <p className="mb-6" role="alert">تعذّر تحميل الجدول.</p>;
 
   return <section className="mb-8 space-y-4">
+    <Dialog open={missingHomework.length > 0} onOpenChange={open => { if (!open) setMissingHomework([]); }}>
+      <DialogContent className="max-h-[85dvh] overflow-auto sm:max-w-xl">
+        <DialogTitle>واجب الحصة</DialogTitle>
+        <StudyLibrary attendanceLessons={missingHomework} />
+      </DialogContent>
+    </Dialog>
     <div className="surface space-y-4 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 font-bold"><CalendarClock className="size-5" /> أسبوعك</h2>

@@ -1,3 +1,4 @@
+import { studyResourceChange } from "../shared/studyResources.js";
 import { nawafil } from "../shared/nawafil.js";
 import { TRPCError } from "@trpc/server";
 import { coinRateKeys } from "../shared/coinRates.js";
@@ -139,9 +140,11 @@ export const appRouter = router({
     complete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.completeTask(ctx.user.id, input.taskId)),
   }),
   planner: router({
+    saveStudyResource: protectedProcedure.input(studyResourceChange)
+      .mutation(({ ctx, input }) => db.saveStudyResource(ctx.user.id, input)),
     saveNavigation: protectedProcedure.input(z.object({
       mobile: z.array(z.string().max(32)).min(1).max(5),
-      desktop: z.array(z.string().max(32)).min(1).max(12),
+      desktop: z.array(z.string().max(32)).min(1).max(13),
     })).mutation(({ ctx, input }) => db.saveNavigation(ctx.user.id, input)),
     assessmentStatus: protectedProcedure.input(z.object({ assessmentId: id, status: z.enum(["pending", "backlog", "completed"]) }))
       .mutation(({ ctx, input }) => db.setAssessmentStatus(ctx.user.id, input.assessmentId, input.status)),

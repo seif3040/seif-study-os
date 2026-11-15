@@ -1,3 +1,4 @@
+import { emptyResources, type StudyResourceChange } from "../shared/studyResources.js";
 import { nawafil, prayerLoggingEnd } from "../shared/nawafil.js";
 import { defaultDesktopTabs, type NavigationPrefs } from "../shared/navigation.js";
 import { assessmentCatalog, type AssessmentStatus } from "../shared/assessments.js";
@@ -1544,24 +1545,14 @@ export async function attendPlannerClass(userId: number, input: { slotId: string
         .map(item => ({ day, start: item.start })))
       .sort((a, b) => (a.day + a.start).localeCompare(b.day + b.start))[0];
     const deadline = nextSlot ? cairoPlannerTime(nextSlot.day, nextSlot.start) : null;
-    const homework = policy === "history" ? ["واجب مقالي", "واجب تاريخ", "تلخيص"] : ["واجب"];
     const previousClasses = new Set(state.attendance.filter(item => item.subjectId === subject.id).map(item => item.slotId + item.day)).size;
-    if (policy === "arabic") {
-      const titles = next.map(row => row.chapter?.title + " · " + row.lesson!.title);
-      await tx.insert(tasks).values({
-        userId, cycleId: cycle.id, title: ("واجب محاضرة العربي · " + next[0].lesson!.title).slice(0, 200),
-        description: titles.join("\n").slice(0, 2000), category: "واجب", scheduledFor: input.day, deadline,
-      });
-    }
     for (const row of next) {
       const lesson = row.lesson!;
       state.attendance.push({ slotId: slot.id, day: input.day, subjectId: subject.id, lessonId: lesson.id, lessonTitle: lesson.title });
       attended.add(lesson.id);
-      if (policy !== "arabic") await tx.insert(tasks).values(homework.map(label => ({
-        userId, cycleId: cycle.id, title: (label + " · " + lesson.title).slice(0, 200),
-        description: subject.title + " / " + (row.chapter?.title ?? "") + " / " + lesson.title,
-        category: "واجب", scheduledFor: input.day, deadline,
-      })));
+      for (const item of state.resources?.homework.filter(item => item.lessonId === lesson.id) ?? []) {
+        await publishBookHomework(tx, state, userId, cycle.id, item, lesson.title, input.day, deadline);
+      }
       const unitComplete = subjectRows.every(item => item.chapter?.id !== row.chapter?.id
         || item.progress?.status === "completed" || attended.has(item.lesson!.id));
       if (unitComplete && (policy === "programming" || policy === "english")) {
@@ -1581,7 +1572,8 @@ export async function attendPlannerClass(userId: number, input: { slotId: string
     return true;
   });
   if (completed) await evaluateAchievements(userId, cycle.id).catch(() => []);
-
+  const state = await getPlanner(userId);
+  return { missingHomework: input.lessonIds.filter(id => !state.resources?.homework.some(item => item.lessonId === id)) };
 }
 
 function addPlannerMilestone(state: PlannerState, id: string, title: string, duration?: number, follows?: string) {
@@ -1898,6 +1890,7 @@ export async function dailyPrayers(userId: number) {
   ]);
   return { day, awarded: completed.length === prayers.length, prayers: prayers.map(prayer => ({
     prayer, name: prayerNames[prayer], time: times?.[prayer] ?? null,
+    endMinute: times ? prayerEndForSchedule(day, prayer, times, planner) : null,
     done: planner.prayersByDay?.[day]?.includes(prayer) || completed.some(row => row.reference === prayerReference(userId, day, prayer)),
   })) };
 }
@@ -1911,11 +1904,13 @@ export async function logPrayer(userId: number, day: string, prayer: Prayer, loc
   if (day !== plannerToday()) throw new Error("حدّث الصفحة عشان تسجّل صلاة النهارده.");
   const times = await cairoPrayers(day);
   const start = +cairoPlannerTime(day, times[prayer]);
-  const end = start + (prayerLoggingEnd(prayer, plannerMinutes(times[prayer]), plannerMinutes(times.Dhuhr)) - plannerMinutes(times[prayer])) * 60_000;
-  const now = Date.now();
-  if (now < start || now >= end) throw new Error("وقت تسجيل الصلاة بالنقاط مش متاح دلوقتي.");
   const cycle = await getActiveCycle(userId);
   return changePlanner(userId, async (state, tx) => {
+    const endMinute = prayerEndForSchedule(day, prayer, times, state);
+    const end = endMinute === 1440 ? +cairoPlannerTime(shiftPlannerDay(day, 1), "00:00")
+      : start + (endMinute - plannerMinutes(times[prayer])) * 60_000;
+    const now = Date.now();
+    if (day !== plannerToday() || now < start || now >= end) throw new Error("وقت تسجيل الصلاة بالنقاط مش متاح دلوقتي.");
     state.prayersByDay ??= {};
     state.prayersByDay[day] = Array.from(new Set([...(state.prayersByDay[day] ?? []), prayer]));
     return settlePrayerPoints(tx, state, userId, cycle.id, day);
@@ -2004,4 +1999,87 @@ async function settlePrayerPoints(tx: StudyTransaction, state: PlannerState, use
     reason: "صلاة " + prayerNames[prayer], referenceKey: prayerReference(userId, day, prayer),
   })));
   return { amount: remaining.length * 500 };
+}
+
+export async function saveStudyResource(userId: number, change: StudyResourceChange) {
+  const cycle = change.type === "homework" ? await getActiveCycle(userId) : undefined;
+  return changePlanner(userId, async (state, tx) => {
+    const resources = state.resources ??= structuredClone(emptyResources);
+    if (change.type === "check") {
+      const item = resources.mistakes.find(row => row.id === change.id);
+      if (!item) throw new Error("السؤال مش موجود.");
+      const day = plannerToday();
+      if (item.due > day) return;
+      item.streak = change.correct ? item.streak + 1 : 0;
+      item.due = shiftPlannerDay(day, [1, 3, 7, 14, 30][Math.min(item.streak, 4)]);
+      return;
+    }
+    const item = change.item;
+    if (change.type === "homework") {
+      const existing = resources.homework.find(row => row.id === change.item.id);
+      if (existing && existing.lessonId !== change.item.lessonId) throw new Error("ضيف واجب جديد للدرس التاني.");
+      const book = resources.books.find(row => row.id === change.item.bookId);
+      const lesson = await ownedLesson(tx, userId, change.item.lessonId);
+      if (!book || book.subjectId !== lesson.subjectId) throw new Error("اختار كتاب من نفس مادة الدرس.");
+      if (resources.homework.length >= 500 && !resources.homework.some(row => row.id === item.id)) throw new Error("وصلت للحد الأقصى للواجبات.");
+      resources.homework = [...resources.homework.filter(row => row.id !== item.id), change.item];
+      const attendance = [...state.attendance].reverse().find(row => row.lessonId === change.item.lessonId);
+      if (attendance && cycle) {
+        const nextDay = Array.from({ length: 14 }, (_, index) => shiftPlannerDay(attendance.day, index + 1))
+          .find(day => state.slots.some(slot => slot.subjectId === book.subjectId && slotOccurs(slot, day)));
+        const nextSlot = nextDay && state.slots.filter(slot => slot.subjectId === book.subjectId && slotOccurs(slot, nextDay))
+          .sort((a, b) => a.start.localeCompare(b.start))[0];
+        await publishBookHomework(tx, state, userId, cycle.id, change.item, lesson.title, attendance.day,
+          nextDay && nextSlot ? cairoPlannerTime(nextDay, nextSlot.start) : null);
+      }
+      return;
+    }
+    const [subject] = await tx.select({ id: subjects.id }).from(subjects)
+      .where(and(eq(subjects.id, change.item.subjectId), eq(subjects.userId, userId)));
+    if (!subject) throw new Error("المادة مش موجودة.");
+    if (change.type === "book") {
+      const book = change.item;
+      const old = resources.books.find(row => row.id === book.id);
+      if (old && old.subjectId !== book.subjectId && resources.homework.some(row => row.bookId === book.id)) {
+        throw new Error("الكتاب مرتبط بواجبات. اختار كتاب جديد للمادة التانية.");
+      }
+      const lessonIds = Array.from(new Set([...book.backlog, ...(book.through ? [book.through] : [])]));
+      if (lessonIds.length) {
+        const valid = await tx.select({ id: lessons.id }).from(lessons).innerJoin(chapters, eq(chapters.id, lessons.chapterId))
+          .where(and(eq(chapters.subjectId, book.subjectId), inArray(lessons.id, lessonIds), isNull(lessons.deletedAt)));
+        if (valid.length !== lessonIds.length) throw new Error("اختار دروس من نفس مادة الكتاب.");
+      }
+      if (!old && resources.books.length >= 100) throw new Error("وصلت للحد الأقصى للكتب.");
+      resources.books = [...resources.books.filter(row => row.id !== item.id), book];
+      return;
+    }
+    const previous = resources.mistakes.find(row => row.id === item.id);
+    if (!previous && resources.mistakes.length >= 300) throw new Error("وصلت للحد الأقصى للأسئلة.");
+    resources.mistakes = [...resources.mistakes.filter(row => row.id !== item.id),
+      { ...change.item, due: previous?.due ?? plannerToday(), streak: previous?.streak ?? 0 }];
+  });
+}
+
+async function publishBookHomework(tx: StudyTransaction, state: PlannerState, userId: number, cycleId: number,
+  item: NonNullable<PlannerState["resources"]>["homework"][number], lessonTitle: string, day: string, deadline: Date | null) {
+  const resources = state.resources;
+  const book = resources?.books.find(row => row.id === item.bookId);
+  if (!resources || !book) return;
+  const key = day + ":" + item.id;
+  const published = resources.published ??= {};
+  const title = ("واجب " + lessonTitle + " · " + book.title).slice(0, 200);
+  const description = "الصفحات: " + item.pages + (item.prompt ? "\n" + item.prompt : "");
+  if (published[key]) {
+    await tx.update(tasks).set({ title, description }).where(and(eq(tasks.id, published[key]), eq(tasks.userId, userId)));
+    return;
+  }
+  const [result] = await tx.insert(tasks).values({ userId, cycleId, title, description, scheduledFor: day, deadline, category: "واجب" });
+  published[key] = result.insertId;
+}
+
+function prayerEndForSchedule(day: string, prayer: Prayer, times: Record<Prayer, string>, state: PlannerState) {
+  const start = plannerMinutes(times[prayer]);
+  const normalEnd = prayerLoggingEnd(prayer, start, plannerMinutes(times.Dhuhr));
+  return state.slots.some(slot => slot.subjectId && slotOccurs(slot, day) &&
+    plannerMinutes(slot.start) < normalEnd && plannerMinutes(slot.end) > start) ? 1440 : normalEnd;
 }

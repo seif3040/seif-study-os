@@ -1,3 +1,4 @@
+import { YearReviewSchedule } from "@/pages/StudyLibrary";
 import { AssessmentOverview } from "@/pages/Assessments";
 import DailyPrayers from "@/components/DailyPrayers";
 import DayStudy from "@/components/DayStudy";
@@ -105,6 +106,8 @@ export default function Dashboard() {
     </section>
     <DailyPrayers day={today} />
     <AssessmentOverview />
+    <YearReviewSchedule compact />
+    <Link className="text-sm text-primary underline" href="/study-library">كتبي وواجباتي وكشكول الأخطاء</Link>
     <DayStudy day={today} showSchedule />
     {editingHomework && <TaskDialog task={editingHomework} day={today} onClose={() => setEditingHomework(undefined)} onDone={() => utils.invalidate()} />}
 
