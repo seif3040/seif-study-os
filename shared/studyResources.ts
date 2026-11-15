@@ -42,6 +42,10 @@ export function bookBacklogLessons(
   );
 }
 
+export function yearReviewDate(timestamp: number) {
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" }).format(timestamp);
+}
+
 export const finalReviewDay = "2027-04-30";
 export function reviewWeekday(day: string, offset: number) {
   const date = new Date(day + "T12:00:00Z");

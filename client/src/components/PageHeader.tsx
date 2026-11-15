@@ -1,4 +1,4 @@
-import { Activity, BarChart3, BookOpen, CalendarDays, ClipboardList, Coins, FolderOpen, Gift, GraduationCap, Inbox, ListTodo, Plus, Settings, Sparkles, Timer, Video } from "lucide-react";
+import { Activity, BarChart3, BookOpen, CalendarDays, ClipboardList, Coins, FolderOpen, Gift, GraduationCap, Inbox, LibraryBig, ListTodo, NotebookPen, Plus, Settings, Sparkles, Timer, Video } from "lucide-react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 
@@ -7,6 +7,7 @@ const icons = {
   "/focus-lounge": Activity, "/habits": ListTodo, "/lesson-sources": FolderOpen,
   "/pomodoro": Timer, "/rewards": Gift, "/search": ClipboardList, "/seify": Sparkles,
   "/settings": Settings, "/study-plan": BookOpen, "/study-video": Video,
+  "/study-library": LibraryBig, "/homework": ClipboardList, "/mistakes": NotebookPen, "/year-review": CalendarDays,
 } as const;
 
 export function PageHeader({ eyebrow, title, description, action }: {

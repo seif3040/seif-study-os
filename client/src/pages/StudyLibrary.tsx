@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BookOpen, ClipboardList, CalendarDays, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,18 +7,31 @@ import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/PageHeader";
 import { trpc } from "@/lib/trpc";
 import { errorText } from "@/lib/study";
-import { bookBacklogLessons, buildYearReviews } from "@shared/studyResources";
+import { bookBacklogLessons, buildYearReviews, yearReviewDate } from "@shared/studyResources";
 import { plannerToday } from "@shared/studyPlanner";
 
 const select = "h-10 w-full rounded-md border bg-background px-2";
 const fields = (form: HTMLFormElement) => new FormData(form);
 const str = (form: FormData, key: string) => String(form.get(key) ?? "");
 
-export default function StudyLibrary({ attendanceLessons }: { attendanceLessons?: number[] } = {}) {
+const sectionDescriptions = {
+  "الكتب": "تابع تقدّم الحل والدروس المتراكمة لكل كتاب.",
+  "الواجبات": "شوف المطلوب تسليمه ومواعيده، وسجّل صفحات الواجب لكل درس.",
+  "كشكول الأخطاء": "راجع الأسئلة اللي غلطت فيها وسجّل أسئلة جديدة.",
+  "مراجعة آخر السنة": "شوف مواعيد مراجعة المواد ونطاق الدروس في كل جلسة.",
+} as const;
+
+export default function StudyLibrary({ attendanceLessons, section = "الكتب" }: {
+  attendanceLessons?: number[];
+  section?: keyof typeof sectionDescriptions;
+} = {}) {
   const planner = trpc.planner.list.useQuery();
   const plan = trpc.studyPlan.list.useQuery();
   const utils = trpc.useUtils();
-  const [tab, setTab] = useState(attendanceLessons ? "الواجبات" : "الكتب");
+  const [attendanceTab, setAttendanceTab] = useState<"الكتب" | "الواجبات">("الواجبات");
+  const tab = attendanceLessons ? attendanceTab : section;
+  const [bookFormOpen, setBookFormOpen] = useState(false);
+  const [subjectFilter, setSubjectFilter] = useState(0);
   const [subject, setSubject] = useState(0);
   const [bookId, setBookId] = useState("");
   const [editHomework, setEditHomework] = useState("");
@@ -28,7 +42,12 @@ export default function StudyLibrary({ attendanceLessons }: { attendanceLessons?
   const [response, setResponse] = useState("");
   const [show, setShow] = useState(false);
   const change = trpc.planner.saveStudyResource.useMutation({
-    onSuccess: async () => { await Promise.all([utils.planner.list.invalidate(), utils.tasks.list.invalidate(), utils.dashboard.summary.invalidate(), utils.calendar.list.invalidate()]); setShow(false); setResponse(""); toast.success("اتحفظ."); },
+    onSuccess: async (_, entry) => {
+      await Promise.all([utils.planner.list.invalidate(), utils.tasks.list.invalidate(), utils.dashboard.summary.invalidate(), utils.calendar.list.invalidate(), utils.coins.ledger.invalidate()]);
+      if (entry.type === "book") setBookFormOpen(false);
+      if (entry.type === "homework") { setEditHomework(""); setBookId(""); }
+      setShow(false); setResponse(""); toast.success("اتحفظ.");
+    },
     onError: error => toast.error(errorText(error)),
   });
   if (!plan.data || !planner.data) return <p>{plan.isError || planner.isError ? "تعذّر تحميل مكتبتك." : "جارٍ تحميل المكتبة…"}</p>;
@@ -44,20 +63,27 @@ export default function StudyLibrary({ attendanceLessons }: { attendanceLessons?
   const questions = resources?.mistakes ?? [];
   const due = questions.find(item => item.due <= plannerToday());
   const lessonOptions = items.map(row => <option value={row.lesson!.id} key={row.lesson!.id}>{row.chapter?.title} · {row.lesson!.title}</option>);
+  const openBook = (item?: (typeof books)[number]) => {
+    setEditBook(item?.id ?? ""); setSubject(item?.subjectId ?? 0); setThrough(item?.through ?? null); setBookFormOpen(true);
+  };
   return <div className="space-y-4">
-    {!attendanceLessons && <PageHeader title="كتبي وواجباتي" description="تابع حل الكتب، سجل الواجبات، وراجع الأسئلة اللي غلطت فيها." />}
+    {!attendanceLessons && <PageHeader title={section === "الكتب" ? "كتبي" : section} description={sectionDescriptions[section]}
+      action={section === "الكتب" ? { label: "كتاب جديد", onClick: () => openBook() } : undefined} />}
     {attendanceLessons && <p className="text-sm">اختار كتاب وصفحات الواجب. لو في كتاب تاني، احفظ الأول وبعدين ضيفه. لو الكتاب مش موجود، ضيفه من «الكتب» هنا.</p>}
-    <div className="flex flex-wrap gap-2">
-      {(attendanceLessons ? ["الكتب", "الواجبات"] : ["الكتب", "الواجبات", "كشكول الأخطاء", "مراجعة آخر السنة"]).map(item => <Button key={item} variant={item === tab ? "default" : "outline"} aria-pressed={item === tab} onClick={() => setTab(item)}>{item}</Button>)}
-    </div>
+    {attendanceLessons && <div className="flex flex-wrap gap-2">
+      {(["الكتب", "الواجبات"] as const).map(item => <Button key={item} variant={item === tab ? "default" : "outline"} aria-pressed={item === tab} onClick={() => setAttendanceTab(item)}>{item}</Button>)}
+    </div>}
     {tab === "مراجعة آخر السنة" && <YearReviewSchedule />}
-    {tab === "الكتب" && <div className="surface space-y-4 p-4">
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onClick={() => { setEditBook(""); setSubject(0); setThrough(null); }}>كتاب جديد</Button>
-        {books.map(item => <Button key={item.id} size="sm" variant={editBook === item.id ? "default" : "outline"} onClick={() => {
-          setEditBook(item.id); setSubject(item.subjectId); setThrough(item.through);
-        }}>{item.title} · {bookBacklogLessons(item, rows).length} متراكم</Button>)}
-      </div>
+    {tab === "الكتب" && <div className="space-y-4">
+      {!attendanceLessons && <label className="block max-w-xs space-y-1 text-sm">المادة
+        <select className={select} value={subjectFilter} onChange={event => setSubjectFilter(Number(event.target.value))}>
+          <option value={0}>كل المواد</option>
+          {subjects.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+      </label>}
+      {attendanceLessons && <Button variant="outline" onClick={() => openBook()}>كتاب جديد</Button>}
+      {bookFormOpen && <section className="surface space-y-3 p-5">
+        <h2 className="font-bold">{book ? "تعديل الكتاب" : "كتاب جديد"}</h2>
       <form key={editBook} className="space-y-3" onSubmit={event => {
         event.preventDefault();
         const form = fields(event.currentTarget);
@@ -80,10 +106,27 @@ export default function StudyLibrary({ attendanceLessons }: { attendanceLessons?
             </ul>}
           </details>}
         </fieldset>
-        <Button disabled={!subject || change.isPending}>حفظ الكتاب</Button>
-      </form>
+        <div className="flex gap-2"><Button disabled={!subject || change.isPending}>حفظ الكتاب</Button>
+          <Button type="button" variant="outline" onClick={() => setBookFormOpen(false)}>إغلاق</Button></div>
+      </form></section>}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {books.filter(item => !subjectFilter || item.subjectId === subjectFilter).map(item => {
+          const last = rows.find(row => row.lesson?.id === item.through)?.lesson?.title;
+          const backlog = bookBacklogLessons(item, rows).length;
+          return <article key={item.id} className="surface flex flex-col gap-3 p-4">
+            <BookOpen className="size-5 text-primary" aria-hidden />
+            <div><h2 className="font-bold">{item.title}</h2><p className="text-sm text-muted-foreground">{subjects.find(([id]) => id === item.subjectId)?.[1]}</p></div>
+            <p className="text-sm">آخر درس محلول · {last ?? "لسه مفيش"}</p>
+            <div className="mt-auto flex flex-wrap items-center justify-between gap-2"><span className="rounded-full bg-secondary px-3 py-1 text-sm">{backlog} متراكم</span>
+              <Button size="sm" variant="outline" onClick={() => openBook(item)}><Pencil /> تعديل</Button></div>
+          </article>;
+        })}
+      </div>
+      {!books.some(item => !subjectFilter || item.subjectId === subjectFilter) && <p className="surface p-5 text-sm text-muted-foreground">مفيش كتب هنا لسه.</p>}
     </div>}
-    {tab === "الواجبات" && <div className="surface space-y-3 p-4">
+    {tab === "الواجبات" && <div className={attendanceLessons ? "grid gap-4" : "grid items-start gap-4 xl:grid-cols-2"}>
+      <section className="surface space-y-3 p-5">
+      <h2 className="font-bold">{editHomework ? "تعديل تفاصيل الواجب" : "سجّل واجب درس"}</h2>
       {editHomework && <Button size="sm" variant="ghost" onClick={() => { setEditHomework(""); setBookId(""); }}>إلغاء تعديل الواجب</Button>}
       <form key={editHomework} className="space-y-3" onSubmit={event => {
         event.preventDefault();
@@ -99,20 +142,27 @@ export default function StudyLibrary({ attendanceLessons }: { attendanceLessons?
         <label>المطلوب بالضبط<Textarea name="prompt" defaultValue={assignment?.prompt} maxLength={900} /></label>
         <Button disabled={!bookId || change.isPending}>احفظ واجب الدرس</Button>
       </form>
-      {!attendanceLessons && <div className="space-y-1">
-        <h2 className="font-bold">الواجبات المسجّلة في التقويم</h2>
+      </section>
+      <div className="space-y-4">
+      {!attendanceLessons && <section className="surface space-y-2 p-5">
+        <h2 className="flex items-center gap-2 font-bold"><ClipboardList className="size-5 text-primary" /> مواعيد التسليم</h2>
         {assignedTasks.data?.filter(task => task.category === "واجب").map(task => <p key={task.id} className="text-sm">
           {task.status === "completed" ? "✓" : "○"} {task.title}
         </p>)}
         <a className="text-sm text-primary underline" href="/calendar?view=all">افتح المهام ومواعيد التسليم</a>
-      </div>}
+      </section>}
+      <section className="surface space-y-3 p-5">
+      <h2 className="font-bold">الواجبات حسب الدرس</h2>
       {(resources?.homework ?? []).filter(item => !attendanceLessons || attendanceLessons.includes(item.lessonId)).map(item => <article key={item.id} className="rounded border p-2 text-sm">
         <strong>{rows.find(row => row.lesson?.id === item.lessonId)?.lesson?.title} · {books.find(row => row.id === item.bookId)?.title}</strong>
         <p>ص {item.pages} · {item.prompt}</p>
         <Button size="sm" variant="ghost" onClick={() => { setEditHomework(item.id); setBookId(item.bookId); }}>تعديل الواجب</Button>
       </article>)}
+      </section></div>
     </div>}
-    {tab === "كشكول الأخطاء" && <div className="surface space-y-3 p-4">
+    {tab === "كشكول الأخطاء" && <div className="grid items-start gap-4 xl:grid-cols-2">
+      <section className="surface space-y-3 p-5">
+      <h2 className="font-bold">المراجعة</h2>
       {due ? <article className="space-y-2 rounded-lg border p-3">
         <h2 className="font-bold">سؤال للمراجعة</h2><p className="whitespace-pre-wrap">{due.question}</p>
         {due.kind === "choice" ? <select className={select} value={response} onChange={e => setResponse(e.target.value)} disabled={show}>
@@ -123,7 +173,8 @@ export default function StudyLibrary({ attendanceLessons }: { attendanceLessons?
             disabled={change.isPending} onClick={() => change.mutate({ type: "check", id: due.id, correct })}>{correct ? "صح، سجّل المراجعة" : "غلط، اسألني تاني"}</Button>)}
         </> : <Button disabled={!response.trim()} onClick={() => setShow(true)}>اعرض الإجابة</Button>}
       </article> : <p>مفيش أسئلة مستحقة دلوقتي.</p>}
-      <form className="space-y-3" onSubmit={event => {
+      </section>
+      <form className="surface space-y-3 p-5" onSubmit={event => {
         event.preventDefault();
         const form = fields(event.currentTarget);
         change.mutate({ type: "mistake", item: { id: crypto.randomUUID(), subjectId: Number(str(form, "subject")),
@@ -144,6 +195,13 @@ export default function StudyLibrary({ attendanceLessons }: { attendanceLessons?
 
 export function YearReviewSchedule({ compact = false }: { compact?: boolean }) {
   const plan = trpc.studyPlan.list.useQuery();
+  const planner = trpc.planner.list.useQuery();
+  const utils = trpc.useUtils();
+  const finish = trpc.planner.finishYearReview.useMutation({
+    onSuccess: () => utils.invalidate(),
+    onError: error => toast.error(errorText(error)),
+  });
+  const completedReviews = new Set(planner.data?.completedYearReviews);
   const today = plannerToday();
   const groups = new Map<number, NonNullable<typeof plan.data>["rows"]>();
   for (const row of plan.data?.rows ?? []) {
@@ -155,19 +213,23 @@ export function YearReviewSchedule({ compact = false }: { compact?: boolean }) {
   const previews = Array.from(groups.values()).flatMap(rows => {
     if (rows.some(row => row.progress?.status !== "completed" || !row.progress.completedAt)) return [];
     const completed = Math.max(...rows.map(row => +new Date(row.progress!.completedAt!)));
-    const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" });
-    const schedule = buildYearReviews(date.format(completed), rows.length, today);
+    const schedule = buildYearReviews(yearReviewDate(completed), rows.length, today);
     return schedule.map(item => ({ ...item, subject: rows[0].subject.title, id: rows[0].subject.id, rows }));
-  }).filter(item => item.day >= today).sort((a, b) => a.day.localeCompare(b.day));
+  }).filter(item => item.day >= today || (!compact && !completedReviews.has(item.id + ":" + item.day))).sort((a, b) => a.day.localeCompare(b.day));
   if (compact && !previews.some(item => item.day === today)) return null;
   return <section className="surface space-y-3 p-4">
-    <h2 className="font-bold">مراجعة آخر السنة</h2>
+    <h2 className="flex items-center gap-2 font-bold"><CalendarDays className="size-5 text-primary" /> {compact ? "مراجعة آخر السنة" : "جلسات المراجعة القادمة"}</h2>
     <p className="text-sm text-muted-foreground">بتبدأ بعد آخر درس مكتمل بأسبوع. المواد الأطول ليها يومين في الأسبوع.</p>
     {!previews.length && <p>أول ما تخلّص مادة، مواعيد مراجعتها هتظهر هنا.</p>}
     {previews.filter(item => !compact || item.day === today).map(item => <details key={item.id + item.day} className="rounded border p-3">
-      <summary className="cursor-pointer">{item.day} · {item.subject} · {item.title}</summary>
+      <summary className="cursor-pointer"><span className="font-bold">{item.subject} · {item.title}</span>
+        <span className="ms-2 text-sm text-muted-foreground">{new Intl.DateTimeFormat("ar-EG", { dateStyle: "full", timeZone: "UTC" }).format(new Date(item.day))} · {item.to - item.from + 1} درس</span>
+      </summary>
       <ul className="mt-2 space-y-1 text-sm">{item.rows.slice(item.from - 1, item.to).map(row =>
         <li key={row.lesson!.id}>{row.chapter?.title} · {row.lesson!.title}</li>)}</ul>
+      {completedReviews.has(item.id + ":" + item.day) ? <p className="mt-3 text-sm text-primary">تمت المراجعة</p>
+        : item.day <= today && <Button className="mt-3" size="sm" disabled={!planner.data || finish.isPending}
+          onClick={() => finish.mutate({ subjectId: item.id, day: item.day })}>خلصت المراجعة</Button>}
     </details>)}
   </section>;
 }
@@ -177,7 +239,7 @@ export function BookBacklog() {
   const plan = trpc.studyPlan.list.useQuery();
   const utils = trpc.useUtils();
   const change = trpc.planner.saveStudyResource.useMutation({
-    onSuccess: () => utils.planner.list.invalidate(),
+    onSuccess: () => Promise.all([utils.planner.list.invalidate(), utils.coins.ledger.invalidate(), utils.dashboard.summary.invalidate()]),
     onError: error => toast.error(errorText(error)),
   });
   const rows = plan.data?.rows ?? [];

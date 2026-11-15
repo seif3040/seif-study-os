@@ -1,3 +1,4 @@
+import { defaultDesktopTabs } from "../shared/navigation.js";
 import { studyPostponeReasons } from "../shared/studyPlanner.js";
 import { studyResourceChange } from "../shared/studyResources.js";
 import { nawafil } from "../shared/nawafil.js";
@@ -146,7 +147,7 @@ export const appRouter = router({
       .mutation(({ ctx, input }) => db.saveStudyResource(ctx.user.id, input)),
     saveNavigation: protectedProcedure.input(z.object({
       mobile: z.array(z.string().max(32)).min(1).max(5),
-      desktop: z.array(z.string().max(32)).min(1).max(13),
+      desktop: z.array(z.string().max(32)).min(1).max(defaultDesktopTabs.length),
     })).mutation(({ ctx, input }) => db.saveNavigation(ctx.user.id, input)),
     assessmentStatus: protectedProcedure.input(z.object({ assessmentId: id, status: z.enum(["pending", "backlog", "completed"]) }))
       .mutation(({ ctx, input }) => db.setAssessmentStatus(ctx.user.id, input.assessmentId, input.status)),
@@ -165,6 +166,8 @@ export const appRouter = router({
       start: plannerTime, end: plannerTime, kind: z.enum(["homework", "review", "backlog", "study"]), lessonId: z.number().int().optional(),
       postponeReason: z.enum(studyPostponeReasons).optional(),
     })).mutation(({ ctx, input }) => db.savePlannedStudy(ctx.user.id, input)),
+    finishYearReview: protectedProcedure.input(z.object({ subjectId: id, day: z.string().date() }))
+      .mutation(({ ctx, input }) => db.finishYearReview(ctx.user.id, input)),
     finishStudy: protectedProcedure.input(z.object({ id: z.string().uuid() }))
       .mutation(({ ctx, input }) => db.finishPlannedStudy(ctx.user.id, input.id)),
     removeStudy: protectedProcedure.input(z.object({ id: z.string().uuid() }))

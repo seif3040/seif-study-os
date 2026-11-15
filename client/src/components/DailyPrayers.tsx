@@ -1,3 +1,4 @@
+import { coinRateCatalog } from "@shared/coinRates";
 import { nawafil } from "@shared/nawafil";
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -15,6 +16,8 @@ export default function DailyPrayers({ day }: { day: string }) {
   useEffect(() => { const timer = window.setInterval(() => setNow(cairoClock()), 1000); return () => window.clearInterval(timer); }, []);
   const minute = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
   const query = trpc.prayers.today.useQuery(undefined, { refetchInterval: 60_000 });
+  const rates = trpc.economy.rates.useQuery();
+  const points = (rates.data?.find(rate => rate.key === "prayer_complete")?.amount ?? coinRateCatalog.prayer_complete[1]) * 5;
   const utils = trpc.useUtils();
   const refresh = () => Promise.all([utils.planner.list.invalidate(), utils.prayers.today.invalidate(), utils.coins.ledger.invalidate(), utils.dashboard.summary.invalidate()]);
   const planner = trpc.planner.list.useQuery();
@@ -36,7 +39,7 @@ export default function DailyPrayers({ day }: { day: string }) {
   return <section className="surface space-y-3 p-5">
     <h2 className="flex items-center gap-2 font-bold"><Clock3 className="size-5" /> مواقيت الصلاة · القاهرة</h2>
     <p className="text-sm text-muted-foreground">الفجر يتسجّل بالنقاط لحد أذان الظهر. باقي الصلوات خلال ساعة من الأذان. لو فيه حصة متعارضة، التسجيل يمتد لآخر اليوم.</p>
-    <p className="text-sm font-semibold">{query.data?.awarded ? "نقاط صلاة اليوم اتحسبت." : "٢٥٠٠ نقطة بعد تسجيل الفروض الخمسة في مواعيدها وتأكيد كل النوافل."}</p>
+    <p className="text-sm font-semibold">{query.data?.awarded ? "نقاط صلاة اليوم اتحسبت." : points.toLocaleString("ar-EG") + " نقطة بعد تسجيل الفروض الخمسة في مواعيدها وتأكيد كل النوافل."}</p>
     {query.isError && <p role="alert">تعذّر تحميل الصلوات. <Button size="sm" variant="outline" onClick={() => void query.refetch()}>جرّب تاني</Button></p>}
     {query.isLoading && <p>جارٍ تحميل المواقيت…</p>}
     {query.data?.day === day && <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">

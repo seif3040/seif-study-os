@@ -1,4 +1,11 @@
 export const coinRateCatalog = {
+  "planned_study_complete": ["إكمال جلسة من خطة المذاكرة", 15, "دراسة"],
+  "homework_complete": ["تسليم واجب", 20, "دراسة"],
+  "year_review_complete": ["إكمال جلسة مراجعة آخر السنة", 20, "دراسة"],
+  "assessment_complete": ["إكمال تقييم", 25, "دراسة"],
+  "book_lesson_solved": ["إكمال حل درس في كتاب", 15, "دراسة"],
+  "mistake_review": ["مراجعة سؤال من كشكول الأخطاء", 10, "دراسة"],
+  "prayer_complete": ["الصلاة · لكل فرض بعد إكمال الفروض والنوافل", 500, "الصلاة"],
   "pomodoro_15": [
     "Pomodoro · ١٥ دقيقة",
     8,

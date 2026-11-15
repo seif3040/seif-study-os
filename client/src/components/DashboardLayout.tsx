@@ -10,7 +10,7 @@ import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import { LogOut, Menu, Search } from "lucide-react";
 import { menu, mobileLabels } from "@/lib/navigation";
-import { defaultMobileTabs, defaultDesktopTabs } from "@shared/navigation";
+import { defaultMobileTabs, defaultDesktopTabs, desktopNavigation } from "@shared/navigation";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
 import { QuickThemePicker } from "@/components/ThemePicker";
@@ -29,10 +29,7 @@ function SignInGate() { const [password, setPassword] = useState(""); const [bus
 function StudyNavigation({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth(); const [location, navigate] = useLocation(); const mobile = useIsMobile();
   const prefs = trpc.planner.list.useQuery().data?.navigation;
-  const savedDesktop = prefs?.desktop;
-  const desktopPaths = savedDesktop && !prefs.libraryTabSeen && !savedDesktop.includes("/study-library")
-    ? savedDesktop.flatMap(path => path === "/settings" ? ["/study-library", path] : [path])
-    : savedDesktop ?? defaultDesktopTabs;
+  const desktopPaths = desktopNavigation(prefs);
   const mobilePaths = prefs?.mobile ?? defaultMobileTabs;
   const pick = (paths: readonly string[]) => paths.flatMap(path => menu.filter(item => item[1] === path));
   const current = menu.find(([_, path]) => path === location)?.[0] ?? "Seif Study OS";

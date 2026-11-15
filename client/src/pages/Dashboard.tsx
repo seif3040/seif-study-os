@@ -72,7 +72,7 @@ export default function Dashboard() {
           <p className="mt-1 text-xs text-white/85">{money.format(finished)} من {money.format(todaysTasks.length)} مهام خلصت</p>
         </div>
       </div>
-      <Button asChild variant="secondary" className="mt-3"><Link href="/study-library"><BookOpen />كتبي وواجباتي</Link></Button>
+      <Button asChild variant="secondary" className="mt-3"><Link href="/study-library"><BookOpen />كتبي</Link></Button>
     </section>
     <section aria-label="العد التنازلي لنهاية البكالوريا"
       className="surface flex flex-wrap items-center justify-between gap-4 rounded-3xl border-primary/30 bg-primary/10 p-5 sm:px-7">

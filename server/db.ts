@@ -1,4 +1,4 @@
-import { emptyResources, type StudyResourceChange } from "../shared/studyResources.js";
+import { buildYearReviews, emptyResources, yearReviewDate, type StudyResourceChange } from "../shared/studyResources.js";
 import { nawafil, prayerLoggingEnd } from "../shared/nawafil.js";
 import { defaultDesktopTabs, type NavigationPrefs } from "../shared/navigation.js";
 import { assessmentCatalog, type AssessmentStatus } from "../shared/assessments.js";
@@ -174,6 +174,19 @@ async function awardCoins(params: { userId: number; cycleId: number; amount: num
     await tx.insert(coinTransactions).values({ ...entry, amount, type: "earn" });
     return { awarded: true, amount, balance: (await getCoinSummary(tx, entry.userId)).balance };
   });
+}
+
+async function awardPlannerCoins(tx: StudyTransaction, userId: number, cycleId: number,
+  rateKey: CoinRateKey, reference: string, reason: string) {
+  await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+  const referenceKey = `planner:${userId}:${reference}`;
+  const [previous] = await tx.select({ id: coinTransactions.id }).from(coinTransactions)
+    .where(eq(coinTransactions.referenceKey, referenceKey)).limit(1);
+  if (previous) return;
+  const [rate] = await tx.select({ amount: coinRateSettings.amount }).from(coinRateSettings)
+    .where(eq(coinRateSettings.rateKey, rateKey)).limit(1);
+  const amount = rate?.amount ?? coinRateCatalog[rateKey][1];
+  if (amount > 0) await tx.insert(coinTransactions).values({ userId, cycleId, amount, type: "earn", reason, referenceKey });
 }
 
 async function recordStudyEvent(params: { userId: number; cycleId: number; subjectId?: number | null; eventType: typeof studyEvents.$inferInsert.eventType; referenceId: string; durationMinutes?: number }) {
@@ -388,8 +401,8 @@ export async function completeTask(userId: number, taskId: number, completedAt =
     const [prior] = await tx.select({ id: coinTransactions.id }).from(coinTransactions)
       .where(eq(coinTransactions.referenceKey, reference)).limit(1);
     const [rate] = await tx.select({ amount: coinRateSettings.amount }).from(coinRateSettings)
-      .where(eq(coinRateSettings.rateKey, `task_${item.priority}`)).limit(1);
-    const amount = prior ? 0 : rate?.amount ?? taskRewardForPriority(item.priority);
+      .where(eq(coinRateSettings.rateKey, item.category === "واجب" ? "homework_complete" : `task_${item.priority}`)).limit(1);
+    const amount = prior ? 0 : rate?.amount ?? (item.category === "واجب" ? coinRateCatalog.homework_complete[1] : taskRewardForPriority(item.priority));
     if (amount > 0) await tx.insert(coinTransactions).values({
       userId, cycleId: item.cycleId, amount, type: "earn", referenceKey: reference,
       reason: `إكمال مهمة: ${item.title}`, createdAt: completedAt,
@@ -1742,15 +1755,44 @@ export function savePlannedStudy(userId: number, input: PlannedStudy) {
 }
 
 export async function finishPlannedStudy(userId: number, id: string) {
-  const session = (await getPlanner(userId)).studySessions?.find(item => item.id === id);
-  if (!session || session.done) return;
-  if (session.kind === "backlog" && session.lessonId) {
-    if (session.lessonId < 0) return setAssessmentStatus(userId, -session.lessonId, "completed");
-    await completeLesson(userId, session.lessonId);
+  const cycle = await getActiveCycle(userId);
+  const lessonCycle = await changePlanner(userId, async (state, tx) => {
+    const session = state.studySessions?.find(item => item.id === id);
+    if (!session || session.done) return;
+    let completedLessonCycle: number | undefined;
+    if (session.kind === "backlog" && session.lessonId) {
+      if (session.lessonId < 0) {
+        await applyAssessmentStatus(tx, state, userId, cycle.id, -session.lessonId, "completed");
+        return;
+      }
+      const result = await completeLessonInTransaction(tx, userId, session.lessonId, new Date());
+      if (!result.alreadyCompleted) completedLessonCycle = result.cycleId;
+    }
+    session.done = true;
+    await awardPlannerCoins(tx, userId, cycle.id, "planned_study_complete", "session:" + id, "إكمال جلسة: " + session.title);
+    return completedLessonCycle;
+  });
+  if (lessonCycle !== undefined) await evaluateAchievements(userId, lessonCycle);
+}
+
+export async function finishYearReview(userId: number, input: { subjectId: number; day: string }) {
+  const today = plannerToday();
+  if (input.day > today) throw new Error("سجّل المراجعة في يومها أو بعده.");
+  const { cycle, rows } = await listStudyPlan(userId);
+  const subjectRows = rows.filter(row => row.subject.id === input.subjectId && row.lesson);
+  if (!subjectRows.length || subjectRows.some(row => row.progress?.status !== "completed" || !row.progress.completedAt)) {
+    throw new Error("مراجعة آخر السنة تبدأ بعد إكمال المادة.");
   }
-  return changePlanner(userId, async state => {
-    const item = state.studySessions?.find(value => value.id === id);
-    if (item) item.done = true;
+  const completedAt = Math.max(...subjectRows.map(row => +row.progress!.completedAt!));
+  if (!buildYearReviews(yearReviewDate(completedAt), subjectRows.length, input.day).some(session => session.day === input.day)) {
+    throw new Error("جلسة المراجعة دي مش موجودة في الجدول.");
+  }
+  return changePlanner(userId, async (state, tx) => {
+    const completed = state.completedYearReviews ??= [];
+    const key = input.subjectId + ":" + input.day;
+    if (completed.includes(key)) return;
+    await awardPlannerCoins(tx, userId, cycle.id, "year_review_complete", "year:" + key, "مراجعة آخر السنة: " + subjectRows[0].subject.title);
+    completed.push(key);
   });
 }
 
@@ -1992,15 +2034,21 @@ export async function awardActivityPoint(userId: number, action: string) {
   });
 }
 
-export function setAssessmentStatus(userId: number, id: number, status: AssessmentStatus) {
-  return changePlanner(userId, async state => {
-    if (!assessmentCatalog.some(item => item.id === id)) throw new Error("التقييم مش موجود.");
-    state.assessments ??= {};
-    state.assessments[id] = status;
-    for (const session of state.studySessions ?? []) {
-      if (session.lessonId === -id) session.done = status === "completed";
-    }
-  });
+async function applyAssessmentStatus(tx: StudyTransaction, state: PlannerState, userId: number, cycleId: number, id: number, status: AssessmentStatus) {
+  if (!assessmentCatalog.some(item => item.id === id)) throw new Error("التقييم مش موجود.");
+  const statuses = state.assessments ??= {};
+  if (status === "completed" && statuses[id] !== "completed") {
+    await awardPlannerCoins(tx, userId, cycleId, "assessment_complete", "assessment:" + id, "إكمال تقييم");
+  }
+  statuses[id] = status;
+  for (const session of state.studySessions ?? []) {
+    if (session.lessonId === -id) session.done = status === "completed";
+  }
+}
+
+export async function setAssessmentStatus(userId: number, id: number, status: AssessmentStatus) {
+  const cycle = await getActiveCycle(userId);
+  return changePlanner(userId, (state, tx) => applyAssessmentStatus(tx, state, userId, cycle.id, id, status));
 }
 
 export function saveNavigation(userId: number, navigation: NavigationPrefs) {
@@ -2011,7 +2059,7 @@ export function saveNavigation(userId: number, navigation: NavigationPrefs) {
     }
   }
   if (!navigation.desktop.includes("/settings")) throw new Error("الإعدادات لازم تفضل متاحة في القائمة الجانبية.");
-  return changePlanner(userId, async state => { state.navigation = { ...navigation, libraryTabSeen: true }; });
+  return changePlanner(userId, async state => { state.navigation = { ...navigation, libraryTabSeen: true, librarySectionsSeen: true }; });
 }
 
 export async function setNafl(userId: number, day: string, name: typeof nawafil[number], done: boolean) {
@@ -2043,15 +2091,20 @@ async function settlePrayerPoints(tx: StudyTransaction, state: PlannerState, use
     return { amount: 0 };
   }
   const remaining = prayers.filter(prayer => !paid.has(prayerReference(userId, day, prayer)));
-  if (remaining.length) await tx.insert(coinTransactions).values(remaining.map(prayer => ({
-    userId, cycleId, amount: 500, type: "earn" as const,
+  if (!remaining.length) return { amount: 0 };
+  const [rate] = await tx.select({ amount: coinRateSettings.amount }).from(coinRateSettings)
+    .where(eq(coinRateSettings.rateKey, "prayer_complete")).limit(1);
+  const amount = rate?.amount ?? coinRateCatalog.prayer_complete[1];
+  if (!amount) return { amount: 0 };
+  await tx.insert(coinTransactions).values(remaining.map(prayer => ({
+    userId, cycleId, amount, type: "earn" as const,
     reason: "صلاة " + prayerNames[prayer], referenceKey: prayerReference(userId, day, prayer),
   })));
-  return { amount: remaining.length * 500 };
+  return { amount: remaining.length * amount };
 }
 
 export async function saveStudyResource(userId: number, change: StudyResourceChange) {
-  const cycle = change.type === "homework" ? await getActiveCycle(userId) : undefined;
+  const cycle = ["homework", "check", "solveBookLesson"].includes(change.type) ? await getActiveCycle(userId) : undefined;
   return changePlanner(userId, async (state, tx) => {
     const resources = state.resources ??= structuredClone(emptyResources);
     if (change.type === "check") {
@@ -2059,6 +2112,7 @@ export async function saveStudyResource(userId: number, change: StudyResourceCha
       if (!item) throw new Error("السؤال مش موجود.");
       const day = plannerToday();
       if (item.due > day) return;
+      if (cycle) await awardPlannerCoins(tx, userId, cycle.id, "mistake_review", `mistake:${item.id}:${day}`, "مراجعة سؤال من كشكول الأخطاء");
       item.streak = change.correct ? item.streak + 1 : 0;
       item.due = shiftPlannerDay(day, [1, 3, 7, 14, 30][Math.min(item.streak, 4)]);
       return;
@@ -2068,7 +2122,9 @@ export async function saveStudyResource(userId: number, change: StudyResourceCha
       const lesson = await ownedLesson(tx, userId, change.lessonId);
       if (!book || book.subjectId !== lesson.subjectId) throw new Error("اختار درس من نفس مادة الكتاب.");
       const solved = book.solvedLessonIds ??= [];
-      if (!solved.includes(change.lessonId)) solved.push(change.lessonId);
+      if (solved.includes(change.lessonId)) return;
+      if (cycle) await awardPlannerCoins(tx, userId, cycle.id, "book_lesson_solved", `book:${book.id}:${change.lessonId}`, "إكمال حل درس في كتاب: " + book.title);
+      solved.push(change.lessonId);
       return;
     }
     const item = change.item;

@@ -41,6 +41,7 @@ export type PlannerState = {
   backlogSubjects?: Record<string, number>;
   teacherNext?: Record<number, number>;
   studySessions?: PlannedStudy[];
+  completedYearReviews?: string[];
   dailyPrompt?: { day: string; outcome: 'approved' | 'skipped' };
   wake: string;
   sleep: string;
