@@ -1,0 +1,1 @@
+ALTER TABLE examAttempts ADD COLUMN takenOn DATE NULL;

@@ -233,6 +233,7 @@ export const examAttempts = mysqlTable("examAttempts", {
   missedTopics: json("missedTopics").$type<string[]>(),
   comprehensionScore: int("comprehensionScore").notNull(),
   completionRewarded: boolean("completionRewarded").default(false).notNull(),
+  takenOn: date("takenOn", { mode: "string" }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => [index("examAttempts_user_cycle_idx").on(table.userId, table.cycleId), uniqueIndex("examAttempts_exam_attempt_unique").on(table.examId, table.id)]);
 

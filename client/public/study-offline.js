@@ -205,9 +205,18 @@
     } catch { showError(); }
   });
 
+  const examDay = byId("exam-taken-on");
+  const cairoDay = () => new Intl.DateTimeFormat("sv-SE", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  examDay.max = cairoDay();
+  examDay.defaultValue = examDay.max;
   byId("exam-form").addEventListener("submit", async event => {
     event.preventDefault();
     const examId = Number(byId("exam-choice").value);
+    const takenOn = examDay.value;
+    if (!takenOn || takenOn > cairoDay()) {
+      status.textContent = "اختار يوم أداء الامتحان قبل التسجيل أو في نفس اليوم.";
+      return;
+    }
     const totalQuestions = Number(byId("exam-total").value);
     const correctAnswers = Number(byId("exam-correct").value);
     const missedTopics = byId("exam-missed").value.split(/\r?\n/).map(topic => topic.trim()).filter(Boolean);
@@ -219,7 +228,7 @@
     byId("exam-submit").disabled = true;
     try {
       await store.saveExam(snapshot.ownerId, {
-        examId, totalQuestions, correctAnswers, difficulty: byId("exam-difficulty").value, missedTopics,
+        examId, takenOn, totalQuestions, correctAnswers, difficulty: byId("exam-difficulty").value, missedTopics,
       });
       event.target.reset();
       await refreshPending();

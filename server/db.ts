@@ -720,7 +720,25 @@ async function estimateComprehension(input: { score: number; correctAnswers: num
 }
 export async function listExamsLegacy(userId: number) { const db = await database(); return db.select({ exam: exams, subject: subjects.title }).from(exams).leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(eq(exams.userId, userId)).orderBy(exams.scheduledAt); }
 export async function createExamLegacy(userId: number, input: { title: string; subjectId?: number; chapterId?: number; lessonId?: number; scheduledAt?: Date }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(exams).values({ userId, cycleId: cycle.id, ...input, subjectId: input.subjectId ?? null, chapterId: input.chapterId ?? null, lessonId: input.lessonId ?? null, scheduledAt: input.scheduledAt ?? null }); }
-export async function completeExamAttempt(userId: number, input: { examId: number; totalQuestions: number; correctAnswers: number; difficulty: "easy" | "medium" | "hard"; missedTopics: string[] }) { const db = await database(); const exam = await db.select().from(exams).where(and(eq(exams.id, input.examId), eq(exams.userId, userId), isNull(exams.archivedAt))).limit(1); if (!exam[0]) throw new Error("الامتحان غير موجود."); if (input.correctAnswers > input.totalQuestions) throw new Error("عدد الإجابات الصحيحة غير صحيح."); const incorrectAnswers = input.totalQuestions - input.correctAnswers; const score = Math.round((input.correctAnswers / input.totalQuestions) * 100); const [prior] = await db.select({ average: sql<number>`coalesce(avg(${examAttempts.score}), 0)` }).from(examAttempts).where(eq(examAttempts.userId, userId)); const comprehensionScore = await estimateComprehension({ score, correctAnswers: input.correctAnswers, incorrectAnswers, difficulty: input.difficulty, missedTopics: input.missedTopics, priorAverage: Number(prior?.average ?? 0) }); await db.insert(examAttempts).values({ userId, cycleId: exam[0].cycleId, examId: input.examId, totalQuestions: input.totalQuestions, correctAnswers: input.correctAnswers, incorrectAnswers, score, difficulty: input.difficulty, missedTopics: input.missedTopics, comprehensionScore, completionRewarded: true }); const attempt = await db.select().from(examAttempts).where(and(eq(examAttempts.examId, input.examId), eq(examAttempts.userId, userId))).orderBy(desc(examAttempts.id)).limit(1); const ref = `examAttempt:${attempt[0].id}`; await recordStudyEvent({ userId, cycleId: exam[0].cycleId, eventType: "exam_complete", referenceId: ref }); const completion = await awardCoins({ userId, cycleId: exam[0].cycleId, amount: 15, rateKey: "exam_complete", reason: `إكمال امتحان: ${exam[0].title}`, referenceKey: `${ref}:completion` }); const bonusDefault = examBonusForComprehension(comprehensionScore); const threshold = [95, 90, 80, 70, 60].find(value => comprehensionScore >= value); const bonus = threshold ? await awardCoins({ userId, cycleId: exam[0].cycleId, amount: bonusDefault, rateKey: ("exam_bonus_" + threshold) as CoinRateKey, reason: `مكافأة الاستيعاب: ${comprehensionScore}%`, referenceKey: `${ref}:comprehension` }) : { awarded: false, amount: 0 }; return { attempt: attempt[0], score, comprehensionScore, completion, bonus, bonusAmount: bonus.amount, unlocks: await evaluateAchievements(userId, exam[0].cycleId) }; }
+function examPerformanceDay(attempt: { takenOn: string | null; scheduledAt: Date | null; recordedAt: Date }) {
+  if (attempt.takenOn) return attempt.takenOn;
+  const scheduled = attempt.scheduledAt && yearReviewDate(+attempt.scheduledAt);
+  return scheduled && scheduled <= yearReviewDate(+attempt.recordedAt) ? scheduled : null;
+}
+
+export async function setExamAttemptDate(userId: number, attemptId: number, takenOn: string) {
+  if (takenOn > plannerToday()) throw new Error("اختار تاريخ النهارده أو يوم قبله.");
+  const db = await database();
+  const [result] = await db.update(examAttempts).set({ takenOn })
+    .where(and(eq(examAttempts.id, attemptId), eq(examAttempts.userId, userId)));
+  if (!result.affectedRows) {
+    const [existing] = await db.select({ id: examAttempts.id }).from(examAttempts)
+      .where(and(eq(examAttempts.id, attemptId), eq(examAttempts.userId, userId)));
+    if (!existing) throw new Error("المحاولة مش موجودة.");
+  }
+}
+
+export async function completeExamAttempt(userId: number, input: { examId: number; takenOn?: string; totalQuestions: number; correctAnswers: number; difficulty: "easy" | "medium" | "hard"; missedTopics: string[] }) { if (input.takenOn && input.takenOn > plannerToday()) throw new Error("اختار تاريخ النهارده أو يوم قبله."); const db = await database(); const exam = await db.select().from(exams).where(and(eq(exams.id, input.examId), eq(exams.userId, userId), isNull(exams.archivedAt))).limit(1); if (!exam[0]) throw new Error("الامتحان غير موجود."); if (input.correctAnswers > input.totalQuestions) throw new Error("عدد الإجابات الصحيحة غير صحيح."); const incorrectAnswers = input.totalQuestions - input.correctAnswers; const score = Math.round((input.correctAnswers / input.totalQuestions) * 100); const [prior] = await db.select({ average: sql<number>`coalesce(avg(${examAttempts.score}), 0)` }).from(examAttempts).where(eq(examAttempts.userId, userId)); const comprehensionScore = await estimateComprehension({ score, correctAnswers: input.correctAnswers, incorrectAnswers, difficulty: input.difficulty, missedTopics: input.missedTopics, priorAverage: Number(prior?.average ?? 0) }); const [inserted] = await db.insert(examAttempts).values({ userId, cycleId: exam[0].cycleId, examId: input.examId, totalQuestions: input.totalQuestions, correctAnswers: input.correctAnswers, incorrectAnswers, score, difficulty: input.difficulty, missedTopics: input.missedTopics, comprehensionScore, completionRewarded: true, takenOn: input.takenOn }); const attempt = await db.select().from(examAttempts).where(and(eq(examAttempts.id, inserted.insertId), eq(examAttempts.userId, userId))).limit(1); const ref = `examAttempt:${attempt[0].id}`; await recordStudyEvent({ userId, cycleId: exam[0].cycleId, eventType: "exam_complete", referenceId: ref }); const completion = await awardCoins({ userId, cycleId: exam[0].cycleId, amount: 15, rateKey: "exam_complete", reason: `إكمال امتحان: ${exam[0].title}`, referenceKey: `${ref}:completion` }); const bonusDefault = examBonusForComprehension(comprehensionScore); const threshold = [95, 90, 80, 70, 60].find(value => comprehensionScore >= value); const bonus = threshold ? await awardCoins({ userId, cycleId: exam[0].cycleId, amount: bonusDefault, rateKey: ("exam_bonus_" + threshold) as CoinRateKey, reason: `مكافأة الاستيعاب: ${comprehensionScore}%`, referenceKey: `${ref}:comprehension` }) : { awarded: false, amount: 0 }; return { attempt: attempt[0], score, comprehensionScore, completion, bonus, bonusAmount: bonus.amount, unlocks: await evaluateAchievements(userId, exam[0].cycleId) }; }
 
 
 export async function listCalendar(userId: number, from: Date, to: Date) { const db = await database(); const [taskItems, examItems, goalItems, customItems, sessions] = await Promise.all([db.select().from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt), gte(tasks.deadline, from), lte(tasks.deadline, to))), db.select().from(exams).where(and(eq(exams.userId, userId), isNull(exams.archivedAt), gte(exams.scheduledAt, from), lte(exams.scheduledAt, to))), db.select().from(goals).where(and(eq(goals.userId, userId), gte(goals.deadline, from), lte(goals.deadline, to))), db.select().from(calendarEvents).where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startsAt, from), lte(calendarEvents.startsAt, to))), db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "completed"), gte(pomodoroSessions.completedAt, from), lte(pomodoroSessions.completedAt, to)))]); return { tasks: taskItems, exams: examItems, goals: goalItems, events: customItems, sessions }; }
@@ -862,7 +880,7 @@ export async function listExams(userId: number) {
     db.select({ exam: exams, subject: subjects.title }).from(exams)
       .leftJoin(subjects, eq(exams.subjectId, subjects.id))
       .where(eq(exams.userId, userId)).orderBy(exams.scheduledAt),
-    db.select({ id: examAttempts.id, examId: examAttempts.examId, score: examAttempts.score, comprehension: examAttempts.comprehensionScore, date: examAttempts.createdAt })
+    db.select({ id: examAttempts.id, examId: examAttempts.examId, score: examAttempts.score, comprehension: examAttempts.comprehensionScore, takenOn: examAttempts.takenOn, recordedAt: examAttempts.createdAt })
       .from(examAttempts).where(eq(examAttempts.userId, userId)).orderBy(desc(examAttempts.createdAt), desc(examAttempts.id)),
   ]);
   const attemptsByExam = new Map<number, typeof attempts>();
@@ -873,7 +891,10 @@ export async function listExams(userId: number) {
   }
   return Promise.all(rows.map(async row => {
     const scoped = await scopedExamLessons(db, userId, row.exam.id);
-    return { ...row, lessons: scoped, readiness: readinessForLessons(scoped), attempts: attemptsByExam.get(row.exam.id) ?? [] };
+    const attempts = (attemptsByExam.get(row.exam.id) ?? []).map(attempt => ({
+      ...attempt, date: examPerformanceDay({ ...attempt, scheduledAt: row.exam.scheduledAt }),
+    }));
+    return { ...row, lessons: scoped, readiness: readinessForLessons(scoped), attempts };
   }));
 }
 
@@ -889,10 +910,12 @@ export async function analytics(userId: number) {
     }).from(studyEvents).where(eq(studyEvents.userId, userId)).groupBy(eventDay).orderBy(eventDay),
     db.select({ subject: subjectName, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)` }).from(studyEvents).leftJoin(subjects, eq(studyEvents.subjectId, subjects.id)).where(eq(studyEvents.userId, userId)).groupBy(studyEvents.subjectId, subjectName),
     db.select({ open: sql<number>`coalesce(sum(case when ${tasks.status} = 'open' then 1 else 0 end), 0)`, completed: sql<number>`coalesce(sum(case when ${tasks.status} = 'completed' then 1 else 0 end), 0)` }).from(tasks).where(eq(tasks.userId, userId)),
-    db.select({ date: sql<string>`date(${examAttempts.createdAt})`, score: examAttempts.score, comprehension: examAttempts.comprehensionScore }).from(examAttempts).where(eq(examAttempts.userId, userId)).orderBy(examAttempts.createdAt),
+    db.select({ takenOn: examAttempts.takenOn, recordedAt: examAttempts.createdAt, scheduledAt: exams.scheduledAt, score: examAttempts.score, comprehension: examAttempts.comprehensionScore })
+      .from(examAttempts).innerJoin(exams, eq(examAttempts.examId, exams.id))
+      .where(and(eq(examAttempts.userId, userId), eq(exams.userId, userId))),
     db.select({ value: count() }).from(rewardPurchases).where(eq(rewardPurchases.userId, userId)),
   ]);
-  return { cycle, metrics, coins, daily, bySubject, completion: completion[0] ?? { open: 0, completed: 0 }, comprehension, rewardsPurchased: Number(purchases[0]?.value ?? 0) };
+  return { cycle, metrics, coins, daily, bySubject, completion: completion[0] ?? { open: 0, completed: 0 }, comprehension: comprehension.map(attempt => ({ date: examPerformanceDay(attempt), score: attempt.score, comprehension: attempt.comprehension })), rewardsPurchased: Number(purchases[0]?.value ?? 0) };
 }
 
 export async function listFlashcardDecks(userId: number) {
@@ -1045,7 +1068,7 @@ export async function subjectAnalytics(userId: number) {
     }).from(studyEvents).leftJoin(coinTransactions, and(eq(coinTransactions.userId, userId), eq(coinTransactions.referenceKey, studyEvents.referenceId)))
       .where(eq(studyEvents.userId, userId)).orderBy(studyEvents.occurredAt),
     db.select({ examId: examAttempts.examId, subjectId: exams.subjectId, score: examAttempts.score, comprehension: examAttempts.comprehensionScore,
-      attemptId: examAttempts.id, examTitle: exams.title, date: examAttempts.createdAt, missed: examAttempts.missedTopics })
+      attemptId: examAttempts.id, examTitle: exams.title, takenOn: examAttempts.takenOn, recordedAt: examAttempts.createdAt, scheduledAt: exams.scheduledAt, missed: examAttempts.missedTopics })
       .from(examAttempts).innerJoin(exams, eq(examAttempts.examId, exams.id))
       .where(and(eq(examAttempts.userId, userId), eq(exams.userId, userId)))
       .orderBy(desc(examAttempts.createdAt), desc(examAttempts.id)),
@@ -1086,13 +1109,15 @@ export async function subjectAnalytics(userId: number) {
     set.add(link.subjectId);
     examSubjects.set(link.examId, set);
   }
-  for (const attempt of attempts) {
+  const orderedAttempts = attempts.map(attempt => ({ ...attempt, day: examPerformanceDay(attempt) }))
+    .sort((a, b) => (b.day ?? "").localeCompare(a.day ?? "") || b.attemptId - a.attemptId);
+  for (const attempt of orderedAttempts) {
     const linked = examSubjects.get(attempt.examId);
-    const id = linked?.size === 1 ? [...linked][0] : linked?.size ? null : attempt.subjectId;
+    const id = linked?.size === 1 ? Array.from(linked)[0] : linked?.size ? null : attempt.subjectId;
     const stats = (id === null ? null : subjectsById.get(id)) ?? unassigned;
     stats.attempts++;
     if (stats.recentAttempts.length < 10) stats.recentAttempts.push({
-      id: attempt.attemptId, exam: attempt.examTitle, score: Number(attempt.score), date: cairo.format(attempt.date),
+      id: attempt.attemptId, exam: attempt.examTitle, score: Number(attempt.score), date: attempt.day ?? "تاريخ الأداء غير محدد",
     });
     const seenTopics = new Set<string>();
     for (const label of Array.isArray(attempt.missed) ? attempt.missed : []) {
@@ -1108,7 +1133,7 @@ export async function subjectAnalytics(userId: number) {
     stats.comprehensionTotal += Number(attempt.comprehension);
     stats.bestScore = Math.max(stats.bestScore ?? 0, Number(attempt.score));
   }
-  return [...subjectsById.values(), unassigned].map(stats => ({
+  return Array.from(subjectsById.values()).concat(unassigned).map(stats => ({
     id: stats.id, title: stats.title, chapters: stats.chapterIds.size, lessons: stats.lessonIds.size, completed: stats.completed,
     minutes: stats.trackedMinutes + stats.allocatedMinutes, trackedMinutes: stats.trackedMinutes, allocatedMinutes: stats.allocatedMinutes,
     focusSessions: stats.focusSessions, reviews: stats.reviews, activeDays: stats.activeDays.size, attempts: stats.attempts,
@@ -1458,8 +1483,9 @@ export async function restoreStudyTrash(userId: number, kind: "tasks" | "chats" 
 
 export async function syncOfflineExam(userId: number, input: {
   key: string; examId: number; totalQuestions: number; correctAnswers: number;
-  difficulty: "easy" | "medium" | "hard"; missedTopics: string[]; completedAt: Date;
+  difficulty: "easy" | "medium" | "hard"; missedTopics: string[]; completedAt: Date; takenOn?: string;
 }) {
+  if (input.takenOn && input.takenOn > yearReviewDate(+input.completedAt)) throw new Error("تاريخ الأداء لازم يكون قبل التسجيل أو في نفس اليوم.");
   const db = await database();
   const result = await db.transaction(async tx => {
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
@@ -1479,7 +1505,7 @@ export async function syncOfflineExam(userId: number, input: {
       userId, cycleId: exam.cycleId, examId: exam.id, score, comprehensionScore,
       totalQuestions: input.totalQuestions, correctAnswers: input.correctAnswers,
       incorrectAnswers: input.totalQuestions - input.correctAnswers, missedTopics: input.missedTopics,
-      difficulty: input.difficulty, completionRewarded: true, createdAt: input.completedAt,
+      difficulty: input.difficulty, completionRewarded: true, createdAt: input.completedAt, takenOn: input.takenOn,
     });
     const reference = "examAttempt:" + attempt.insertId;
     await tx.insert(studyEvents).values({

@@ -5,7 +5,9 @@ import { PageHeader, EmptyState } from "@/components/PageHeader";
 import { money, minutesLabel } from "@/lib/study";
 import { trpc } from "@/lib/trpc";
 import { Award, BarChart3, BookOpen, BrainCircuit, CheckSquare, CircleDollarSign, Timer, Video } from "lucide-react";
-const cards = [{ key: "lessonsCompleted", label: "الدروس المكتملة", icon: BookOpen }, { key: "studyMinutes", label: "ساعات الدراسة", icon: Timer }, { key: "pomodoros", label: "Pomodoros", icon: Timer }, { key: "videoMinutes", label: "وقت الفيديو", icon: Video }, { key: "examsCompleted", label: "امتحانات مكتملة", icon: BrainCircuit }, { key: "tasksCompleted", label: "مهام مكتملة", icon: CheckSquare }, { key: "goalsCompleted", label: "أهداف مكتملة", icon: Award }, { key: "currentStreak", label: "السلسلة الحالية", icon: BarChart3 }] as const;
+const scoreFormat = new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 1 });
+const percent = (value: number | null) => value === null ? "—" : scoreFormat.format(value) + "٪";
+const cards = [{ key: "lessonsCompleted", label: "الدروس المكتملة", icon: BookOpen }, { key: "studyMinutes", label: "ساعات الدراسة", icon: Timer }, { key: "pomodoros", label: "Pomodoros", icon: Timer }, { key: "videoMinutes", label: "وقت الفيديو", icon: Video }, { key: "averageExamScore", label: "متوسط درجات الامتحانات", icon: BrainCircuit }, { key: "tasksCompleted", label: "مهام مكتملة", icon: CheckSquare }, { key: "goalsCompleted", label: "أهداف مكتملة", icon: Award }, { key: "currentStreak", label: "السلسلة الحالية", icon: BarChart3 }] as const;
 export default function Analytics() {
   return <div className="space-y-8"><Overview /><SubjectReport /></div>;
 }
@@ -15,9 +17,7 @@ function SubjectReport() {
   const [selection, setSelection] = useState("all");
   const subjects = report.data ?? [];
   const visible = subjects.filter(subject => selection === "all" || String(subject.id) === selection);
-  const format = new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 1 });
   const hours = (minutes: number) => format.format(Math.floor(minutes / 60)) + " س " + format.format(minutes % 60) + " د";
-  const percent = (value: number | null) => value === null ? "—" : format.format(value) + "٪";
   return <section>
     <PageHeader title="تحليل كل مادة" description="وقت المذاكرة، التقدّم في الدروس، ونتائج الامتحانات لكل مادة." />
     <div className="surface mb-4 flex flex-wrap items-center gap-3 p-4">
@@ -84,11 +84,13 @@ function Overview() {
         <Icon className="size-5 shrink-0 text-primary" /><div>
           <p className="text-xs text-muted-foreground">{label}</p>
           <p className="text-lg font-bold">{key === "studyMinutes" || key === "videoMinutes"
-            ? minutesLabel(Number(data.metrics[key] ?? 0)) : money.format(Number(data.metrics[key] ?? 0))}</p>
+            ? minutesLabel(Number(data.metrics[key] ?? 0)) : key === "averageExamScore"
+              ? data.comprehension.length ? percent(Number(data.metrics.averageExamScore)) : "—"
+              : money.format(Number(data.metrics[key] ?? 0))}</p>
         </div>
       </article>)}
     </div>
-    <AchievementTrend daily={data.daily} />
+    <AchievementTrend daily={data.daily} attempts={data.comprehension} />
     <div className="surface space-y-3 p-4 sm:p-6">
       <h2 className="font-bold">إنجازات يوم بيوم</h2>
       {!daily.length && <p>أول يوم مذاكرة هيتسجل هنا.</p>}
@@ -98,7 +100,7 @@ function Overview() {
           <span className="font-bold text-primary">{minutesLabel(Number(day.minutes))}</span>
         </div>
         <progress className="h-2 w-full accent-primary" aria-label="وقت المذاكرة" value={Number(day.minutes)} max={max} />
-        <p className="text-sm text-muted-foreground">{money.format(Number(day.lessons))} درس · {money.format(Number(day.tasks))} مهمة · {money.format(Number(day.exams))} امتحان · {money.format(Number(day.events))} نشاط</p>
+        <p className="text-sm text-muted-foreground">{money.format(Number(day.lessons))} درس · {money.format(Number(day.tasks))} مهمة · {money.format(Number(day.events))} نشاط</p>
       </article>)}
       {daily.length > limit && <button className="text-primary underline" onClick={() => setLimit(daily.length)}>اعرض كل الأيام</button>}
     </div>
@@ -106,25 +108,38 @@ function Overview() {
 }
 
 const trendMetrics = [
-  ["minutes", "وقت المذاكرة"], ["lessons", "الدروس"], ["tasks", "المهام"], ["exams", "الامتحانات"],
+  ["minutes", "وقت المذاكرة"], ["lessons", "الدروس"], ["tasks", "المهام"], ["exams", "أداء الامتحانات"],
 ] as const;
 type TrendMetric = typeof trendMetrics[number][0];
 type DailyTrend = { day: string; minutes: number; lessons: number; tasks: number; exams: number };
 
-function AchievementTrend({ daily }: { daily: DailyTrend[] }) {
+function AchievementTrend({ daily, attempts }: { daily: DailyTrend[]; attempts: { date: string | null; score: number }[] }) {
   const [metric, setMetric] = useState<TrendMetric>("minutes");
   const [range, setRange] = useState(14);
   const today = plannerToday();
   const days = new Map(daily.map(row => [String(row.day).slice(0, 10), row]));
-  const value = (day: string, key: TrendMetric) => Number(days.get(day)?.[key] ?? 0);
+  const examsByDay = new Map<string, number[]>();
+  for (const attempt of attempts) {
+    if (!attempt.date) continue;
+    const scores = examsByDay.get(attempt.date) ?? [];
+    scores.push(attempt.score);
+    examsByDay.set(attempt.date, scores);
+  }
+  const mean = (scores: number[]) => scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : null;
+  const value = (day: string, key: Exclude<TrendMetric, "exams">) => Number(days.get(day)?.[key] ?? 0);
   const label = new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "short", timeZone: "UTC" });
   const chart = Array.from({ length: range }, (_, index) => {
     const day = shiftPlannerDay(today, index - range + 1);
-    return { day, label: label.format(new Date(day)), value: value(day, metric) };
+    return { day, label: label.format(new Date(day)), value: metric === "exams" ? mean(examsByDay.get(day) ?? []) : value(day, metric) };
   });
-  const total = (key: TrendMetric, offset: number) => Array.from({ length: 7 }, (_, i) =>
-    value(shiftPlannerDay(today, offset - i), key)).reduce((sum, item) => sum + item, 0);
-  const format = (key: TrendMetric, amount: number) => key === "minutes" ? minutesLabel(amount) : money.format(amount);
+  const total = (key: TrendMetric, offset: number) => {
+    const window = Array.from({ length: 7 }, (_, i) => shiftPlannerDay(today, offset - i));
+    if (key === "exams") return mean(window.flatMap(day => examsByDay.get(day) ?? []));
+    return window.reduce((sum, day) => sum + value(day, key), 0);
+  };
+  const format = (key: TrendMetric, amount: number | null) =>
+    amount === null ? "—" : key === "minutes" ? minutesLabel(amount) : key === "exams" ? percent(amount) : money.format(amount);
+  const hasChartData = metric !== "exams" || chart.some(point => point.value !== null);
   return <section className="surface space-y-4 p-4 sm:p-6">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h2 className="font-bold">مستوى إنجازك</h2>
@@ -133,26 +148,29 @@ function AchievementTrend({ daily }: { daily: DailyTrend[] }) {
         <option value={14}>آخر ١٤ يوم</option><option value={30}>آخر ٣٠ يوم</option><option value={90}>آخر ٩٠ يوم</option>
       </select></label>
     </div>
-    <p className="text-sm text-muted-foreground">المقارنة بين آخر ٧ أيام مكتملة والـ٧ اللي قبلهم. الرسم بيشمل النهارده.</p>
+    <p className="text-sm text-muted-foreground">{metric === "exams" ? "كل نقطة هي متوسط درجات محاولات اليوم بتاريخ أداء الامتحان. المقارنة بتعرض متوسط آخر أسبوعين، كل أسبوع لوحده." : "المقارنة بين آخر ٧ أيام مكتملة والـ٧ اللي قبلهم. الرسم بيشمل النهارده."}</p>
     <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
       {trendMetrics.map(([key, name]) => {
-        const current = total(key, -1), before = total(key, -8), difference = current - before;
+        const current = total(key, -1), before = total(key, -8);
+        const difference = current !== null && before !== null ? current - before : null;
+        const changeLabel = (change: number) => key === "exams" ? money.format(change) + " نقطة مئوية" : format(key, change);
         return <button type="button" key={key} aria-pressed={metric === key} onClick={() => setMetric(key)}
           className={"space-y-1 rounded-xl border p-3 text-start " + (metric === key ? "border-primary bg-primary/10" : "hover:bg-muted")}>
           <span className="block font-semibold">{name}</span>
           <span className="block text-sm">{format(key, before)} ← {format(key, current)}</span>
-          <span className="block text-xs font-semibold">{difference > 0 ? "↑ زاد " + format(key, difference) : difference < 0
-            ? "↓ قلّ " + format(key, -difference) : "↔ ثابت"}</span>
+          <span className="block text-xs font-semibold">{difference === null ? "بيانات المقارنة لسه ناقصة" : difference > 0 ? "↑ زاد " + changeLabel(difference) : difference < 0
+            ? "↓ قلّ " + changeLabel(-difference) : "↔ ثابت"}</span>
         </button>;
       })}
     </div>
-    <div dir="ltr" className="h-64 w-full min-w-0">
+    {hasChartData ? <div dir="ltr" className="h-64 w-full min-w-0">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chart} margin={{ top: 12, right: 16, bottom: 6, left: 0 }}>
           <CartesianGrid stroke="currentColor" opacity={0.14} vertical={false} />
           <XAxis dataKey="label" minTickGap={24} tick={{ fontSize: 11, fill: "currentColor" }} />
           <YAxis width={46} allowDecimals={false} tick={{ fontSize: 11, fill: "currentColor" }}
-            tickFormatter={value => money.format(Number(value))} unit={metric === "minutes" ? " د" : undefined} />
+            domain={metric === "exams" ? [0, 100] : undefined} tickFormatter={value => money.format(Number(value))}
+            unit={metric === "minutes" ? " د" : metric === "exams" ? "٪" : undefined} />
           <Tooltip content={({ active, payload }) => {
             const point = payload?.[0]?.payload;
             if (!active || !point) return null;
@@ -161,9 +179,9 @@ function AchievementTrend({ daily }: { daily: DailyTrend[] }) {
             </div>;
           }} />
           <Line type="linear" dataKey="value" stroke="currentColor" className="text-primary" strokeWidth={3}
-            dot={range === 14} activeDot={{ r: 5 }} isAnimationActive={false} />
+            connectNulls={metric === "exams"} dot={range === 14 || metric === "exams"} activeDot={{ r: 5 }} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>
-    </div>
+    </div> : <p className="rounded-xl border p-4 text-sm text-muted-foreground">مفيش نتائج لها تاريخ أداء في الفترة دي.</p>}
   </section>;
 }

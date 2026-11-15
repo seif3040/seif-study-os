@@ -259,7 +259,7 @@ export const appRouter = router({
     syncAttempt: protectedProcedure.input(z.object({
       ownerId: id, key: z.string().uuid(), examId: id, totalQuestions: z.number().int().min(1).max(500),
       correctAnswers: z.number().int().min(0).max(500), difficulty, missedTopics: z.array(z.string().trim().min(1).max(120)).max(40),
-      completedAt: z.number().int().positive(),
+      completedAt: z.number().int().positive(), takenOn: z.string().date().optional(),
     }).refine(input => input.correctAnswers <= input.totalQuestions)).mutation(({ ctx, input }) => {
       validateOfflineTimestamp(ctx.user.id, input.ownerId, input.completedAt);
       return db.syncOfflineExam(ctx.user.id, { ...input, completedAt: new Date(input.completedAt) });
@@ -268,7 +268,9 @@ export const appRouter = router({
     create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), subjectId: id.optional(), chapterId: id.optional(), lessonId: id.optional(), lessonIds: z.array(id).max(250).optional(), scheduledAt: date.optional() })).mutation(({ ctx, input }) => db.createExam(ctx.user.id, input)),
     update: protectedProcedure.input(z.object({ examId: id, title: z.string().trim().min(1).max(200), scheduledAt: date.nullable().optional(), lessonIds: z.array(id).max(250).optional(), subjectId: id.optional(), chapterId: id.nullable().optional() })).mutation(({ ctx, input }) => db.updateExam(ctx.user.id, input)),
     setArchived: protectedProcedure.input(z.object({ examId: id, archived: z.boolean() })).mutation(({ ctx, input }) => db.setExamArchived(ctx.user.id, input.examId, input.archived)),
-    completeAttempt: protectedProcedure.input(z.object({ examId: id, totalQuestions: z.number().int().min(1).max(500), correctAnswers: z.number().int().min(0).max(500), difficulty, missedTopics: z.array(z.string().trim().min(1).max(120)).max(40) })).mutation(({ ctx, input }) => db.completeExamAttempt(ctx.user.id, input)),
+    setAttemptDate: protectedProcedure.input(z.object({ attemptId: id, takenOn: z.string().date() }))
+      .mutation(({ ctx, input }) => db.setExamAttemptDate(ctx.user.id, input.attemptId, input.takenOn)),
+    completeAttempt: protectedProcedure.input(z.object({ examId: id, takenOn: z.string().date().optional(), totalQuestions: z.number().int().min(1).max(500), correctAnswers: z.number().int().min(0).max(500), difficulty, missedTopics: z.array(z.string().trim().min(1).max(120)).max(40) })).mutation(({ ctx, input }) => db.completeExamAttempt(ctx.user.id, input)),
   }),
   ai: router({
     chat: protectedProcedure.input(z.object({ messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().trim().min(1).max(5000) })).min(1).max(12) })).mutation(({ ctx, input }) => db.chatWithAssistant(ctx.user.id, input.messages)),
