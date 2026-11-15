@@ -26,7 +26,7 @@ export default function Dashboard() {
   const homeworkQuery = trpc.tasks.list.useQuery();
   const [editingHomework, setEditingHomework] = useState<CalendarTask>();
   const summary = trpc.dashboard.summary.useQuery();
-  const reviews = trpc.studyPlan.reviews.useQuery();
+  const reviews = trpc.studyPlan.examReviews.useQuery();
   const utils = trpc.useUtils();
   const review = trpc.studyPlan.review.useMutation({
     onSuccess: async () => { await utils.invalidate(); },
@@ -51,7 +51,7 @@ export default function Dashboard() {
   const daysRemaining = (Date.parse(finalExamDay) - Date.parse(today)) / 86_400_000;
   const homework = (homeworkQuery.data ?? []).filter(task => task.category === "واجب" && task.status === "open")
     .sort((a, b) => (a.deadline?.getTime() ?? Infinity) - (b.deadline?.getTime() ?? Infinity) || a.id - b.id);
-  const due = reviews.data?.filter(item => item.day <= today) ?? [];
+  const due = reviews.data ?? [];
 
   return <div className="space-y-5">
     <section className="study-hero today-hero rounded-[2rem] p-6 sm:p-9">
@@ -140,13 +140,12 @@ export default function Dashboard() {
     <section className="surface overflow-hidden">
       <header className="flex items-center justify-between border-b px-5 py-4">
         <h2 className="flex items-center gap-2 font-bold"><BookOpen className="size-4 text-primary" aria-hidden />المراجعات المستحقة</h2>
-        <Button variant="ghost" size="sm" asChild><Link href="/calendar">التقويم <ArrowLeft /></Link></Button>
+        <Button variant="ghost" size="sm" asChild><Link href="/exams">الامتحانات <ArrowLeft /></Link></Button>
       </header>
-      {reviews.isLoading ? <p className="p-5 text-sm text-muted-foreground">جارٍ تحميل المراجعات…</p> : reviews.isError ? <p className="p-5 text-sm text-muted-foreground">تعذّر تحميل المراجعات.</p> : due.length ? <ul className="divide-y">{due.slice(0, 6).map(item => <li key={item.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
-        <div className="min-w-0 flex-1"><p className="font-medium">{item.title}</p><p className="text-sm text-muted-foreground">{item.subject}</p></div>
+      {reviews.isLoading ? <p className="p-5 text-sm text-muted-foreground">جارٍ تحميل المراجعات…</p> : reviews.isError ? <p className="p-5 text-sm text-muted-foreground">تعذّر تحميل المراجعات.</p> : due.length ? <ul className="max-h-96 divide-y overflow-y-auto">{due.map(item => <li key={item.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
+        <div className="min-w-0 flex-1"><p className="font-medium">{item.title}</p><p className="text-sm text-muted-foreground">{[item.subject, item.examTitle, item.scheduledAt && cairoDate.format(item.scheduledAt)].filter(Boolean).join(" · ")}</p></div>
         <Button variant="outline" size="sm" disabled={review.isPending} onClick={() => review.mutate({ lessonId: item.id })}>راجعت الدرس</Button>
-      </li>)}</ul> : <p className="p-5 text-sm text-muted-foreground">مفيش مراجعات مستحقة النهارده.</p>}
-      {due.length > 6 && <p className="border-t p-4 text-sm text-muted-foreground">{money.format(due.length - 6)} مراجعات إضافية</p>}
+      </li>)}</ul> : <p className="p-5 text-sm text-muted-foreground">مفيش دروس مكتملة لسه محتاجة مراجعة لامتحان جاي.</p>}
     </section>
 
     <section aria-label="تقدم المذاكرة" className="grid grid-cols-2 gap-3 lg:grid-cols-4">

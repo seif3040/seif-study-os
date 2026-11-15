@@ -9,7 +9,7 @@ import { upcomingClassLessons, plannerMinutes, plannerFreeTime, studySlots, type
 import { emptyPlanner, overlapsPlannerSlot, plannerPolicy, plannerToday, plannerWeekday, shiftPlannerDay, type PlannerSlot, type PlannerState } from "../shared/studyPlanner.js";
 import { studyPlanner } from "../drizzle/schema.js";
 import { coinRateCatalog, coinRateKeys, type CoinRateKey } from "../shared/coinRates.js";
-import { and, count, desc, eq, gte, inArray, isNotNull, isNull, like, lte, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, exists, gte, inArray, isNotNull, isNull, like, lte, notExists, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   achievements, calendarEvents, chapters, coinTransactions, examAttempts, examLessons, exams, goalMilestones,
@@ -1254,6 +1254,48 @@ export async function assignFocusSubject(userId: number, eventIds: number[], sub
   });
 }
 
+
+export async function upcomingExamReviews(userId: number) {
+  const db = await database();
+  const selectedLesson = db.select({ id: examLessons.lessonId }).from(examLessons)
+    .where(and(eq(examLessons.examId, exams.id), eq(examLessons.lessonId, lessons.id)));
+  const hasSelectedLessons = db.select({ id: examLessons.lessonId }).from(examLessons)
+    .where(eq(examLessons.examId, exams.id));
+  const rows = await db.select({
+    id: lessons.id, title: lessons.title, subject: subjects.title,
+    examTitle: exams.title, scheduledAt: exams.scheduledAt,
+  }).from(lessonProgress)
+    .innerJoin(lessons, eq(lessons.id, lessonProgress.lessonId))
+    .innerJoin(chapters, eq(chapters.id, lessons.chapterId))
+    .innerJoin(subjects, eq(subjects.id, chapters.subjectId))
+    .innerJoin(exams, and(
+      eq(exams.userId, userId),
+      isNull(exams.archivedAt),
+      gte(exams.scheduledAt, new Date()),
+    ))
+    .where(and(
+      or(
+        exists(selectedLesson),
+        and(notExists(hasSelectedLessons), or(
+          eq(exams.lessonId, lessons.id),
+          and(isNull(exams.lessonId), eq(exams.chapterId, chapters.id)),
+          and(isNull(exams.lessonId), isNull(exams.chapterId), eq(exams.subjectId, subjects.id)),
+        )),
+      ),
+      eq(subjects.userId, userId),
+      eq(lessonProgress.userId, userId),
+      eq(lessonProgress.status, "completed"),
+      isNull(lessonProgress.lastReviewedAt),
+      isNull(lessons.deletedAt),
+    ))
+    .orderBy(exams.scheduledAt, exams.id, lessons.id);
+
+  const byLesson = new Map<number, (typeof rows)[number]>();
+  for (const row of rows) {
+    if (!byLesson.has(row.id)) byLesson.set(row.id, row);
+  }
+  return Array.from(byLesson.values());
+}
 
 export async function lessonReviewSchedule(userId: number) {
   const db = await database();

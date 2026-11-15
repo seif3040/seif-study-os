@@ -97,6 +97,7 @@ export const appRouter = router({
         validateOfflineTimestamp(ctx.user.id, input.ownerId, input.completedAt);
         return db.completeLesson(ctx.user.id, input.lessonId, new Date(input.completedAt));
       }),
+    examReviews: protectedProcedure.query(({ ctx }) => db.upcomingExamReviews(ctx.user.id)),
     reviews: protectedProcedure.query(({ ctx }) => db.lessonReviewSchedule(ctx.user.id)),
     list: protectedProcedure.query(({ ctx }) => db.listStudyPlan(ctx.user.id)),
     createSubject: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(160), color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional() })).mutation(({ ctx, input }) => db.createSubject(ctx.user.id, input)),
