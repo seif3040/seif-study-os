@@ -1581,6 +1581,10 @@ export async function attendPlannerClass(userId: number, input: { slotId: string
       throw new Error("الدروس المتبقية اتغيّرت. حدّث الصفحة واختار الدرس من جديد.");
     }
 
+    if (next.some(row => !state.resources?.homework.some(item => item.lessonId === row.lesson!.id))) {
+      throw new Error("احفظ تفاصيل واجب الحصة الأول، وبعدها أكّد الحضور.");
+    }
+
     const nextSlot = Array.from({ length: 15 }, (_, index) => shiftPlannerDay(input.day, index))
       .flatMap(day => state.slots.filter(item => item.subjectId === subject.id && slotOccurs(item, day))
         .filter(item => day > input.day || item.start > slot.start)
@@ -1614,8 +1618,7 @@ export async function attendPlannerClass(userId: number, input: { slotId: string
     return true;
   });
   if (completed) await evaluateAchievements(userId, cycle.id).catch(() => []);
-  const state = await getPlanner(userId);
-  return { missingHomework: input.lessonIds.filter(id => !state.resources?.homework.some(item => item.lessonId === id)) };
+  return { missingHomework: [] };
 }
 
 function addPlannerMilestone(state: PlannerState, id: string, title: string, duration?: number, follows?: string) {

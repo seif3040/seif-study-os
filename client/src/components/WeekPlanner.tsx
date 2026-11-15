@@ -25,7 +25,7 @@ export default function WeekPlanner() {
   const today = plannerToday();
   const [day, setDay] = useState(today);
   const [editing, setEditing] = useState<PlannerSlot>();
-  const [missingHomework, setMissingHomework] = useState<number[]>([]);
+  const [attendanceDraft, setAttendanceDraft] = useState<{ slotId: string; day: string; lessonIds: number[] }>();
   const [attending, setAttending] = useState<string>();
   const [chosen, setChosen] = useState<number[]>([]);
   const [allowOverlap, setAllowOverlap] = useState(false);
@@ -56,12 +56,13 @@ export default function WeekPlanner() {
   });
   const override = trpc.planner.overrideSlot.useMutation({ onSuccess: refresh, onError });
   const remove = trpc.planner.removeSlot.useMutation({ onSuccess: refresh, onError });
+  const homeworkReady = attendanceDraft?.lessonIds.every(id => state.resources?.homework.some(item => item.lessonId === id));
   const attend = trpc.planner.attend.useMutation({
-    onSuccess: async result => {
-      await utils.invalidate();
+    onSuccess: async () => {
+      setAttendanceDraft(undefined);
       setAttending(undefined);
-      setMissingHomework(result.missingHomework);
-      toast.success(result.missingHomework.length ? "اتسجّل الحضور. كمّل تفاصيل الواجب." : "اتسجّل الحضور واتضاف الواجب المحفوظ.");
+      await utils.invalidate();
+      toast.success("اتسجّل الحضور واتضاف الواجب.");
     },
     onError,
   });
@@ -80,10 +81,19 @@ export default function WeekPlanner() {
   if (planner.isError || plan.isError) return <p className="mb-6" role="alert">تعذّر تحميل الجدول.</p>;
 
   return <section className="mb-8 space-y-4">
-    <Dialog open={missingHomework.length > 0} onOpenChange={open => { if (!open) setMissingHomework([]); }}>
+    <Dialog open={Boolean(attendanceDraft)} onOpenChange={open => { if (!open && !attend.isPending) setAttendanceDraft(undefined); }}>
       <DialogContent className="max-h-[85dvh] overflow-auto sm:max-w-xl">
         <DialogTitle>واجب الحصة</DialogTitle>
-        <StudyLibrary attendanceLessons={missingHomework} />
+        {attendanceDraft && <>
+          <StudyLibrary attendanceLessons={attendanceDraft.lessonIds} />
+          <div className="space-y-2 border-t pt-3">
+            <p className="text-sm text-muted-foreground">{homeworkReady ? "بعد ما تخلص إضافة كل الكتب والصفحات، أكّد الحضور." : "احفظ واجب لكل درس في الحصة عشان تقدر تأكد الحضور."}</p>
+            <div className="flex flex-wrap gap-2">
+              <Button disabled={!homeworkReady || attend.isPending} onClick={() => attend.mutate(attendanceDraft)}>أكّد حضور الحصة</Button>
+              <Button variant="outline" disabled={attend.isPending} onClick={() => setAttendanceDraft(undefined)}>هكمّل بعدين</Button>
+            </div>
+          </div>
+        </>}
       </DialogContent>
     </Dialog>
     <div className="surface space-y-4 p-4">
@@ -204,8 +214,8 @@ export default function WeekPlanner() {
               {!recorded.length && next && day <= today && <Button size="sm" disabled={attend.isPending || Boolean(arabic && attending === slot.id && !chosen.length)}
                 onClick={() => {
                   if (arabic && attending !== slot.id) { setChosen([]); setAttending(slot.id); return; }
-                  attend.mutate({ slotId: slot.id, day, lessonIds: arabic ? chosen : [next.id] });
-                }}><Check /> {attending === slot.id ? "حفظ المحاضرة" : "حضرت الحصة"}</Button>}
+                  setAttendanceDraft({ slotId: slot.id, day, lessonIds: arabic ? chosen : [next.id] });
+                }}><Check /> {attending === slot.id ? "كمّل تفاصيل المحاضرة" : "حضرت الحصة"}</Button>}
               {!recorded.length && <Button size="sm" variant="outline" disabled={override.isPending}
                 onClick={() => override.mutate({ id: slot.id, day, active: false })}>إلغاء اليوم بس</Button>}
               <Button size="sm" variant="outline" onClick={() => { setEditing(slot); setAllowOverlap(false); }}>تعديل</Button>
