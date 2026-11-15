@@ -122,7 +122,7 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
             </select>
           </label>
           {backlogMode === "automatic" && <label>حلّيت لحد درس<select name="through" className={select} value={through ?? ""} onChange={event => setThrough(Number(event.target.value) || null)}>
-            <option value="">لسه مفيش</option>{lessonOptions}
+            <option value="">لسه مبدأتش فيه</option>{lessonOptions}
           </select></label>}
           {backlogMode === "branches" && <div className="grid gap-3 sm:grid-cols-2">
             {branches.map(branch => <label key={branch.id} className="block space-y-1 rounded-lg border p-3">
@@ -137,7 +137,7 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
                   return next;
                 });
               }}>
-                <option value="">لسه مفيش</option>
+                <option value="">لسه مبدأتش فيه</option>
                 {items.filter(row => row.chapter?.id === branch.id).map(row => <option key={row.lesson!.id} value={row.lesson!.id}>{row.lesson!.title}</option>)}
               </select>
             </label>)}
@@ -175,7 +175,7 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
           return <article key={item.id} className="surface flex flex-col gap-3 p-4">
             <BookOpen className="size-5 text-primary" aria-hidden />
             <div><h2 className="font-bold">{item.title}</h2><p className="text-sm text-muted-foreground">{subjects.find(([id]) => id === item.subjectId)?.[1]}</p></div>
-            <p className="text-sm">{item.backlogMode === "manual" || item.backlogMode === "branches" ? backlogModes[item.backlogMode] : "آخر درس محلول · " + (last ?? "لسه مفيش")}</p>
+            <p className="text-sm">{item.backlogMode === "manual" || item.backlogMode === "branches" ? backlogModes[item.backlogMode] : "آخر درس محلول · " + (last ?? "لسه مبدأتش فيه")}</p>
             <div className="mt-auto flex flex-wrap items-center justify-between gap-2"><span className="rounded-full bg-secondary px-3 py-1 text-sm">{backlog} متراكم</span>
               <Button size="sm" variant="outline" onClick={() => openBook(item)}><Pencil /> تعديل</Button></div>
           </article>;

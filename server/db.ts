@@ -5,7 +5,7 @@ import { assessmentCatalog, type AssessmentStatus } from "../shared/assessments.
 import { cairoPrayers, prayers, prayerNames, type Prayer } from "./prayerTimes.js";
 import { focusReward, isFocusPreset } from "../shared/focusDuration.js";
 import { slotOccurs } from "../shared/studyPlanner.js";
-import { upcomingClassLessons, plannerMinutes, plannerFreeTime, studySlots, type PlannedStudy } from "../shared/studyPlanner.js";
+import { plannerMinutes, plannerFreeTime, studySlots, type PlannedStudy } from "../shared/studyPlanner.js";
 import { emptyPlanner, overlapsPlannerSlot, plannerPolicy, plannerToday, plannerWeekday, shiftPlannerDay, type PlannerSlot, type PlannerState } from "../shared/studyPlanner.js";
 import { studyPlanner } from "../drizzle/schema.js";
 import { coinRateCatalog, coinRateKeys, type CoinRateKey } from "../shared/coinRates.js";
@@ -1610,14 +1610,11 @@ export async function attendPlannerClass(userId: number, input: { slotId: string
     const subject = subjectRows[0]?.subject;
     if (!subject) throw new Error("أضف دروس للمادة في خطة المنهج الأول.");
     const attended = new Set(state.attendance.map(item => item.lessonId));
-    const remaining = upcomingClassLessons(subjectRows, state, subject.id);
     const policy = plannerPolicy(subject.title);
-    const next = policy === "arabic"
-      ? input.lessonIds.map(id => remaining.find(row => row.lesson!.id === id)).filter(row => row !== undefined)
-      : remaining.slice(0, 1);
-    if (!next.length || next.length !== input.lessonIds.length || new Set(input.lessonIds).size !== next.length
-      || next.some(row => !input.lessonIds.includes(row.lesson!.id))) {
-      throw new Error("الدروس المتبقية اتغيّرت. حدّث الصفحة واختار الدرس من جديد.");
+    const selectedIds = new Set(input.lessonIds);
+    const next = subjectRows.filter(row => selectedIds.has(row.lesson!.id));
+    if (!next.length || next.length !== input.lessonIds.length) {
+      throw new Error("اختار الدروس اللي اتشرحت من نفس مادة الحصة.");
     }
 
     if (next.some(row => !state.resources?.homework.some(item => item.lessonId === row.lesson!.id))) {
@@ -1654,6 +1651,7 @@ export async function attendPlannerClass(userId: number, input: { slotId: string
       addPlannerMilestone(state, "arabic-exam-" + subject.id + "-" + count, "امتحان العربي الشامل", undefined, "arabic-workshop-" + subject.id + "-" + count);
     }
     for (const row of next) await completeLessonInTransaction(tx, userId, row.lesson!.id, new Date());
+    if (state.backlog) state.backlog = state.backlog.filter(id => !selectedIds.has(id));
     return true;
   });
   if (completed) await evaluateAchievements(userId, cycle.id).catch(() => []);

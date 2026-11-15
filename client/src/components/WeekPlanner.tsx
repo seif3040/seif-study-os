@@ -183,6 +183,8 @@ export default function WeekPlanner() {
           const remaining = slot.subjectId ? upcomingClassLessons(subjectRows, state, slot.subjectId) : [];
           const arabic = subject && plannerPolicy(subject.title) === "arabic";
           const next = remaining[0]?.lesson;
+          const attendanceKey = slot.id + ":" + day;
+          const selecting = attending === attendanceKey;
           return <article key={slot.id} className="space-y-2 rounded-xl border p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h4 className="font-bold">{slot.title}</h4>
@@ -201,21 +203,33 @@ export default function WeekPlanner() {
               </select>
             </label>}
             {!recorded.length && next && !arabic && <p className="text-sm">الدرس التالي · {next.title}</p>}
-            {attending === slot.id && arabic && <fieldset className="max-h-64 space-y-2 overflow-y-auto rounded border p-2">
-              <legend>اختار كل الدروس اللي اتشرحت في المحاضرة</legend>
-              {remaining.map(row => <label key={row.lesson!.id} className="block text-sm">
-                <input type="checkbox" checked={chosen.includes(row.lesson!.id)} onChange={event => {
-                  const id = row.lesson!.id;
-                  setChosen(items => event.target.checked ? [...items, id] : items.filter(item => item !== id));
-                }} /> {row.chapter?.title} · {row.lesson!.title}
-              </label>)}
+            {selecting && !recorded.length && <fieldset className="max-h-72 space-y-3 overflow-y-auto rounded border p-3">
+              <legend className="px-1 font-medium">اختار الدروس اللي اتشرحت في الحصة</legend>
+              {Array.from(new Map(subjectRows.flatMap(row => row.chapter ? [[row.chapter.id, row.chapter] as const] : [])).values()).map(branch =>
+                <fieldset key={branch.id} className="space-y-2 rounded border p-2">
+                  <legend className="px-1 text-sm font-semibold">{branch.title}</legend>
+                  {subjectRows.filter(row => row.chapter?.id === branch.id).map(row => {
+                    const lesson = row.lesson!;
+                    return <label key={lesson.id} className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={chosen.includes(lesson.id)}
+                        disabled={chosen.length >= 100 && !chosen.includes(lesson.id)} onChange={event => {
+                          const checked = event.target.checked;
+                          setChosen(items => checked ? [...items, lesson.id] : items.filter(id => id !== lesson.id));
+                        }} />
+                      {lesson.title}
+                      {lesson.id === next?.id && !arabic && <span className="text-xs text-muted-foreground">مقترح</span>}
+                    </label>;
+                  })}
+                </fieldset>)}
             </fieldset>}
             <div className="flex flex-wrap gap-2">
-              {!recorded.length && next && day <= today && <Button size="sm" disabled={attend.isPending || Boolean(arabic && attending === slot.id && !chosen.length)}
+              {!recorded.length && subjectRows.length > 0 && day <= today && <Button size="sm"
+                disabled={attend.isPending || (selecting && !chosen.length)}
                 onClick={() => {
-                  if (arabic && attending !== slot.id) { setChosen([]); setAttending(slot.id); return; }
-                  setAttendanceDraft({ slotId: slot.id, day, lessonIds: arabic ? chosen : [next.id] });
-                }}><Check /> {attending === slot.id ? "كمّل تفاصيل المحاضرة" : "حضرت الحصة"}</Button>}
+                  if (!selecting) { setChosen(!arabic && next ? [next.id] : []); setAttending(attendanceKey); return; }
+                  setAttendanceDraft({ slotId: slot.id, day, lessonIds: chosen });
+                }}><Check /> {selecting ? "كمّل تفاصيل الواجب" : "حضرت الحصة"}</Button>}
+              {selecting && <Button size="sm" variant="ghost" onClick={() => setAttending(undefined)}>إلغاء اختيار الدروس</Button>}
               {!recorded.length && <Button size="sm" variant="outline" disabled={override.isPending}
                 onClick={() => override.mutate({ id: slot.id, day, active: false })}>إلغاء اليوم بس</Button>}
               <Button size="sm" variant="outline" onClick={() => { setEditing(slot); setAllowOverlap(false); }}>تعديل</Button>
