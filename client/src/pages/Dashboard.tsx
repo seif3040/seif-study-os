@@ -13,7 +13,7 @@ import { EmptyState } from "@/components/PageHeader";
 import { errorText, minutesLabel, money } from "@/lib/study";
 import { trpc } from "@/lib/trpc";
 
-const finalExamDay = "2027-06-22";
+const finalExamDay = "2027-05-01";
 const finalExamLabel = new Intl.DateTimeFormat("ar-EG", {
   day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
 }).format(new Date(finalExamDay));
@@ -79,12 +79,12 @@ export default function Dashboard() {
         <div className="rounded-2xl bg-primary/15 p-3 text-primary"><GraduationCap className="size-7" aria-hidden="true" /></div>
         <div>
           <h2 className="text-lg font-bold">نهاية رحلة البكالوريا</h2>
-          <p className="text-sm text-muted-foreground">آخر امتحان يوم <time dateTime={finalExamDay}>{finalExamLabel}</time></p>
+          <p className="text-sm text-muted-foreground">التاريخ المستهدف <time dateTime={finalExamDay}>{finalExamLabel}</time></p>
         </div>
       </div>
       <p className="rounded-2xl bg-background px-4 py-2 font-bold text-primary">
         {daysRemaining > 0 ? <>باقي <span className="text-3xl tabular-nums">{money.format(daysRemaining)}</span> يوم</>
-          : daysRemaining === 0 ? "النهارده آخر امتحان" : "رحلة البكالوريا خلصت 🎉"}
+          : daysRemaining === 0 ? "وصلنا للتاريخ المستهدف" : "العدّ التنازلي انتهى"}
       </p>
     </section>
     <section className="surface space-y-3 p-5">

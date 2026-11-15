@@ -29,7 +29,7 @@ export type StudyResources = {
 export type StudyResourceChange = z.infer<typeof studyResourceChange>;
 export const emptyResources: StudyResources = { books: [], homework: [], mistakes: [] };
 
-export const finalReviewDay = "2027-06-21";
+export const finalReviewDay = "2027-04-30";
 export function reviewWeekday(day: string, offset: number) {
   const date = new Date(day + "T12:00:00Z");
   date.setUTCDate(date.getUTCDate() + offset);
