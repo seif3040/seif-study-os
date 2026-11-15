@@ -36,12 +36,14 @@ function loadYouTube() {
   return apiPromise;
 }
 
-export function YouTubeStudyPlayer({ embed, onPlaying, onStopped, onPosition }: {
+export function YouTubeStudyPlayer({ embed, startAt = 0, onPlaying, onStopped, onPosition }: {
   embed: string;
+  startAt?: number;
   onPlaying(readPosition: () => number, readRate: () => number): void;
   onStopped(position?: number): void;
   onPosition(position: number): void;
 }) {
+  const initialPosition = useRef(startAt);
   const host = useRef<HTMLDivElement>(null);
   const callbacks = useRef({ onPlaying, onStopped, onPosition });
   callbacks.current = { onPlaying, onStopped, onPosition };
@@ -53,9 +55,15 @@ export function YouTubeStudyPlayer({ embed, onPlaying, onStopped, onPosition }: 
     let player: Player | undefined;
     let playing = false;
     let ready = false;
+    let waitingForStart = initialPosition.current > 0;
+    const readPosition = (source: Player) => {
+      const position = source.getCurrentTime();
+      if (waitingForStart && position > 0) waitingForStart = false;
+      return waitingForStart ? initialPosition.current : position;
+    };
     const refreshPosition = (source = player) => {
       if (!ready) return;
-      const position = source?.getCurrentTime?.();
+      const position = source && readPosition(source);
       if (typeof position === "number" && Number.isFinite(position)) callbacks.current.onPosition(position);
     };
     const interval = window.setInterval(() => refreshPosition(), 200);
@@ -63,6 +71,7 @@ export function YouTubeStudyPlayer({ embed, onPlaying, onStopped, onPosition }: 
     url.searchParams.set("enablejsapi", "1");
     url.searchParams.set("origin", window.location.origin);
     url.searchParams.set("playsinline", "1");
+    if (initialPosition.current > 0) url.searchParams.set("start", String(initialPosition.current));
     const frame = document.createElement("iframe");
     frame.title = "فيديو المذاكرة على يوتيوب";
     frame.className = "h-full w-full";
@@ -89,21 +98,21 @@ export function YouTubeStudyPlayer({ embed, onPlaying, onStopped, onPosition }: 
           refreshPosition(event.target);
           if (event.data === 1) {
             playing = true;
-            callbacks.current.onPlaying(() => event.target.getCurrentTime(), () => event.target.getPlaybackRate());
-          } else stop(event.target.getCurrentTime());
+            callbacks.current.onPlaying(() => readPosition(event.target), () => event.target.getPlaybackRate());
+          } else stop(readPosition(event.target));
         },
         onError() { if (!disposed) { stop(); setError(true); } },
       } });
     }).catch(() => {
       if (disposed) return;
       setError(true);
-      frame.src = embed;
+      frame.src = url.toString();
       container.append(frame);
     });
     return () => {
       disposed = true;
       window.clearInterval(interval);
-      stop(ready ? player?.getCurrentTime?.() : undefined);
+      stop(ready && player ? readPosition(player) : undefined);
       player?.destroy();
       frame.remove();
     };

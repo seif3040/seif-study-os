@@ -655,13 +655,33 @@ export async function completePomodoro(userId: number, sessionId: number, finish
 
 export async function pausePomodoro(userId: number, sessionId: number, paused: boolean) { const db = await database(); const rows = await db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.id, sessionId), eq(pomodoroSessions.userId, userId))).limit(1); const session = rows[0]; if (!session || !["running", "paused"].includes(session.state)) throw new Error("لا يمكن تعديل هذه الجلسة."); if (paused && session.state === "running") return db.update(pomodoroSessions).set({ state: "paused", pausedAt: new Date() }).where(eq(pomodoroSessions.id, sessionId)); if (!paused && session.state === "paused") { const pauseSeconds = session.pausedAt ? Math.max(0, Math.floor((Date.now() - session.pausedAt.getTime()) / 1000)) : 0; return db.update(pomodoroSessions).set({ state: "running", pausedAt: null, pausedSeconds: session.pausedSeconds + pauseSeconds }).where(eq(pomodoroSessions.id, sessionId)); } return { rowsAffected: 0 }; }
 
-export async function startVideoSession(userId: number, input: { videoUrl: string; lessonTitle?: string; subject: "arabic" | "history" | "english" | "programming_ai" | "german" | "other"; requestedMode: "auto" | "embedded" | "external"; local?: boolean }) { const db = await database(); const cycle = await getActiveCycle(userId); const detected = input.local ? "embedded" : classifyStudySource(input.videoUrl); if (detected === "invalid") throw new Error("رابط الدرس غير صالح."); const sourceMode = input.requestedMode === "external" || detected === "external" ? "external" : "embedded"; await db.insert(studyVideoSessions).values({ userId, cycleId: cycle.id, videoUrl: input.videoUrl, lessonTitle: input.lessonTitle || null, subject: input.subject, sourceMode, manualProgress: "started", timerRunning: false, lastPlaybackAt: null, phase: "watching" }); const created = await db.select().from(studyVideoSessions).where(eq(studyVideoSessions.userId, userId)).orderBy(desc(studyVideoSessions.id)).limit(1); return created[0]; }
+export async function startVideoSession(userId: number, input: { videoUrl: string; lessonTitle?: string; subject: "arabic" | "history" | "english" | "programming_ai" | "german" | "other"; requestedMode: "auto" | "embedded" | "external"; local?: boolean }) { const db = await database(); const cycle = await getActiveCycle(userId); const detected = input.local ? "embedded" : classifyStudySource(input.videoUrl); if (detected === "invalid") throw new Error("رابط الدرس غير صالح."); const sourceMode = input.requestedMode === "external" || detected === "external" ? "external" : "embedded"; return db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const [open] = await tx.select({ id: studyVideoSessions.id }).from(studyVideoSessions).where(and(
+      eq(studyVideoSessions.userId, userId), eq(studyVideoSessions.subject, input.subject),
+      inArray(studyVideoSessions.phase, ["watching", "break"]),
+    )).limit(1);
+    if (open) throw new Error("فيه جلسة مفتوحة للمادة دي. كمّلها أو انهيها الأول.");
+    const [created] = await tx.insert(studyVideoSessions).values({
+      userId, cycleId: cycle.id, videoUrl: input.videoUrl, lessonTitle: input.lessonTitle || null,
+      subject: input.subject, sourceMode, manualProgress: "started", timerRunning: false, phase: "watching",
+    });
+    const [session] = await tx.select().from(studyVideoSessions).where(eq(studyVideoSessions.id, created.insertId));
+    return session!;
+  });
+}
 export async function endVideoSession(userId: number, sessionId: number) { const db = await database(); const rows = await db.select().from(studyVideoSessions).where(and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId))).limit(1); const item = rows[0]; if (!item) throw new Error("جلسة الفيديو غير موجودة."); const now = new Date(); const addedSeconds = item.sourceMode === "external" && item.timerRunning && item.lastPlaybackAt ? Math.min(10_800, Math.max(0, Math.floor((now.getTime() - item.lastPlaybackAt.getTime()) / 1000))) : 0; const activeSeconds = item.activeSeconds + addedSeconds; const previousBlocks = Math.floor(item.activeSeconds / 2700); const completedBlocks = Math.floor(activeSeconds / 2700); await db.update(studyVideoSessions).set({ phase: "completed", lastPlaybackAt: null, timerRunning: false, activeSeconds, completedBlocks }).where(eq(studyVideoSessions.id, sessionId)); if (completedBlocks > previousBlocks) { const ref = `video:${sessionId}:block:${completedBlocks}`; await recordStudyEvent({ userId, cycleId: item.cycleId, eventType: "video_block", referenceId: ref, durationMinutes: 45 }); await awardCoins({ userId, cycleId: item.cycleId, amount: 25, rateKey: "video_block", reason: "فيديو مذاكرة — 45 دقيقة", referenceKey: ref }); await evaluateAchievements(userId, item.cycleId); } return { ended: true, activeSeconds }; }
-export async function currentVideoSession(userId: number) {
+export async function openVideoSessions(userId: number, subject?: typeof studyVideoSessions.$inferSelect.subject) {
   const db = await database();
-  const [latest] = await db.select().from(studyVideoSessions).where(eq(studyVideoSessions.userId, userId))
-    .orderBy(desc(studyVideoSessions.updatedAt), desc(studyVideoSessions.id)).limit(1);
-  return latest && (latest.phase === "watching" || latest.phase === "break") ? latest : null;
+  return db.select().from(studyVideoSessions).where(and(
+    eq(studyVideoSessions.userId, userId),
+    subject === undefined ? undefined : eq(studyVideoSessions.subject, subject),
+    inArray(studyVideoSessions.phase, ["watching", "break"]),
+  )).orderBy(desc(studyVideoSessions.updatedAt), desc(studyVideoSessions.id));
+}
+
+export async function currentVideoSession(userId: number, subject?: typeof studyVideoSessions.$inferSelect.subject) {
+  return (await openVideoSessions(userId, subject))[0] ?? null;
 }
 export async function listVideoSessions(userId: number) { const db = await database(); const sessions = await db.select().from(studyVideoSessions).where(eq(studyVideoSessions.userId, userId)).orderBy(desc(studyVideoSessions.updatedAt)); return Promise.all(sessions.map(async session => ({ ...session, notes: await db.select().from(videoNotes).where(and(eq(videoNotes.userId, userId), eq(videoNotes.sessionId, session.id))).orderBy(desc(videoNotes.updatedAt)) }))); }
 export async function createVideoNote(userId: number, input: { sessionId: number; title: string; content: string; timestampSeconds?: number }) { const db = await database(); const session = await db.select({ id: studyVideoSessions.id }).from(studyVideoSessions).where(and(eq(studyVideoSessions.id, input.sessionId), eq(studyVideoSessions.userId, userId))).limit(1); if (!session[0]) throw new Error("جلسة الفيديو غير موجودة."); await db.insert(videoNotes).values({ userId, sessionId: input.sessionId, title: input.title, content: input.content, timestampSeconds: input.timestampSeconds ?? null }); }
