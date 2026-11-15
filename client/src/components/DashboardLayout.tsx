@@ -29,7 +29,10 @@ function SignInGate() { const [password, setPassword] = useState(""); const [bus
 function StudyNavigation({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth(); const [location, navigate] = useLocation(); const mobile = useIsMobile();
   const prefs = trpc.planner.list.useQuery().data?.navigation;
-  const desktopPaths = prefs?.desktop ?? defaultDesktopTabs;
+  const savedDesktop = prefs?.desktop;
+  const desktopPaths = savedDesktop && !prefs.libraryTabSeen && !savedDesktop.includes("/study-library")
+    ? savedDesktop.flatMap(path => path === "/settings" ? ["/study-library", path] : [path])
+    : savedDesktop ?? defaultDesktopTabs;
   const mobilePaths = prefs?.mobile ?? defaultMobileTabs;
   const pick = (paths: readonly string[]) => paths.flatMap(path => menu.filter(item => item[1] === path));
   const current = menu.find(([_, path]) => path === location)?.[0] ?? "Seif Study OS";
