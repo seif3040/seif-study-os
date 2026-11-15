@@ -1711,6 +1711,9 @@ export function savePlannedStudy(userId: number, input: PlannedStudy) {
     const sessions = state.studySessions ?? [];
     const previous = sessions.find(item => item.id === input.id);
     if (previous?.done) throw new Error("المذاكرة دي خلصت بالفعل.");
+    if (input.postponeReason && (
+      !previous || input.day < plannerToday() || input.day + input.start <= previous.day + previous.start
+    )) throw new Error("اختار ميعاد بعد الميعاد الأصلي ومن النهارده فصاعدًا.");
     if (input.lessonId) {
       if (input.lessonId > 0) await ownedLesson(tx, userId, input.lessonId);
       else if (!previous || previous.lessonId !== input.lessonId) throw new Error("التقييم مش موجود في خطة اليوم.");
@@ -1733,7 +1736,8 @@ export function savePlannedStudy(userId: number, input: PlannedStudy) {
     const [exam] = await tx.select({ id: exams.id }).from(exams).where(and(eq(exams.userId, userId),
       isNull(exams.archivedAt), gte(exams.scheduledAt, from), lte(exams.scheduledAt, to))).limit(1);
     if (exam) throw new Error("فيه امتحان في الوقت ده. راجع التقويم.");
-    state.studySessions = [...sessions.filter(item => item.id !== input.id), input];
+    const postponeReason = input.postponeReason ?? previous?.postponeReason;
+    state.studySessions = [...sessions.filter(item => item.id !== input.id), { ...input, postponeReason }];
   });
 }
 

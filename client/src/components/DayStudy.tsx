@@ -8,7 +8,12 @@ import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { errorText } from "@/lib/study";
 import { formatClock } from "@shared/clockFormat";
-import { studySlots, upcomingClassLessons, plannerPolicy, type PlannedStudy } from "@shared/studyPlanner";
+import { studySlots, upcomingClassLessons, plannerPolicy, plannerToday, shiftPlannerDay, type PlannedStudy, type StudyPostponeReason } from "@shared/studyPlanner";
+
+const postponeLabels: Record<StudyPostponeReason, string> = {
+  not_enough_time: "الوقت ما كفاش",
+  lesson_not_published: "المدرس لسه ما نزّلش الحصة",
+};
 
 const kinds = { study: "مذاكرة", homework: "واجب", review: "مراجعة", backlog: "متراكم" };
 
@@ -19,9 +24,21 @@ export default function DayStudy({ day, showSchedule = false, embedded = false }
   const utils = trpc.useUtils();
   const [subjectId, setSubjectId] = useState(0);
   const [editor, setEditor] = useState<PlannedStudy>();
+  const [postponing, setPostponing] = useState(false);
+  const [reason, setReason] = useState<StudyPostponeReason | "">("");
+  function openEditor(session: PlannedStudy, postpone = false) {
+    setPostponing(postpone);
+    setReason("");
+    const baseDay = session.day < plannerToday() ? plannerToday() : session.day;
+    setEditor(postpone ? { ...session, day: shiftPlannerDay(baseDay, 1) } : session);
+  }
   const onError = (error: unknown) => toast.error(errorText(error));
   const save = trpc.planner.saveStudy.useMutation({
-    onSuccess: async () => { await utils.planner.list.invalidate(); setEditor(undefined); }, onError,
+    onSuccess: async (_, session) => {
+      await utils.planner.list.invalidate();
+      setEditor(undefined);
+      if (session.postponeReason) toast.success("الجلسة اتأجلت للميعاد الجديد.");
+    }, onError,
   });
   const done = trpc.planner.finishStudy.useMutation({ onSuccess: () => utils.invalidate(), onError });
   const remove = trpc.planner.removeStudy.useMutation({ onSuccess: () => utils.planner.list.invalidate(), onError });
@@ -68,7 +85,7 @@ export default function DayStudy({ day, showSchedule = false, embedded = false }
     <section className={embedded ? "space-y-3 border-t pt-3" : "surface space-y-3 p-5"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 font-bold"><BookOpen className="size-5" /> {showSchedule ? "هذاكر النهارده" : "خطة المذاكرة"}</h2>
-        <Button size="sm" variant="outline" onClick={() => setEditor({ id: crypto.randomUUID(), day, title: "", start: "17:00", end: "17:30", kind: "study" })}>{embedded ? "ميعاد مذاكرة محدد" : "ضيف للمذاكرة"}</Button>
+        <Button size="sm" variant="outline" onClick={() => openEditor({ id: crypto.randomUUID(), day, title: "", start: "17:00", end: "17:30", kind: "study" })}>{embedded ? "ميعاد مذاكرة محدد" : "ضيف للمذاكرة"}</Button>
       </div>
       {embedded && <form className="flex flex-wrap items-end gap-2" onSubmit={event => {
         event.preventDefault();
@@ -88,25 +105,38 @@ export default function DayStudy({ day, showSchedule = false, embedded = false }
         <div className="min-w-40 flex-1">
           <p className="font-bold">{item.title}</p>
           <p className="text-sm">{kinds[item.kind]} · {formatClock(item.start)} – {formatClock(item.end)}</p>
+          {item.postponeReason && <p className="text-sm text-muted-foreground">اتأجلت · {postponeLabels[item.postponeReason]}</p>}
         </div>
         {item.done ? <span className="text-sm">خلصت</span> : <>
           <Button size="sm" disabled={done.isPending} onClick={() => done.mutate({ id: item.id })}>خلصت المذاكرة</Button>
-          <Button size="sm" variant="outline" onClick={() => setEditor(item)}>نقل أو تعديل</Button>
+          <Button size="sm" variant="outline" onClick={() => openEditor(item)}>نقل أو تعديل</Button>
+          <Button size="sm" variant="outline" onClick={() => openEditor(item, true)}>تأجيل</Button>
           <Button size="sm" variant="ghost" disabled={remove.isPending} onClick={() => remove.mutate({ id: item.id })}>شيل من الخطة</Button>
         </>}
       </div>)}
-      {editor && <form className="grid gap-2 rounded-xl border p-3" onSubmit={event => { event.preventDefault(); save.mutate(editor); }}>
-        <label>هتذاكر إيه؟<Input required maxLength={200} value={editor.title} onChange={event => setEditor({ ...editor, title: event.target.value })} /></label>
+      {editor && <form className="grid gap-2 rounded-xl border p-3" onSubmit={event => {
+        event.preventDefault();
+        if (postponing && !reason) return;
+        save.mutate({ ...editor, postponeReason: postponing && reason ? reason : undefined });
+      }}>
+        {postponing && <label>سبب التأجيل
+          <select required className="block h-10 w-full rounded-md border bg-background px-2" value={reason}
+            onChange={event => setReason(event.target.value as StudyPostponeReason | "")}>
+            <option value="">اختار السبب</option>
+            {Object.entries(postponeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>}
+        <label>هتذاكر إيه؟<Input required maxLength={200} value={editor.title} readOnly={postponing} onChange={event => setEditor({ ...editor, title: event.target.value })} /></label>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <label>اليوم<Input type="date" required value={editor.day} onChange={event => setEditor({ ...editor, day: event.target.value })} /></label>
+          <label>اليوم<Input type="date" required min={postponing ? plannerToday() : undefined} value={editor.day} onChange={event => setEditor({ ...editor, day: event.target.value })} /></label>
           <label>من<Input type="time" required value={editor.start} onChange={event => setEditor({ ...editor, start: event.target.value })} /></label>
           <label>لحد<Input type="time" required value={editor.end} onChange={event => setEditor({ ...editor, end: event.target.value })} /></label>
-          <label>النوع<select className="block h-10 w-full rounded-md border bg-background px-2" value={editor.kind} disabled={Boolean(editor.lessonId)}
+          <label>النوع<select className="block h-10 w-full rounded-md border bg-background px-2" value={editor.kind} disabled={postponing || Boolean(editor.lessonId)}
             onChange={event => setEditor({ ...editor, kind: event.target.value as PlannedStudy["kind"] })}>
             {Object.entries(kinds).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select></label>
         </div>
-        <div className="flex gap-2"><Button size="sm" type="submit" disabled={save.isPending}>حفظ</Button>
+        <div className="flex gap-2"><Button size="sm" type="submit" disabled={save.isPending || (postponing && !reason)}>{postponing ? "أكّد التأجيل" : "حفظ"}</Button>
           <Button size="sm" type="button" variant="ghost" onClick={() => setEditor(undefined)}>إلغاء</Button></div>
       </form>}
     </section>

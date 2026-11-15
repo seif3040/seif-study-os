@@ -108,6 +108,9 @@ export function upcomingClassLessons<T extends { lesson: {id:number} | null; pro
     && !attended.has(row.lesson.id) && (index >= 0 || row.progress?.status !== "completed"));
 }
 
+export const studyPostponeReasons = ["not_enough_time", "lesson_not_published"] as const;
+export type StudyPostponeReason = (typeof studyPostponeReasons)[number];
+
 export type PlannedStudy = {
   id: string;
   day: string;
@@ -117,6 +120,7 @@ export type PlannedStudy = {
   kind: "homework" | "review" | "backlog" | "study";
   lessonId?: number;
   done?: boolean;
+  postponeReason?: StudyPostponeReason;
 };
 export function studySlots(state: PlannerState, day: string) {
   const weekday = plannerWeekday(day);

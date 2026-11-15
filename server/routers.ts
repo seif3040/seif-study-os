@@ -1,3 +1,4 @@
+import { studyPostponeReasons } from "../shared/studyPlanner.js";
 import { studyResourceChange } from "../shared/studyResources.js";
 import { nawafil } from "../shared/nawafil.js";
 import { TRPCError } from "@trpc/server";
@@ -162,6 +163,7 @@ export const appRouter = router({
     saveStudy: protectedProcedure.input(z.object({
       id: z.string().uuid(), day: z.string().date(), title: z.string().trim().min(1).max(200),
       start: plannerTime, end: plannerTime, kind: z.enum(["homework", "review", "backlog", "study"]), lessonId: z.number().int().optional(),
+      postponeReason: z.enum(studyPostponeReasons).optional(),
     })).mutation(({ ctx, input }) => db.savePlannedStudy(ctx.user.id, input)),
     finishStudy: protectedProcedure.input(z.object({ id: z.string().uuid() }))
       .mutation(({ ctx, input }) => db.finishPlannedStudy(ctx.user.id, input.id)),
