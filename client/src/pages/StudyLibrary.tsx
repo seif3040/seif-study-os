@@ -44,7 +44,7 @@ export default function StudyLibrary({ attendanceLessons }: { attendanceLessons?
   const lessonOptions = items.map(row => <option value={row.lesson!.id} key={row.lesson!.id}>{row.chapter?.title} · {row.lesson!.title}</option>);
   return <div className="space-y-4">
     {!attendanceLessons && <PageHeader title="كتبي وواجباتي" description="تابع حل الكتب، سجل الواجبات، وراجع الأسئلة اللي غلطت فيها." />}
-    {attendanceLessons && <p className="text-sm">اختار كتاب وصفحات الواجب. لو في كتاب تاني، احفظ الأول وبعدين ضيفه. لو الكتاب مش موجود، ضيفه من «الكتب» هنا.</p>
+    {attendanceLessons && <p className="text-sm">اختار كتاب وصفحات الواجب. لو في كتاب تاني، احفظ الأول وبعدين ضيفه. لو الكتاب مش موجود، ضيفه من «الكتب» هنا.</p>}
     <div className="flex flex-wrap gap-2">
       {(attendanceLessons ? ["الكتب", "الواجبات"] : ["الكتب", "الواجبات", "كشكول الأخطاء", "مراجعة آخر السنة"]).map(item => <Button key={item} variant={item === tab ? "default" : "outline"} aria-pressed={item === tab} onClick={() => setTab(item)}>{item}</Button>)}
     </div>
