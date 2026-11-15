@@ -17,7 +17,7 @@ function SubjectReport() {
   const [selection, setSelection] = useState("all");
   const subjects = report.data ?? [];
   const visible = subjects.filter(subject => selection === "all" || String(subject.id) === selection);
-  const hours = (minutes: number) => format.format(Math.floor(minutes / 60)) + " س " + format.format(minutes % 60) + " د";
+  const hours = (minutes: number) => scoreFormat.format(Math.floor(minutes / 60)) + " س " + scoreFormat.format(minutes % 60) + " د";
   return <section>
     <PageHeader title="تحليل كل مادة" description="وقت المذاكرة، التقدّم في الدروس، ونتائج الامتحانات لكل مادة." />
     <div className="surface mb-4 flex flex-wrap items-center gap-3 p-4">
@@ -35,21 +35,21 @@ function SubjectReport() {
     <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
       {visible.map(subject => <article key={subject.id ?? "none"} className="surface study-interactive min-w-0 p-5">
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <div><h2 className="flex items-center gap-2 text-lg font-bold"><BookOpen className="size-4 text-primary" aria-hidden />{subject.title}</h2><p className="text-xs text-muted-foreground">{format.format(subject.activeDays)} يوم نشاط · {format.format(subject.focusSessions)} جلسة تركيز</p></div>
+          <div><h2 className="flex items-center gap-2 text-lg font-bold"><BookOpen className="size-4 text-primary" aria-hidden />{subject.title}</h2><p className="text-xs text-muted-foreground">{scoreFormat.format(subject.activeDays)} يوم نشاط · {scoreFormat.format(subject.focusSessions)} جلسة تركيز</p></div>
           <span className="rounded-lg bg-primary/10 px-2 py-1 text-sm font-bold text-primary">{hours(subject.minutes)}</span>
         </div>
         {subject.lessons > 0 && <div className="mt-4">
-          <p className="mb-1 text-xs text-muted-foreground">{format.format(subject.completed)} من {format.format(subject.lessons)} درس مكتمل · {format.format(subject.chapters)} فصل</p>
+          <p className="mb-1 text-xs text-muted-foreground">{scoreFormat.format(subject.completed)} من {scoreFormat.format(subject.lessons)} درس مكتمل · {scoreFormat.format(subject.chapters)} فصل</p>
           <progress className="h-2 w-full accent-primary" aria-label="الدروس المكتملة" value={subject.completed} max={subject.lessons} />
         </div>}
         <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
           <div><dt className="text-xs text-muted-foreground">وقت منسوب مباشرة</dt><dd className="font-semibold">{hours(subject.trackedMinutes)}</dd></div>
           <div><dt className="text-xs text-muted-foreground">وقت تاريخي موزّع</dt><dd className="font-semibold">{hours(subject.allocatedMinutes)}</dd></div>
-          <div><dt className="text-xs text-muted-foreground">محاولات الامتحانات</dt><dd className="font-semibold">{format.format(subject.attempts)}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">محاولات الامتحانات</dt><dd className="font-semibold">{scoreFormat.format(subject.attempts)}</dd></div>
           <div><dt className="text-xs text-muted-foreground">متوسط النتيجة</dt><dd className="font-semibold">{percent(subject.averageScore)}</dd></div>
           <div><dt className="text-xs text-muted-foreground">أفضل نتيجة</dt><dd className="font-semibold">{percent(subject.bestScore)}</dd></div>
           <div><dt className="text-xs text-muted-foreground">متوسط الاستيعاب</dt><dd className="font-semibold">{percent(subject.averageComprehension)}</dd></div>
-          <div><dt className="text-xs text-muted-foreground">مراجعات الدروس</dt><dd className="font-semibold">{format.format(subject.reviews)}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">مراجعات الدروس</dt><dd className="font-semibold">{scoreFormat.format(subject.reviews)}</dd></div>
         </dl>
         {!!subject.recentAttempts.length && <details className="mt-4 border-t pt-3">
           <summary className="cursor-pointer text-sm font-semibold">آخر محاولات الامتحانات</summary>
@@ -60,7 +60,7 @@ function SubjectReport() {
         {!!subject.missedTopics.length && <details className="mt-3 border-t pt-3">
           <summary className="cursor-pointer text-sm font-semibold">موضوعات الغلط المتكررة</summary>
           <ul className="mt-2 divide-y">{subject.missedTopics.map(item => <li key={item.topic} className="flex justify-between gap-2 py-2 text-sm">
-            <span className="min-w-0 flex-1">{item.topic}<small className="block text-muted-foreground">{format.format(item.count)} محاولة</small></span><a className="shrink-0 text-sm font-semibold text-primary underline" href={"/calendar?review=" + encodeURIComponent(("مراجعة " + subject.title + " · " + item.topic).slice(0, 200))}>ضيف مهمة مراجعة</a>
+            <span className="min-w-0 flex-1">{item.topic}<small className="block text-muted-foreground">{scoreFormat.format(item.count)} محاولة</small></span><a className="shrink-0 text-sm font-semibold text-primary underline" href={"/calendar?review=" + encodeURIComponent(("مراجعة " + subject.title + " · " + item.topic).slice(0, 200))}>ضيف مهمة مراجعة</a>
           </li>)}</ul>
         </details>}
       </article>)}
