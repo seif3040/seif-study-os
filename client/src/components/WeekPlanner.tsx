@@ -1,3 +1,4 @@
+import { hybridHomeworkSources } from "@shared/lessonSources";
 import StudyLibrary from "@/pages/StudyLibrary";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { slotOccurs } from "@shared/studyPlanner";
@@ -56,6 +57,9 @@ export default function WeekPlanner() {
   });
   const override = trpc.planner.overrideSlot.useMutation({ onSuccess: refresh, onError });
   const remove = trpc.planner.removeSlot.useMutation({ onSuccess: refresh, onError });
+  const attendanceSlot = state.slots.find(slot => slot.id === attendanceDraft?.slotId);
+  const attendanceSubject = subjects.find(subject => subject.id === attendanceSlot?.subjectId);
+  const watchSources = attendanceSubject ? hybridHomeworkSources(sources.data ?? [], attendanceSubject.title, attendanceSlot?.sourceId) : [];
   const homeworkReady = attendanceDraft?.lessonIds.every(id => state.resources?.homework.some(item => item.lessonId === id));
   const attend = trpc.planner.attend.useMutation({
     onSuccess: async () => {
@@ -85,6 +89,7 @@ export default function WeekPlanner() {
       <DialogContent className="max-h-[85dvh] overflow-auto sm:max-w-xl">
         <DialogTitle>واجب الحصة</DialogTitle>
         {attendanceDraft && <>
+          {watchSources.length > 0 && <p className="rounded-lg border p-3 text-sm">بعد تأكيد الحضور، هينزل واجب مشاهدة المحاضرة الأونلاين من {watchSources.map(source => source.teacherName).join("، ")}.</p>}
           <StudyLibrary attendanceLessons={attendanceDraft.lessonIds} />
           <div className="space-y-2 border-t pt-3">
             <p className="text-sm text-muted-foreground">{homeworkReady ? "بعد ما تخلص إضافة كل الكتب والصفحات، أكّد الحضور." : "احفظ واجب لكل درس في الحصة عشان تقدر تأكد الحضور."}</p>

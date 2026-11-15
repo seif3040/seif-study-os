@@ -17,13 +17,13 @@ import {
   rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks, lessonSources,
   userAchievements, users, type InsertUser,
 } from "../drizzle/schema.js";
-import { seifLessonSourceDefaults, type LessonSourceDraft } from "../shared/lessonSources.js";
+import { hybridHomeworkSources, seifLessonSourceDefaults, type LessonSourceDraft } from "../shared/lessonSources.js";
 import { achievementCatalog, rewardCatalog, type AchievementMetric } from "../shared/catalog.js";
 import { invokeLLM } from "./_core/llm.js";
 import { storageGetSignedUrl, storagePut } from "./storage.js";
 import { ENV } from "./_core/env.js";
 import { decideCompletion, decideRewardPurchase, deriveFallbackComprehension, selectAchievementUnlocks } from "./businessRules.js";
-import { classifyStudySource } from "../client/src/lib/videoSources.js";
+import { classifyStudySource, safeStudyUrl } from "../client/src/lib/videoSources.js";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const DAY_MS = 86_400_000;
@@ -1647,6 +1647,14 @@ export async function attendPlannerClass(userId: number, input: { slotId: string
         .map(item => ({ day, start: item.start })))
       .sort((a, b) => (a.day + a.start).localeCompare(b.day + b.start))[0];
     const deadline = nextSlot ? cairoPlannerTime(nextSlot.day, nextSlot.start) : null;
+    const sources = await tx.select().from(lessonSources).where(and(eq(lessonSources.userId, userId),
+      eq(lessonSources.delivery, "hybrid"), eq(lessonSources.active, true)));
+    for (const source of hybridHomeworkSources(sources, subject.title, slot.sourceId)) {
+      await saveHybridHomework(tx, state, userId, cycle.id, {
+        key: hybridHomeworkKey(slot.id, input.day, source.id), day: input.day, subject: subject.title,
+        lessonTitles: next.map(row => row.lesson!.title), source,
+      }, deadline);
+    }
     const previousClasses = new Set(state.attendance.filter(item => item.subjectId === subject.id).map(item => item.slotId + item.day)).size;
     for (const row of next) {
       const lesson = row.lesson!;
@@ -1676,6 +1684,81 @@ export async function attendPlannerClass(userId: number, input: { slotId: string
   });
   if (completed) await evaluateAchievements(userId, cycle.id).catch(() => []);
   return { missingHomework: [] };
+}
+
+type HybridHomework = {
+  key: string;
+  day: string;
+  subject: string;
+  lessonTitles: string[];
+  source: Pick<typeof lessonSources.$inferSelect, "teacherName" | "platform" | "url">;
+};
+
+function hybridHomeworkKey(slotId: string, day: string, sourceId: number) {
+  return [slotId, day, sourceId].join(":");
+}
+
+async function saveHybridHomework(tx: StudyTransaction, state: PlannerState, userId: number, cycleId: number,
+  entry: HybridHomework, deadline: Date | null, watched = false) {
+  const published = state.hybridHomework ??= {};
+  if (published[entry.key]) return;
+  const link = entry.source.url && safeStudyUrl(entry.source.url);
+  const [result] = await tx.insert(tasks).values({
+    userId, cycleId, category: "واجب", scheduledFor: entry.day, deadline,
+    title: ("شاهد محاضرة الأونلاين · " + entry.subject + " · " + entry.source.teacherName).slice(0, 200),
+    description: ["الدروس: " + entry.lessonTitles.join("، "), "المصدر: " + entry.source.platform, link].filter(Boolean).join("\n"),
+    status: watched ? "completed" : "open", completedAt: watched ? new Date() : null,
+  });
+  published[entry.key] = result.insertId;
+}
+
+function historicalHybridHomework(state: PlannerState, subjectRows: (typeof subjects.$inferSelect)[],
+  sources: (typeof lessonSources.$inferSelect)[]) {
+  if (state.hybridHomeworkReviewed) return [];
+  const entries = new Map<string, HybridHomework>();
+  const names = new Map(subjectRows.map(subject => [subject.id, subject.title]));
+  const slots = new Map(state.slots.map(slot => [slot.id, slot]));
+  for (const item of state.attendance) {
+    const subject = names.get(item.subjectId);
+    if (!subject) continue;
+    for (const source of hybridHomeworkSources(sources, subject, slots.get(item.slotId)?.sourceId)) {
+      const key = hybridHomeworkKey(item.slotId, item.day, source.id);
+      if (state.hybridHomework?.[key]) continue;
+      const entry = entries.get(key) ?? { key, day: item.day, subject, lessonTitles: [], source };
+      if (!entry.lessonTitles.includes(item.lessonTitle)) entry.lessonTitles.push(item.lessonTitle);
+      entries.set(key, entry);
+    }
+  }
+  return Array.from(entries.values()).sort((a, b) => a.subject.localeCompare(b.subject, "ar") || a.day.localeCompare(b.day));
+}
+
+async function hybridReviewInputs(userId: number) {
+  const db = await database();
+  return Promise.all([
+    db.select().from(subjects).where(eq(subjects.userId, userId)),
+    db.select().from(lessonSources).where(and(eq(lessonSources.userId, userId),
+      eq(lessonSources.delivery, "hybrid"), eq(lessonSources.active, true))),
+  ]);
+}
+
+export async function pendingHybridHomeworkReview(userId: number) {
+  const state = await getPlanner(userId);
+  if (state.hybridHomeworkReviewed) return [];
+  return historicalHybridHomework(state, ...await hybridReviewInputs(userId));
+}
+
+export async function finishHybridHomeworkReview(userId: number, answers: { key: string; watched: boolean }[]) {
+  const [cycle, inputs] = await Promise.all([getActiveCycle(userId), hybridReviewInputs(userId)]);
+  return changePlanner(userId, async (state, tx) => {
+    if (state.hybridHomeworkReviewed) return;
+    const entries = historicalHybridHomework(state, ...inputs);
+    const watched = new Map(answers.map(answer => [answer.key, answer.watched]));
+    if (watched.size !== answers.length || entries.length !== answers.length || entries.some(entry => !watched.has(entry.key))) {
+      throw new Error("قائمة المحاضرات اتغيّرت. حدّث الصفحة وراجع الاختيارات.");
+    }
+    for (const entry of entries) await saveHybridHomework(tx, state, userId, cycle.id, entry, null, watched.get(entry.key));
+    state.hybridHomeworkReviewed = true;
+  });
 }
 
 function addPlannerMilestone(state: PlannerState, id: string, title: string, duration?: number, follows?: string) {

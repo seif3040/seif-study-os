@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/PageHeader";
 import { errorText, minutesLabel, money } from "@/lib/study";
+import { safeStudyUrl } from "@/lib/videoSources";
 import { trpc } from "@/lib/trpc";
 
 const finalExamDay = "2027-05-01";
@@ -94,15 +95,19 @@ export default function Dashboard() {
         <Link href="/lesson-sources" className="text-sm text-primary underline">جدول الحصص</Link>
       </div>
       {homeworkQuery.isLoading ? <p>جارٍ تحميل الواجبات…</p> : homeworkQuery.isError ? <p role="alert">تعذّر تحميل الواجبات.</p> : homework.length ? <ul className="divide-y">
-        {homework.map(task => <li key={task.id} className="flex flex-wrap items-center gap-2 py-3">
+        {homework.map(task => {
+          const lines = (task.description ?? "").split("\n");
+          const link = task.title.startsWith("شاهد محاضرة الأونلاين · ") ? safeStudyUrl(lines.at(-1) ?? "") : null;
+          return <li key={task.id} className="flex flex-wrap items-center gap-2 py-3">
           <div className="min-w-40 flex-1">
             <p className="font-bold">{task.title}</p>
-            <p className="text-sm text-muted-foreground">{task.description}</p>
+            <p className="whitespace-pre-line text-sm text-muted-foreground">{link ? lines.slice(0, -1).join("\n") : task.description}</p>
+            {link && <a className="text-sm text-primary underline" href={link} target="_blank" rel="noreferrer">افتح منصة المحاضرة</a>}
             <p className="text-sm">{task.deadline ? (task.deadline.getTime() < Date.now() ? "متأخر · " : "التسليم · ") + new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short", hour12: true, timeZone: "Africa/Cairo" }).format(task.deadline) : "ميعاد التسليم لسه مش محدد"}</p>
           </div>
           <Button size="sm" variant="outline" onClick={() => setEditingHomework(task)}>تعديل التسليم</Button>
           <Button size="sm" disabled={complete.isPending} onClick={() => complete.mutate({ taskId: task.id })}><Check /> خلصت</Button>
-        </li>)}
+        </li>; })}
       </ul> : <p className="text-sm text-muted-foreground">الواجب هيظهر هنا أول ما تسجّل حضور حصة.</p>}
     </section>
     <DailyPrayers day={today} />

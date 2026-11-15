@@ -13,6 +13,18 @@ export type LessonSourceDraft = {
   notes?: string;
 };
 
+function subjectKey(value: string) {
+  return value.trim().replace(/[أإآ]/g, "ا").replace(/ى/g, "ي").replace(/[\u064B-\u065F]/g, "")
+    .replace(/^ال/, "").toLowerCase();
+}
+
+export function hybridHomeworkSources<T extends { id: number; subject: string; delivery: LessonDelivery; active: boolean }>(
+  sources: readonly T[], subject: string, sourceId?: number,
+) {
+  return sources.filter(source => source.active && source.delivery === "hybrid"
+    && (sourceId === undefined ? subjectKey(source.subject) === subjectKey(subject) : source.id === sourceId));
+}
+
 export const seifLessonSourceDefaults: LessonSourceDraft[] = [
   {
     subject: "العربي",

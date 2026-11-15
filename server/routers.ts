@@ -143,6 +143,9 @@ export const appRouter = router({
     complete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.completeTask(ctx.user.id, input.taskId)),
   }),
   planner: router({
+    hybridHomeworkReview: protectedProcedure.query(({ ctx }) => db.pendingHybridHomeworkReview(ctx.user.id)),
+    finishHybridHomeworkReview: protectedProcedure.input(z.array(z.object({ key: z.string().max(80), watched: z.boolean() })).max(1000))
+      .mutation(({ ctx, input }) => db.finishHybridHomeworkReview(ctx.user.id, input)),
     saveStudyResource: protectedProcedure.input(studyResourceChange)
       .mutation(({ ctx, input }) => db.saveStudyResource(ctx.user.id, input)),
     saveNavigation: protectedProcedure.input(z.object({

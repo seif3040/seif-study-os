@@ -47,6 +47,8 @@ export type PlannerState = {
   sleep: string;
   slots: PlannerSlot[];
   attendance: PlannerAttendance[];
+  hybridHomework?: Record<string, number>;
+  hybridHomeworkReviewed?: boolean;
   milestones: PlannerMilestone[];
 };
 
