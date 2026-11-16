@@ -1,5 +1,5 @@
 import { studyEfforts, type StudyEffort, type StudyItem, type WeeklyStudy } from "../shared/weeklyStudy.js";
-import { sleepDuration, type SleepLog } from "../shared/sleep.js";
+import { sleepDuration, sleepTargetMinutes, type SleepLog } from "../shared/sleep.js";
 import { cairoPlannerTime, examLocalDate, examOccurrences, type ExamScheduleOptions } from "../shared/examSchedule.js";
 import { buildYearReviews, emptyResources, yearReviewDate, type StudyResourceChange } from "../shared/studyResources.js";
 import { nawafil, prayerLoggingEnd } from "../shared/nawafil.js";
@@ -1121,6 +1121,43 @@ export function saveWeeklyStudy(userId: number, input: {
     }
     state.weeklyStudy[input.week] = next;
   });
+}
+
+export async function dailyQuranSignals(userId: number, day: string) {
+  const today = plannerToday();
+  if (day > today || day < shiftPlannerDay(today, -1)) throw new Error("اختار آية اليوم الحالي.");
+  const db = await database();
+  const start = shiftPlannerDay(day, -7);
+  const oldestExam = shiftPlannerDay(day, -30);
+  const [events, examsForReflection, plan, backlogRows] = await Promise.all([
+    db.select({ at: studyEvents.occurredAt, minutes: studyEvents.durationMinutes, kind: studyEvents.eventType })
+      .from(studyEvents).where(and(eq(studyEvents.userId, userId),
+        gte(studyEvents.occurredAt, cairoPlannerTime(start, "00:00")), lt(studyEvents.occurredAt, cairoPlannerTime(day, "00:00")))),
+    db.select({ subjectId: subjects.id, subject: subjects.title, score: examAttempts.score,
+      takenOn: examAttempts.takenOn, recordedAt: examAttempts.createdAt, scheduledAt: exams.scheduledAt })
+      .from(examAttempts).innerJoin(exams, eq(exams.id, examAttempts.examId))
+      .innerJoin(subjects, and(eq(subjects.id, exams.subjectId), eq(subjects.userId, userId)))
+      .where(and(eq(examAttempts.userId, userId), eq(exams.userId, userId), isNull(exams.archivedAt),
+        or(gte(examAttempts.takenOn, oldestExam), and(isNull(examAttempts.takenOn),
+          gte(exams.scheduledAt, cairoPlannerTime(oldestExam, "00:00")))))),
+    getPlanner(userId), listStudyPlan(userId),
+  ]);
+  const marked = new Set(plan.backlog ?? []);
+  const attempts = examsForReflection.flatMap(row => {
+    const date = examPerformanceDay(row);
+    return date && date >= oldestExam && date < day ? [{ subjectId: row.subjectId, subject: row.subject,
+      score: row.score, day: date, recordedAt: +row.recordedAt }] : [];
+  }).sort((a, b) => b.day.localeCompare(a.day) || b.recordedAt - a.recordedAt);
+  const sleep = plan.sleepLogs?.[shiftPlannerDay(day, -1)];
+  return {
+    attempts, sleepMinutes: sleep ? sleepDuration(sleep) : null,
+    sleepTarget: sleepTargetMinutes,
+    backlog: backlogRows.rows.filter(row => row.lesson && marked.has(row.lesson.id) && row.progress?.status !== "completed").length,
+    minutes: events.reduce((total, row) => total + Number(row.minutes), 0),
+    activeDays: new Set(events.filter(row => row.minutes > 0).map(row => plannerToday(row.at))).size,
+    lessons: events.filter(row => row.kind === "lesson_complete").length,
+    tasks: events.filter(row => row.kind === "task_complete").length,
+  };
 }
 
 export async function welcomeAchievements(userId: number, day: string) {

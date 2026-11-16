@@ -1,28 +1,53 @@
 import { createHash } from "node:crypto";
+import { dailyQuranSignals } from "./db.js";
 
-const chapterLengths = [
-  7,286,200,176,120,165,206,75,129,109,123,111,43,52,99,128,111,110,98,135,
-  112,78,118,64,77,227,93,88,69,60,34,30,73,54,45,83,182,88,75,85,54,53,89,59,37,
-  35,38,29,18,45,60,49,62,55,78,96,29,22,24,13,14,11,11,18,12,12,30,52,52,44,
-  28,28,20,56,40,31,50,40,46,42,29,19,36,25,22,17,19,26,30,20,15,21,11,8,8,
-  19,5,8,8,11,11,8,3,9,5,4,7,3,6,3,5,4,5,6,
-];
-const totalVerses = chapterLengths.reduce((sum, length) => sum + length, 0);
+type Theme = "patience" | "effort" | "knowledge" | "gratitude" | "calm";
 type Verse = { surah: number; ayah: number; text: string; explanation: string; source: string };
+type Signals = Awaited<ReturnType<typeof dailyQuranSignals>>;
+
+const verses = {
+  patience: [[2,153], [3,200], [11,115], [94,5], [94,6]],
+  effort: [[53,39], [53,40], [29,69], [94,7], [99,7]],
+  knowledge: [[20,114], [58,11], [39,9], [16,43]],
+  gratitude: [[14,7], [27,19], [93,11], [16,53]],
+  calm: [[13,28], [94,5], [2,286], [65,3], [3,159]],
+} satisfies Record<Theme, number[][]>;
+
+const number = new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 1 });
 const cache = new Map<string, Promise<Verse>>();
 
-export function dailyVerseReference(userId: number, day: string) {
-  let index = createHash("sha256").update(JSON.stringify([day, userId])).digest().readUInt32BE() % totalVerses;
-  const surah = chapterLengths.findIndex(length => {
-    if (index < length) return true;
-    index -= length;
-    return false;
-  }) + 1;
-  return { surah, ayah: index + 1 };
+export function studyReflection(signals: Signals): { theme: Theme; message: string } {
+  const format = (value: number) => number.format(value);
+  const attempts = signals.attempts;
+  const latest = attempts[0];
+  const previous = latest && attempts.find(item => item.subjectId === latest.subjectId && item.day < latest.day);
+  const change = latest && previous ? latest.score - previous.score : 0;
+
+  if (latest && previous && change <= -8) return { theme: "patience",
+    message: `درجتك الأخيرة في ${latest.subject} كانت ${format(latest.score)}٪ بعد ${format(previous.score)}٪. خُد من الآية تذكير بالصبر، واختار سؤال واحد من اللي غلطت فيهم وافهم سبب الغلط قبل ما تعيد الحل.` };
+  if (latest && previous && change >= 5) return { theme: "gratitude",
+    message: `درجتك في ${latest.subject} اتحسّنت من ${format(previous.score)}٪ لـ${format(latest.score)}٪. افرح بالتقدّم، وفكّر في طريقة المذاكرة اللي ساعدتك عشان تكررها.` };
+  if (latest && latest.score < 65) return { theme: "knowledge",
+    message: `آخر درجة في ${latest.subject} كانت ${format(latest.score)}٪. ابدأ بجزء مش واضح ليك من الامتحان، وارجع للشرح أو اسأل المدرس عنه، وبعدها جرّب سؤال شبهه.` };
+  if (signals.sleepMinutes !== null && signals.sleepMinutes < signals.sleepTarget) return { theme: "calm",
+    message: `آخر نوم مسجّل كان ${format(signals.sleepMinutes / 60)} ساعة. ابدأ بحاجة صغيرة على قد طاقتك وسيب مساحة للراحة.` };
+  if (signals.backlog > 0 && signals.activeDays < 4) return { theme: "effort",
+    message: `عندك ${format(signals.backlog)} درس متراكم. اختار درس واحد يخدم أقرب حصة وخُد أول ٢٥ دقيقة فيه.` };
+  if (signals.activeDays >= 4) return { theme: "gratitude",
+    message: `ذاكرت في ${format(signals.activeDays)} أيام من آخر أسبوع وسجّلت ${format(signals.minutes / 60)} ساعة. خد لحظة تفرح بالاستمرار، واختار عادة واحدة ساعدتك تكررها الأسبوع ده.` };
+  if (signals.lessons + signals.tasks > 0) return { theme: "effort",
+    message: `آخر أسبوع خلّصت ${format(signals.lessons)} درس و${format(signals.tasks)} مهمة. افتكر إن خطوة صغيرة زي اللي عملتها ممكن تبقى بداية يوم كويس.` };
+  return { theme: "effort", message: "ابدأ بخطوة صغيرة النهارده. افتح درس يهمّك، واكتب سؤال واحد نفسك تلاقي إجابته." };
 }
 
-export function dailyQuranVerse(userId: number, day: string) {
-  const { surah, ayah } = dailyVerseReference(userId, day);
+export function dailyVerseReference(userId: number, day: string, theme: Theme) {
+  const pool = verses[theme];
+  const hash = createHash("sha256").update(JSON.stringify([day, userId, theme])).digest().readUInt32BE();
+  const [surah, ayah] = pool[hash % pool.length];
+  return { surah, ayah };
+}
+
+function loadVerse(surah: number, ayah: number) {
   const key = surah + ":" + ayah;
   const previous = cache.get(key);
   if (previous) return previous;
@@ -36,9 +61,14 @@ export function dailyQuranVerse(userId: number, day: string) {
       throw new Error("تعذّر تحميل آية اليوم.");
     }
     return { surah, ayah, text: result.arabic_text, explanation: result.translation,
-      source: "https://quranenc.com/ar/browse/arabic_moyassar/" + surah + "-" + ayah };
+      source: "https://quranenc.com/ar/browse/arabic_moyassar/" + surah };
   })().catch(error => { cache.delete(key); throw error; });
-  if (cache.size >= 128) cache.clear();
   cache.set(key, promise);
   return promise;
+}
+
+export async function dailyQuranVerse(userId: number, day: string) {
+  const { theme, message } = studyReflection(await dailyQuranSignals(userId, day));
+  const { surah, ayah } = dailyVerseReference(userId, day, theme);
+  return { ...await loadVerse(surah, ayah), reflection: message };
 }

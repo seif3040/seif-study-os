@@ -60,6 +60,10 @@ export function DailyQuran({ day }: { day: string }) {
       <blockquote lang="ar" className="text-2xl font-semibold leading-relaxed">﴿{verse.data.text}﴾</blockquote>
       <p className="text-sm text-muted-foreground">السورة {money.format(verse.data.surah)} · الآية {money.format(verse.data.ayah)}</p>
       <div className="rounded-xl border p-3"><h3 className="mb-1 font-semibold">التفسير الميسّر</h3><p className="text-sm leading-relaxed">{verse.data.explanation}</p></div>
+      {verse.data.reflection && <div className="rounded-xl border border-primary/30 bg-primary/10 p-3">
+        <h3 className="mb-1 font-semibold text-primary">تأمل ليك النهارده</h3>
+        <p className="text-sm leading-relaxed">{verse.data.reflection}</p>
+      </div>}
       <a href={verse.data.source} target="_blank" rel="noreferrer" className="text-sm text-primary underline">المصدر · موسوعة القرآن الكريم</a>
     </> : verse.isError ? <p className="text-sm">تعذّر تحميل الآية. <Button size="sm" variant="ghost" onClick={() => void verse.refetch()}>جرّب تاني</Button></p> :
       <p className="text-sm text-muted-foreground">جارٍ تحميل آية اليوم…</p>}
