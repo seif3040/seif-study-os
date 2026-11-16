@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
+import catalog from "./dailyQuranCatalog.json";
 import { dailyQuranSignals } from "./db.js";
 
 type Theme = "patience" | "effort" | "knowledge" | "gratitude" | "calm";
-type Verse = { surah: number; ayah: number; text: string; explanation: string; source: string };
+type VerseText = { text: string; explanation: string; footnotes: string };
 type Signals = Awaited<ReturnType<typeof dailyQuranSignals>>;
 
 const verses = {
@@ -14,7 +15,7 @@ const verses = {
 } satisfies Record<Theme, number[][]>;
 
 const number = new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 1 });
-const cache = new Map<string, Promise<Verse>>();
+const verseTexts: Record<string, VerseText> = catalog.verses;
 
 export function studyReflection(signals: Signals): { theme: Theme; message: string } {
   const format = (value: number) => number.format(value);
@@ -47,28 +48,10 @@ export function dailyVerseReference(userId: number, day: string, theme: Theme) {
   return { surah, ayah };
 }
 
-function loadVerse(surah: number, ayah: number) {
-  const key = surah + ":" + ayah;
-  const previous = cache.get(key);
-  if (previous) return previous;
-  const promise = (async () => {
-    const response = await fetch("https://quranenc.com/api/v1/translation/aya/arabic_moyassar/" + surah + "/" + ayah,
-      { signal: AbortSignal.timeout(6500) });
-    if (!response.ok) throw new Error("تعذّر تحميل آية اليوم.");
-    const { result } = await response.json();
-    if (Number(result?.sura) !== surah || Number(result?.aya) !== ayah ||
-      typeof result.arabic_text !== "string" || typeof result.translation !== "string") {
-      throw new Error("تعذّر تحميل آية اليوم.");
-    }
-    return { surah, ayah, text: result.arabic_text, explanation: result.translation,
-      source: "https://quranenc.com/ar/browse/arabic_moyassar/" + surah };
-  })().catch(error => { cache.delete(key); throw error; });
-  cache.set(key, promise);
-  return promise;
-}
-
 export async function dailyQuranVerse(userId: number, day: string) {
   const { theme, message } = studyReflection(await dailyQuranSignals(userId, day));
   const { surah, ayah } = dailyVerseReference(userId, day, theme);
-  return { ...await loadVerse(surah, ayah), reflection: message };
+  const verse = verseTexts[surah + ":" + ayah];
+  return { ...verse, surah, ayah, reflection: message, edition: catalog.edition,
+    source: "https://old.quranenc.com/ar/browse/arabic_moyassar/" + surah };
 }
