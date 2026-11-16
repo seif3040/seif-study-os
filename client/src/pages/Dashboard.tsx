@@ -1,4 +1,3 @@
-import TodayAnnouncements from "@/components/TodayAnnouncements";
 import TodayNotices, { DailyQuran } from "@/components/TodayNotices";
 import { YearReviewSchedule } from "@/pages/StudyLibrary";
 import { AssessmentOverview } from "@/pages/Assessments";
@@ -27,7 +26,6 @@ const cairoDate = new Intl.DateTimeFormat("ar-EG", {
 
 export default function Dashboard() {
   const homeworkQuery = trpc.tasks.list.useQuery();
-  const [allHomework, setAllHomework] = useState(false);
   const [editingHomework, setEditingHomework] = useState<CalendarTask>();
   const summary = trpc.dashboard.summary.useQuery();
   const reviews = trpc.studyPlan.examReviews.useQuery();
@@ -57,14 +55,13 @@ export default function Dashboard() {
     .sort((a, b) => (a.deadline?.getTime() ?? Infinity) - (b.deadline?.getTime() ?? Infinity) || a.id - b.id);
   const due = reviews.data ?? [];
 
-  return <div className="space-y-4 wrap-anywhere">
-    <TodayAnnouncements slides={[
-      { title: "النهارده", content: <section className="study-hero today-hero rounded-[2rem] p-5 sm:p-6">
+  return <div className="space-y-5 wrap-anywhere">
+    <section className="study-hero today-hero rounded-[2rem] p-6 sm:p-9">
       <div className="today-hero-copy">
       <p className="flex items-center gap-2 text-sm text-white/85"><CalendarDays className="size-4" />{cairoDate.format(new Date())}</p>
-      <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-5xl">النهارده</h1>
+      <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-6xl">النهارده</h1>
       
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-5 flex flex-wrap gap-2">
         <Button asChild className="study-hero-action study-interactive"><Link href="/study-video#pomodoro"><Timer />{ongoingPomodoro ? "كمّل جلسة التركيز" : "ابدأ بومودورو"}</Link></Button>
       </div>
       </div>
@@ -78,10 +75,8 @@ export default function Dashboard() {
         </div>
       </div>
       <Button asChild variant="secondary" className="mt-3"><Link href="/study-library"><BookOpen />كتبي</Link></Button>
-    </section> },
-      { title: "آية اليوم", content: <DailyQuran day={today} /> },
-      { title: "تنبيهات النوم والمذاكرة", content: <TodayNotices day={today} /> },
-      { title: "نهاية رحلة البكالوريا", content: <section aria-label="العد التنازلي لنهاية البكالوريا"
+    </section>
+    <section aria-label="العد التنازلي لنهاية البكالوريا"
       className="surface flex flex-wrap items-center justify-between gap-4 rounded-3xl border-primary/30 bg-primary/10 p-5 sm:px-7">
       <div className="flex items-center gap-3">
         <div className="rounded-2xl bg-primary/15 p-3 text-primary"><GraduationCap className="size-7" aria-hidden="true" /></div>
@@ -94,29 +89,14 @@ export default function Dashboard() {
         {daysRemaining > 0 ? <>باقي <span className="text-3xl tabular-nums">{money.format(daysRemaining)}</span> يوم</>
           : daysRemaining === 0 ? "وصلنا للتاريخ المستهدف" : "العدّ التنازلي انتهى"}
       </p>
-    </section> },
-      { title: "خطة النهارده", content: <DayStudy day={today} showSchedule /> },
-      { title: "التقييمات والمراجعة", content: <div className="space-y-2"><AssessmentOverview /><YearReviewSchedule compact /></div> },
-      { title: "تقدّم المذاكرة", content: <section aria-label="تقدم المذاكرة" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {[
-        { label: "وقت المذاكرة", value: minutesLabel(metrics.studyMinutes), Icon: Clock3, href: "/analytics" },
-        { label: "الدروس المكتملة", value: money.format(metrics.lessonsCompleted), Icon: BookOpen, href: "/study-plan" },
-        { label: "سلسلة المذاكرة", value: money.format(metrics.currentStreak) + " يوم", Icon: Flame, href: "/analytics" },
-        { label: "رصيد Coins", value: money.format(coins.balance), Icon: CircleDollarSign, href: "/coins" },
-      ].map(({ label, value, Icon, href }) => <Link href={href} key={label} className="surface study-stat study-interactive block p-4 hover:border-primary/40 sm:p-5">
-        <span className="metric-icon bg-primary/10 text-primary"><Icon /></span>
-        <p className="mt-3 text-sm text-muted-foreground">{label}</p>
-        <p className="mt-1 text-lg font-bold sm:text-xl">{value}</p>
-      </Link>)}
-    </section> },
-    ]} />
+    </section>
     <section className="surface space-y-3 p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 font-bold"><BookOpen className="size-5" /> الواجبات القادمة</h2>
         <Link href="/lesson-sources" className="text-sm text-primary underline">جدول الحصص</Link>
       </div>
       {homeworkQuery.isLoading ? <p>جارٍ تحميل الواجبات…</p> : homeworkQuery.isError ? <p role="alert">تعذّر تحميل الواجبات.</p> : homework.length ? <ul className="divide-y">
-        {(allHomework ? homework : homework.slice(0, 3)).map(task => {
+        {homework.map(task => {
           const lines = (task.description ?? "").split("\n");
           const link = task.title.startsWith("شاهد محاضرة الأونلاين · ") ? safeStudyUrl(lines.at(-1) ?? "") : null;
           return <li key={task.id} className="flex flex-wrap items-center gap-2 py-3">
@@ -130,11 +110,14 @@ export default function Dashboard() {
           <Button size="sm" disabled={complete.isPending} onClick={() => complete.mutate({ taskId: task.id })}><Check /> خلصت</Button>
         </li>; })}
       </ul> : <p className="text-sm text-muted-foreground">الواجب هيظهر هنا أول ما تسجّل حضور حصة.</p>}
-      {homework.length > 3 && <Button size="sm" variant="outline" aria-expanded={allHomework} onClick={() => setAllHomework(value => !value)}>
-        {allHomework ? "اعرض أقل" : "اعرض كل الواجبات (" + money.format(homework.length) + ")"}
-      </Button>}
     </section>
+    <DailyQuran day={today} />
+    <TodayNotices day={today} />
     <DailyPrayers day={today} />
+    <AssessmentOverview />
+    <YearReviewSchedule compact />
+
+    <DayStudy day={today} showSchedule />
     {editingHomework && <TaskDialog task={editingHomework} day={today} onClose={() => setEditingHomework(undefined)} onDone={() => utils.invalidate()} />}
 
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
@@ -173,6 +156,17 @@ export default function Dashboard() {
       </li>)}</ul> : <p className="p-5 text-sm text-muted-foreground">مفيش دروس مكتملة لسه محتاجة مراجعة لامتحان جاي.</p>}
     </section>
 
-
+    <section aria-label="تقدم المذاكرة" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {[
+        { label: "وقت المذاكرة", value: minutesLabel(metrics.studyMinutes), Icon: Clock3, href: "/analytics" },
+        { label: "الدروس المكتملة", value: money.format(metrics.lessonsCompleted), Icon: BookOpen, href: "/study-plan" },
+        { label: "سلسلة المذاكرة", value: money.format(metrics.currentStreak) + " يوم", Icon: Flame, href: "/analytics" },
+        { label: "رصيد Coins", value: money.format(coins.balance), Icon: CircleDollarSign, href: "/coins" },
+      ].map(({ label, value, Icon, href }) => <Link href={href} key={label} className="surface study-stat study-interactive block p-4 hover:border-primary/40 sm:p-5">
+        <span className="metric-icon bg-primary/10 text-primary"><Icon /></span>
+        <p className="mt-3 text-sm text-muted-foreground">{label}</p>
+        <p className="mt-1 text-lg font-bold sm:text-xl">{value}</p>
+      </Link>)}
+    </section>
   </div>;
 }
