@@ -35,14 +35,19 @@ export default function SleepReport({ logs, daily }: {
         <div className="rounded-xl border p-3"><p className="text-sm text-muted-foreground">وصلت لهدف النوم</p><b>{nights.filter(value => value >= sleepTargetMinutes).length} من {nights.length} ليالٍ</b></div>
         <div className="rounded-xl border p-3"><p className="text-sm text-muted-foreground">آخر نوم وصحيان</p><b>{latest?.record && formatClock(latest.record.bed) + " ← " + formatClock(latest.record.wake)}</b></div>
       </div>
-      <p className="flex flex-wrap gap-4 text-sm"><span className="text-primary">■ مدة النوم</span><span className="text-sky-500">━ وقت المذاكرة</span></p>
-      <div className="h-64 min-w-0" dir="ltr">
+      <p className="flex flex-wrap gap-4 text-sm"><span className="text-chart-1">■ مدة النوم</span><span className="text-chart-2">━ وقت المذاكرة</span></p>
+      <div className="study-analytics-chart h-64 min-w-0" dir="ltr">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={days}><CartesianGrid opacity={0.15} vertical={false} /><XAxis dataKey="label" minTickGap={20} />
+          <ComposedChart data={days}><CartesianGrid stroke="var(--muted-foreground)" opacity={0.22} vertical={false} /><XAxis dataKey="label" minTickGap={20} />
             <YAxis tickFormatter={value => String(value / 60)} unit=" س" />
-            <Tooltip formatter={(value, name) => [minutesLabel(Number(value)), name]} />
-            <Bar name="مدة النوم" dataKey="sleep" fill="currentColor" className="text-primary" radius={[5, 5, 0, 0]} />
-            <Line name="وقت المذاكرة" dataKey="study" stroke="currentColor" className="text-sky-500" strokeWidth={3} />
+            <Tooltip cursor={{ stroke: "var(--muted-foreground)", strokeDasharray: "4 4" }}
+              contentStyle={{ backgroundColor: "var(--popover)", borderColor: "var(--border)", borderRadius: 12, direction: "rtl" }}
+              labelStyle={{ color: "var(--popover-foreground)", fontWeight: 600 }}
+              itemStyle={{ color: "var(--popover-foreground)" }}
+              formatter={(value, name) => [minutesLabel(Number(value)), name]} />
+            <Bar name="مدة النوم" dataKey="sleep" fill="var(--chart-1)" radius={[5, 5, 0, 0]} />
+            <Line name="وقت المذاكرة" dataKey="study" stroke="var(--chart-2)" strokeWidth={3}
+              dot={{ r: 3, fill: "var(--card)", strokeWidth: 2 }} activeDot={{ r: 5, fill: "var(--chart-2)", stroke: "var(--card)" }} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>

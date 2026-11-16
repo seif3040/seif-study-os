@@ -10,7 +10,7 @@ const scoreFormat = new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 1 })
 const percent = (value: number | null) => value === null ? "—" : scoreFormat.format(value) + "٪";
 const cards = [{ key: "lessonsCompleted", label: "الدروس المكتملة", icon: BookOpen }, { key: "studyMinutes", label: "ساعات الدراسة", icon: Timer }, { key: "pomodoros", label: "Pomodoros", icon: Timer }, { key: "videoMinutes", label: "وقت الفيديو", icon: Video }, { key: "averageExamScore", label: "متوسط درجات الامتحانات", icon: BrainCircuit }, { key: "tasksCompleted", label: "مهام مكتملة", icon: CheckSquare }, { key: "goalsCompleted", label: "أهداف مكتملة", icon: Award }, { key: "currentStreak", label: "السلسلة الحالية", icon: BarChart3 }] as const;
 export default function Analytics() {
-  return <div className="space-y-8"><Overview /><SubjectReport /></div>;
+  return <div className="study-analytics space-y-8"><Overview /><SubjectReport /></div>;
 }
 
 function SubjectReport() {
@@ -165,22 +165,22 @@ function AchievementTrend({ daily, attempts }: { daily: DailyTrend[]; attempts: 
         </button>;
       })}
     </div>
-    {hasChartData ? <div dir="ltr" className="h-64 w-full min-w-0">
+    {hasChartData ? <div dir="ltr" className="study-analytics-chart h-64 w-full min-w-0">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chart} margin={{ top: 12, right: 16, bottom: 6, left: 0 }}>
-          <CartesianGrid stroke="currentColor" opacity={0.14} vertical={false} />
-          <XAxis dataKey="label" minTickGap={24} tick={{ fontSize: 11, fill: "currentColor" }} />
-          <YAxis width={46} allowDecimals={false} tick={{ fontSize: 11, fill: "currentColor" }}
+          <CartesianGrid stroke="var(--muted-foreground)" opacity={0.22} vertical={false} />
+          <XAxis dataKey="label" minTickGap={24} tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} />
+          <YAxis width={46} allowDecimals={false} tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
             domain={metric === "exams" ? [0, 100] : undefined} tickFormatter={value => money.format(Number(value))}
             unit={metric === "minutes" ? " د" : metric === "exams" ? "٪" : undefined} />
-          <Tooltip content={({ active, payload }) => {
+          <Tooltip cursor={{ stroke: "var(--muted-foreground)", strokeDasharray: "4 4" }} content={({ active, payload }) => {
             const point = payload?.[0]?.payload;
             if (!active || !point) return null;
-            return <div dir="rtl" className="rounded-lg border bg-background p-2 text-sm">
+            return <div dir="rtl" className="rounded-lg border bg-popover p-2 text-sm text-popover-foreground shadow-lg">
               <p>{point.label}</p><strong>{format(metric, point.value)}</strong>
             </div>;
           }} />
-          <Line type="linear" dataKey="value" stroke="currentColor" className="text-primary" strokeWidth={3}
+          <Line type="linear" dataKey="value" stroke="var(--chart-1)" strokeWidth={3}
             connectNulls={metric === "exams"} dot={range === 14 || metric === "exams"} activeDot={{ r: 5 }} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>

@@ -259,3 +259,24 @@
     transition: none;
   }
 }
+
+/* Recharts uses fixed axis colors unless overridden by the active theme. */
+.study-analytics-chart .recharts-cartesian-axis-tick-value {
+  fill: var(--muted-foreground);
+  font-size: 12px;
+}
+.study-analytics-chart .recharts-cartesian-axis-line,
+.study-analytics-chart .recharts-cartesian-axis-tick-line {
+  stroke: var(--muted-foreground);
+  opacity: .55;
+}
+.study-analytics progress {
+  appearance: none;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: var(--muted);
+  color: var(--chart-1);
+}
+.study-analytics progress::-webkit-progress-bar { background: var(--muted); }
+.study-analytics progress::-webkit-progress-value { background: var(--chart-1); }
+.study-analytics progress::-moz-progress-bar { background: var(--chart-1); }
