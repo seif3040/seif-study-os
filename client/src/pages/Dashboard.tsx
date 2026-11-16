@@ -1,3 +1,4 @@
+import { TodaySections } from "@/components/TodayLayout";
 import TodayNotices, { DailyQuran } from "@/components/TodayNotices";
 import { YearReviewSchedule } from "@/pages/StudyLibrary";
 import { AssessmentOverview } from "@/pages/Assessments";
@@ -55,8 +56,9 @@ export default function Dashboard() {
     .sort((a, b) => (a.deadline?.getTime() ?? Infinity) - (b.deadline?.getTime() ?? Infinity) || a.id - b.id);
   const due = reviews.data ?? [];
 
-  return <div className="space-y-5 wrap-anywhere">
-    <section className="study-hero today-hero rounded-[2rem] p-6 sm:p-9">
+  return <>
+    <TodaySections content={{
+    overview: <section className="study-hero today-hero rounded-[2rem] p-6 sm:p-9">
       <div className="today-hero-copy">
       <p className="flex items-center gap-2 text-sm text-white/85"><CalendarDays className="size-4" />{cairoDate.format(new Date())}</p>
       <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-6xl">النهارده</h1>
@@ -75,8 +77,8 @@ export default function Dashboard() {
         </div>
       </div>
       <Button asChild variant="secondary" className="mt-3"><Link href="/study-library"><BookOpen />كتبي</Link></Button>
-    </section>
-    <section aria-label="العد التنازلي لنهاية البكالوريا"
+    </section>,
+    countdown: <section aria-label="العد التنازلي لنهاية البكالوريا"
       className="surface flex flex-wrap items-center justify-between gap-4 rounded-3xl border-primary/30 bg-primary/10 p-5 sm:px-7">
       <div className="flex items-center gap-3">
         <div className="rounded-2xl bg-primary/15 p-3 text-primary"><GraduationCap className="size-7" aria-hidden="true" /></div>
@@ -89,8 +91,8 @@ export default function Dashboard() {
         {daysRemaining > 0 ? <>باقي <span className="text-3xl tabular-nums">{money.format(daysRemaining)}</span> يوم</>
           : daysRemaining === 0 ? "وصلنا للتاريخ المستهدف" : "العدّ التنازلي انتهى"}
       </p>
-    </section>
-    <section className="surface space-y-3 p-5">
+    </section>,
+    homework: <section className="surface space-y-3 p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 font-bold"><BookOpen className="size-5" /> الواجبات القادمة</h2>
         <Link href="/lesson-sources" className="text-sm text-primary underline">جدول الحصص</Link>
@@ -110,17 +112,14 @@ export default function Dashboard() {
           <Button size="sm" disabled={complete.isPending} onClick={() => complete.mutate({ taskId: task.id })}><Check /> خلصت</Button>
         </li>; })}
       </ul> : <p className="text-sm text-muted-foreground">الواجب هيظهر هنا أول ما تسجّل حضور حصة.</p>}
-    </section>
-    <DailyQuran day={today} />
-    <TodayNotices day={today} />
-    <DailyPrayers day={today} />
-    <AssessmentOverview />
-    <YearReviewSchedule compact />
-
-    <DayStudy day={today} showSchedule />
-    {editingHomework && <TaskDialog task={editingHomework} day={today} onClose={() => setEditingHomework(undefined)} onDone={() => utils.invalidate()} />}
-
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+    </section>,
+    verse: <DailyQuran day={today} />,
+    notices: <TodayNotices day={today} />,
+    prayers: <DailyPrayers day={today} />,
+    assessments: <AssessmentOverview />,
+    yearReview: <YearReviewSchedule compact />,
+    dayPlan: <DayStudy day={today} showSchedule />,
+    agenda: <div className="grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
       <section className="surface overflow-hidden">
         <header className="flex items-center justify-between gap-2 border-b px-5 py-4">
           <h2 className="flex items-center gap-2 font-bold"><CalendarDays className="size-4 text-primary" aria-hidden />مهام النهارده</h2>
@@ -143,9 +142,8 @@ export default function Dashboard() {
         </> : <p className="mt-3 text-sm text-muted-foreground">مفيش امتحان متحدد له معاد.</p>}
         <Button asChild variant="outline" className="mt-4"><Link href="/exams">كل الامتحانات <ArrowLeft /></Link></Button>
       </section>
-    </div>
-
-    <section className="surface overflow-hidden">
+    </div>,
+    examReviews: <section className="surface overflow-hidden">
       <header className="flex items-center justify-between border-b px-5 py-4">
         <h2 className="flex items-center gap-2 font-bold"><BookOpen className="size-4 text-primary" aria-hidden />المراجعات المستحقة</h2>
         <Button variant="ghost" size="sm" asChild><Link href="/exams">الامتحانات <ArrowLeft /></Link></Button>
@@ -154,9 +152,8 @@ export default function Dashboard() {
         <div className="min-w-0 flex-1"><p className="font-medium">{item.title}</p><p className="text-sm text-muted-foreground">{[item.subject, item.examTitle, item.scheduledAt && cairoDate.format(item.scheduledAt)].filter(Boolean).join(" · ")}</p></div>
         <Button variant="outline" size="sm" disabled={review.isPending} onClick={() => review.mutate({ lessonId: item.id })}>راجعت الدرس</Button>
       </li>)}</ul> : <p className="p-5 text-sm text-muted-foreground">مفيش دروس مكتملة لسه محتاجة مراجعة لامتحان جاي.</p>}
-    </section>
-
-    <section aria-label="تقدم المذاكرة" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    </section>,
+    progress: <section aria-label="تقدم المذاكرة" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {[
         { label: "وقت المذاكرة", value: minutesLabel(metrics.studyMinutes), Icon: Clock3, href: "/analytics" },
         { label: "الدروس المكتملة", value: money.format(metrics.lessonsCompleted), Icon: BookOpen, href: "/study-plan" },
@@ -167,6 +164,8 @@ export default function Dashboard() {
         <p className="mt-3 text-sm text-muted-foreground">{label}</p>
         <p className="mt-1 text-lg font-bold sm:text-xl">{value}</p>
       </Link>)}
-    </section>
-  </div>;
+    </section>,
+    }} />
+    {editingHomework && <TaskDialog task={editingHomework} day={today} onClose={() => setEditingHomework(undefined)} onDone={() => utils.invalidate()} />}
+  </>;
 }
