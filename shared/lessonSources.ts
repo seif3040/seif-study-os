@@ -13,7 +13,7 @@ export type LessonSourceDraft = {
   notes?: string;
 };
 
-function subjectKey(value: string) {
+export function subjectKey(value: string) {
   return value.trim().replace(/[أإآ]/g, "ا").replace(/ى/g, "ي").replace(/[\u064B-\u065F]/g, "")
     .replace(/^ال/, "").toLowerCase();
 }

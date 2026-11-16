@@ -1,3 +1,4 @@
+import { externalVideoDeadline, externalVideoElapsed, videoBlockSeconds } from "../shared/videoTimer.js";
 import { studyEfforts, type StudyEffort, type StudyItem, type WeeklyStudy } from "../shared/weeklyStudy.js";
 import { sleepDuration, sleepTargetMinutes, type SleepLog } from "../shared/sleep.js";
 import { cairoPlannerTime, examLocalDate, examOccurrences, type ExamScheduleOptions } from "../shared/examSchedule.js";
@@ -674,7 +675,11 @@ export async function startVideoSession(userId: number, input: { videoUrl: strin
     return session!;
   });
 }
-export async function endVideoSession(userId: number, sessionId: number) { const db = await database(); const rows = await db.select().from(studyVideoSessions).where(and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId))).limit(1); const item = rows[0]; if (!item) throw new Error("جلسة الفيديو غير موجودة."); const now = new Date(); const addedSeconds = item.sourceMode === "external" && item.timerRunning && item.lastPlaybackAt ? Math.min(10_800, Math.max(0, Math.floor((now.getTime() - item.lastPlaybackAt.getTime()) / 1000))) : 0; const activeSeconds = item.activeSeconds + addedSeconds; const previousBlocks = Math.floor(item.activeSeconds / 2700); const completedBlocks = Math.floor(activeSeconds / 2700); await db.update(studyVideoSessions).set({ phase: "completed", lastPlaybackAt: null, timerRunning: false, activeSeconds, completedBlocks }).where(eq(studyVideoSessions.id, sessionId)); if (completedBlocks > previousBlocks) { const ref = `video:${sessionId}:block:${completedBlocks}`; await recordStudyEvent({ userId, cycleId: item.cycleId, eventType: "video_block", referenceId: ref, durationMinutes: 45 }); await awardCoins({ userId, cycleId: item.cycleId, amount: 25, rateKey: "video_block", reason: "فيديو مذاكرة — 45 دقيقة", referenceKey: ref }); await evaluateAchievements(userId, item.cycleId); } return { ended: true, activeSeconds }; }
+export async function endVideoSession(userId: number, sessionId: number) {
+  const result = await updateExternalVideo(userId, sessionId, "end");
+  return { ended: true, activeSeconds: result.session.activeSeconds };
+}
+
 export async function openVideoSessions(userId: number, subject?: typeof studyVideoSessions.$inferSelect.subject) {
   const db = await database();
   return db.select().from(studyVideoSessions).where(and(
@@ -714,21 +719,7 @@ export async function trackVideoPlayback(userId: number, sessionId: number, inpu
       lastPlaybackPosition: position,
     };
     await tx.update(studyVideoSessions).set(changes).where(owned);
-    if (blockCompleted) {
-      const [rate] = await tx.select({ amount: coinRateSettings.amount }).from(coinRateSettings)
-        .where(eq(coinRateSettings.rateKey, "video_block"));
-      const amount = rate?.amount ?? 25;
-      for (let block = item.completedBlocks + 1; block <= completedBlocks; block++) {
-        const reference = `video:${sessionId}:block:${block}`;
-        await tx.insert(studyEvents).values({
-          userId, cycleId: item.cycleId, eventType: "video_block", referenceId: reference, durationMinutes: 45,
-        }).onDuplicateKeyUpdate({ set: { referenceId: reference } });
-        if (amount > 0) await tx.insert(coinTransactions).values({
-          userId, cycleId: item.cycleId, type: "earn", amount, referenceKey: reference,
-          reason: "فيديو مذاكرة — 45 دقيقة",
-        }).onDuplicateKeyUpdate({ set: { referenceKey: reference } });
-      }
-    }
+    await awardVideoBlocks(tx, item, completedBlocks);
     return { session: { ...item, ...changes }, addedSeconds: activeSeconds - item.activeSeconds, blockCompleted, phase };
   });
   if (result.blockCompleted) await evaluateAchievements(userId, result.session.cycleId).catch(() => []);
@@ -736,8 +727,70 @@ export async function trackVideoPlayback(userId: number, sessionId: number, inpu
 }
 export async function resumeVideoSession(userId: number, sessionId: number, skipBreak = false) { const db = await database(); const item = await db.select().from(studyVideoSessions).where(and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId))).limit(1); if (!item[0]) throw new Error("جلسة الفيديو غير موجودة."); if (item[0].phase !== "break") return { resumed: false }; if (!skipBreak && item[0].breakEndsAt && item[0].breakEndsAt.getTime() > Date.now()) throw new Error("فترة الاستراحة لم تنتهِ بعد."); await db.update(studyVideoSessions).set({ phase: "watching", breakEndsAt: null, lastPlaybackAt: null }).where(and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId), eq(studyVideoSessions.phase, "break"))); return { resumed: true }; }
 export async function setVideoManualProgress(userId: number, sessionId: number, progress: "started" | "middle" | "finished" | "reviewed") { const db = await database(); const result = await db.update(studyVideoSessions).set({ manualProgress: progress }).where(and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId))); if (!result[0]?.affectedRows) throw new Error("جلسة الفيديو غير موجودة."); return { progress }; }
-export async function setExternalVideoTimer(userId: number, sessionId: number, running: boolean) { const db = await database(); const rows = await db.select().from(studyVideoSessions).where(and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId))).limit(1); const item = rows[0]; if (!item) throw new Error("جلسة الفيديو غير موجودة."); if (item.sourceMode !== "external") throw new Error("هذا المؤقت مخصص للدروس الخارجية فقط."); if (item.phase === "completed") throw new Error("تم إنهاء الجلسة بالفعل."); const now = new Date(); if (running) { if (item.phase === "break" && item.breakEndsAt && item.breakEndsAt.getTime() > now.getTime()) throw new Error("فترة الاستراحة لم تنتهِ بعد."); await db.update(studyVideoSessions).set({ timerRunning: true, phase: "watching", breakEndsAt: null, lastPlaybackAt: now }).where(eq(studyVideoSessions.id, sessionId)); return { running: true, activeSeconds: item.activeSeconds }; }
-  const addedSeconds = item.timerRunning && item.lastPlaybackAt ? Math.min(10_800, Math.max(0, Math.floor((now.getTime() - item.lastPlaybackAt.getTime()) / 1000))) : 0; const activeSeconds = item.activeSeconds + addedSeconds; const previousBlocks = Math.floor(item.activeSeconds / 2700); const completedBlocks = Math.floor(activeSeconds / 2700); const blockCompleted = completedBlocks > previousBlocks; const breakEndsAt = blockCompleted ? new Date(now.getTime() + 15 * 60_000) : null; await db.update(studyVideoSessions).set({ activeSeconds, completedBlocks, timerRunning: false, phase: blockCompleted ? "break" : "watching", breakEndsAt, lastPlaybackAt: null }).where(eq(studyVideoSessions.id, sessionId)); if (blockCompleted) { const ref = `video:${sessionId}:block:${completedBlocks}`; await recordStudyEvent({ userId, cycleId: item.cycleId, eventType: "video_block", referenceId: ref, durationMinutes: 45 }); await awardCoins({ userId, cycleId: item.cycleId, amount: 25, rateKey: "video_block", reason: "فيديو مذاكرة — 45 دقيقة", referenceKey: ref }); await evaluateAchievements(userId, item.cycleId); } return { running: false, activeSeconds, blockCompleted }; }
+async function awardVideoBlocks(tx: StudyTransaction, item: typeof studyVideoSessions.$inferSelect, completedBlocks: number) {
+  const { userId, id: sessionId } = item;
+  if (completedBlocks > item.completedBlocks) {
+    const [rate] = await tx.select({ amount: coinRateSettings.amount }).from(coinRateSettings)
+      .where(eq(coinRateSettings.rateKey, "video_block"));
+    const amount = rate?.amount ?? 25;
+    for (let block = item.completedBlocks + 1; block <= completedBlocks; block++) {
+      const reference = `video:${sessionId}:block:${block}`;
+      await tx.insert(studyEvents).values({
+        userId, cycleId: item.cycleId, eventType: "video_block", referenceId: reference, durationMinutes: videoBlockSeconds / 60,
+      }).onDuplicateKeyUpdate({ set: { referenceId: reference } });
+      if (amount > 0) await tx.insert(coinTransactions).values({
+        userId, cycleId: item.cycleId, type: "earn", amount, referenceKey: reference,
+        reason: "فيديو مذاكرة — 45 دقيقة",
+      }).onDuplicateKeyUpdate({ set: { referenceKey: reference } });
+    }
+  }
+}
+
+async function updateExternalVideo(userId: number, sessionId: number, action: "start" | "pause" | "tick" | "end") {
+  const db = await database();
+  const result = await db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const owned = and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId));
+    const [item] = await tx.select().from(studyVideoSessions).where(owned).for("update");
+    if (!item) throw new Error("جلسة الفيديو غير موجودة.");
+    if (item.phase === "completed") return { session: item, blockCompleted: false };
+    const now = new Date();
+    if (item.sourceMode !== "external") {
+      if (action !== "end") throw new Error("هذا المؤقت مخصص للدروس الخارجية فقط.");
+      const changes = { phase: "completed" as const, lastPlaybackAt: null, timerRunning: false, breakEndsAt: null };
+      await tx.update(studyVideoSessions).set(changes).where(owned);
+      return { session: { ...item, ...changes }, blockCompleted: false };
+    }
+
+    const deadline = externalVideoDeadline(item);
+    const due = deadline !== null && +now >= deadline;
+    if (action === "tick" && !due) return { session: item, blockCompleted: false };
+    if (action === "start" && !due) {
+      if (item.timerRunning) return { session: item, blockCompleted: false };
+      if (item.phase === "break" && item.breakEndsAt && item.breakEndsAt > now) throw new Error("فترة الاستراحة لم تنتهِ بعد.");
+      const changes = { phase: "watching" as const, timerRunning: true, breakEndsAt: null, lastPlaybackAt: now };
+      await tx.update(studyVideoSessions).set(changes).where(owned);
+      return { session: { ...item, ...changes }, blockCompleted: false };
+    }
+    if (action === "pause" && !item.timerRunning) return { session: item, blockCompleted: false };
+
+    const activeSeconds = externalVideoElapsed(item, +now);
+    const completedBlocks = Math.max(item.completedBlocks, Math.floor(activeSeconds / videoBlockSeconds));
+    const blockCompleted = completedBlocks > item.completedBlocks;
+    const phase = action === "end" ? "completed" as const : blockCompleted ? "break" as const : "watching" as const;
+    const changes = { activeSeconds, completedBlocks, phase, timerRunning: false, lastPlaybackAt: null,
+      breakEndsAt: phase === "break" ? new Date(+now + 15 * 60_000) : null };
+    await awardVideoBlocks(tx, item, completedBlocks);
+    await tx.update(studyVideoSessions).set(changes).where(owned);
+    return { session: { ...item, ...changes }, blockCompleted };
+  });
+  if (result.blockCompleted) await evaluateAchievements(userId, result.session.cycleId).catch(() => []);
+  return result;
+}
+
+export function setExternalVideoTimer(userId: number, sessionId: number, running?: boolean) {
+  return updateExternalVideo(userId, sessionId, running === undefined ? "tick" : running ? "start" : "pause");
+}
 
 export function fallbackComprehension(score: number, difficulty: "easy" | "medium" | "hard", priorAverage: number) { return deriveFallbackComprehension(score, difficulty, priorAverage); }
 async function estimateComprehension(input: { score: number; correctAnswers: number; incorrectAnswers: number; difficulty: "easy" | "medium" | "hard"; missedTopics: string[]; priorAverage: number }) { const fallback = fallbackComprehension(input.score, input.difficulty, input.priorAverage); try { const response = await invokeLLM({ messages: [{ role: "system", content: "You are a careful study analyst. Return only a JSON object with a whole-number comprehensionScore from 0 to 100. Use exam score, errors, difficulty, missed topics, and previous average. Never award coins." }, { role: "user", content: JSON.stringify(input) }], response_format: { type: "json_schema", json_schema: { name: "comprehension", strict: true, schema: { type: "object", properties: { comprehensionScore: { type: "integer", minimum: 0, maximum: 100 } }, required: ["comprehensionScore"], additionalProperties: false } } } }); const content = response.choices[0]?.message?.content; const parsed = typeof content === "string" ? JSON.parse(content) : null; return Math.max(0, Math.min(100, Number(parsed?.comprehensionScore ?? fallback))); } catch { return fallback; }

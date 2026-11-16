@@ -1,15 +1,27 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { notifyStudy, prepareStudySound } from "@/lib/studyAlerts";
 import { cairoPlannerTime } from "@shared/examSchedule";
 import { plannerToday } from "@shared/studyPlanner";
 
-const videoBlock = 45 * 60;
+import { externalVideoDeadline } from "@shared/videoTimer";
 
 export default function StudyAlerts({ ownerId }: { ownerId: number }) {
   const focus = trpc.pomodoro.list.useQuery();
   const videos = trpc.video.open.useQuery();
   const schedule = trpc.planner.list.useQuery();
+  const utils = trpc.useUtils();
+  const attempted = useRef(new Map<number, number>());
+  const advance = trpc.video.setExternalTimer.useMutation({
+    onSuccess: async result => {
+      if (!result.blockCompleted) return;
+      const { session } = result;
+      notifyStudy("خلصت ٤٥ دقيقة من الدرس الخارجي. بدأ بريك ١٥ دقيقة.", "timer",
+        session.userId + ":external-block:" + session.id + ":" + session.completedBlocks);
+      await Promise.all([utils.video.invalidate(), utils.dashboard.summary.invalidate(), utils.analytics.overview.invalidate(), utils.coins.ledger.invalidate()]);
+    },
+  });
+  const tick = advance.mutate;
 
   useEffect(() => {
     document.addEventListener("pointerdown", prepareStudySound, true);
@@ -45,9 +57,12 @@ export default function StudyAlerts({ ownerId }: { ownerId: number }) {
         if (video.phase === "break" && video.breakEndsAt) {
           signal(+video.breakEndsAt, "استراحة فيديو المذاكرة خلصت", "video-break:" + video.id);
         }
-        if (video.sourceMode === "external" && video.timerRunning && video.lastPlaybackAt) {
-          const remaining = Math.max(0, (video.completedBlocks + 1) * videoBlock - video.activeSeconds);
-          signal(+video.lastPlaybackAt + remaining * 1000, "عدّى ٤٥ دقيقة على الدرس الخارجي", "external:" + video.id);
+        if (video.sourceMode === "external" && video.phase === "watching") {
+          const until = externalVideoDeadline(video);
+          if (until !== null && now >= until && now - (attempted.current.get(video.id) ?? 0) >= 10_000) {
+            attempted.current.set(video.id, now);
+            tick({ sessionId: video.id });
+          }
         }
       }
 
@@ -65,6 +80,6 @@ export default function StudyAlerts({ ownerId }: { ownerId: number }) {
       window.removeEventListener("focus", check);
       document.removeEventListener("visibilitychange", check);
     };
-  }, [focus.data, videos.data, schedule.data, ownerId]);
+  }, [focus.data, videos.data, schedule.data, ownerId, tick]);
   return null;
 }
