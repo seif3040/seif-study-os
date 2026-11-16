@@ -141,7 +141,14 @@ function SubjectVideoSession({ subject, files }: { subject: SubjectKey; files: M
     };
   }, [session?.id]);
   const breakRemaining = session?.phase === "break" && session.breakEndsAt ? Math.max(0, Math.ceil((new Date(session.breakEndsAt).getTime() - now) / 1000)) : 0;
-  useEffect(() => { if (session?.sourceMode !== "external" && session?.phase === "break" && breakRemaining === 0 && !resume.isPending) resume.mutate({ sessionId: session.id }); }, [breakRemaining, session?.id, session?.phase, session?.sourceMode]);
+  useEffect(() => {
+    if (session?.phase !== "break" || !session.breakEndsAt || breakRemaining !== 0) return;
+    const until = +session.breakEndsAt;
+    if (Date.now() >= until && Date.now() - until < 90_000) {
+      notifyStudy("استراحة فيديو المذاكرة خلصت", "timer", session.userId + ":video-break:" + session.id + ":" + until);
+    }
+    if (session.sourceMode !== "external" && !resume.isPending) resume.mutate({ sessionId: session.id });
+  }, [breakRemaining, session?.id, session?.phase, session?.sourceMode, session?.breakEndsAt]);
   useEffect(() => {
     if (!session || session.sourceMode !== "embedded" || session.phase !== "watching" || playing ||
         position?.id !== session.id || position.seconds === session.lastPlaybackPosition) return;
