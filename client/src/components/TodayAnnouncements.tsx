@@ -39,7 +39,7 @@ export default function TodayAnnouncements({ slides }: { slides: { title: string
     return () => window.clearInterval(timer);
   }, [api, autoplay, current, hovered, focused, dragging, slides.length]);
 
-  return <Carousel dir="rtl" aria-label="إعلانات النهارده" opts={{ direction: "rtl", align: "start", loop: true }} setApi={setApi}>
+  return <Carousel className="min-w-0" dir="rtl" aria-label="إعلانات النهارده" opts={{ direction: "rtl", align: "start", loop: true }} setApi={setApi}>
     <div className="overflow-hidden motion-safe:transition-[height]" style={height ? { height } : undefined}>
     <CarouselContent className="ml-0 -me-3 items-start touch-pan-y"
       onPointerEnter={event => { if (event.pointerType === "mouse") setHovered(true); }}
@@ -47,17 +47,17 @@ export default function TodayAnnouncements({ slides }: { slides: { title: string
       onPointerDown={() => setDragging(true)} onPointerUp={() => setDragging(false)} onPointerCancel={() => setDragging(false)}
       onFocus={() => setFocused(true)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
       {slides.map(({ title, content }, index) => <CarouselItem key={title} aria-label={title} inert={index !== current} ref={node => { slideNodes.current[index] = node; }}
-        className="flex pe-3 pl-0 [&>*]:w-full">
+        className="flex pe-3 pl-0 [&>*]:min-w-0 [&>*]:w-full">
         {content}
       </CarouselItem>)}
     </CarouselContent>
     </div>
-    <div className="mt-2 flex items-center justify-center gap-2">
+    <div className="mt-2 flex flex-wrap items-center justify-center gap-1 sm:gap-2">
       <Button type="button" size="icon" variant="outline" aria-label="الإعلان السابق"
         disabled={!api || slides.length < 2} onClick={() => api?.scrollPrev()}><ChevronRight /></Button>
       {slides.map(({ title }, index) => <Button key={title} type="button" size="icon"
         variant="ghost" aria-label={title} aria-current={current === index ? "true" : undefined}
-        className="size-8" onClick={() => api?.scrollTo(index)}>
+        className="size-6 sm:size-8" onClick={() => api?.scrollTo(index)}>
         <span className={"size-2.5 rounded-full border border-primary " + (current === index ? "bg-primary" : "")} aria-hidden />
       </Button>)}
       <Button type="button" size="icon" variant="outline" aria-label="الإعلان التالي"

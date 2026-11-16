@@ -57,7 +57,7 @@ export default function Dashboard() {
     .sort((a, b) => (a.deadline?.getTime() ?? Infinity) - (b.deadline?.getTime() ?? Infinity) || a.id - b.id);
   const due = reviews.data ?? [];
 
-  return <div className="space-y-4">
+  return <div className="space-y-4 wrap-anywhere">
     <TodayAnnouncements slides={[
       { title: "النهارده", content: <section className="study-hero today-hero rounded-[2rem] p-5 sm:p-6">
       <div className="today-hero-copy">
@@ -137,7 +137,7 @@ export default function Dashboard() {
     <DailyPrayers day={today} />
     {editingHomework && <TaskDialog task={editingHomework} day={today} onClose={() => setEditingHomework(undefined)} onDone={() => utils.invalidate()} />}
 
-    <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
       <section className="surface overflow-hidden">
         <header className="flex items-center justify-between gap-2 border-b px-5 py-4">
           <h2 className="flex items-center gap-2 font-bold"><CalendarDays className="size-4 text-primary" aria-hidden />مهام النهارده</h2>
