@@ -36,17 +36,18 @@ function loadYouTube() {
   return apiPromise;
 }
 
-export function YouTubeStudyPlayer({ embed, startAt = 0, onPlaying, onStopped, onPosition }: {
+export function YouTubeStudyPlayer({ embed, startAt = 0, onPlaying, onStopped, onPosition, onEnded }: {
   embed: string;
   startAt?: number;
   onPlaying(readPosition: () => number, readRate: () => number): void;
   onStopped(position?: number): void;
   onPosition(position: number): void;
+  onEnded(): void;
 }) {
   const initialPosition = useRef(startAt);
   const host = useRef<HTMLDivElement>(null);
-  const callbacks = useRef({ onPlaying, onStopped, onPosition });
-  callbacks.current = { onPlaying, onStopped, onPosition };
+  const callbacks = useRef({ onPlaying, onStopped, onPosition, onEnded });
+  callbacks.current = { onPlaying, onStopped, onPosition, onEnded };
   const [error, setError] = useState(false);
   useEffect(() => {
     const container = host.current;
@@ -99,7 +100,10 @@ export function YouTubeStudyPlayer({ embed, startAt = 0, onPlaying, onStopped, o
           if (event.data === 1) {
             playing = true;
             callbacks.current.onPlaying(() => readPosition(event.target), () => event.target.getPlaybackRate());
-          } else stop(readPosition(event.target));
+          } else {
+            stop(readPosition(event.target));
+            if (event.data === 0) callbacks.current.onEnded();
+          }
         },
         onError() { if (!disposed) { stop(); setError(true); } },
       } });

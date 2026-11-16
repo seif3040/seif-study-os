@@ -1,3 +1,4 @@
+import { notifyStudy } from "@/lib/studyAlerts";
 import { trpc } from "@/lib/trpc";
 import { COOKIE_NAME, UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -29,7 +30,40 @@ queryClient.getQueryCache().subscribe(event => {
   }
 });
 
+const completionMessages: Record<string, string> = {
+  "tasks.complete": "اتسجّل إكمال المهمة",
+  "studyPlan.complete": "اتسجّل إكمال الدرس",
+  "studyPlan.review": "اتسجّلت المراجعة",
+  "planner.finishStudy": "خلصت المذاكرة",
+  "planner.finishYearReview": "خلصت المراجعة",
+  "planner.attend": "اتسجّل حضور الحصة",
+  "planner.assessmentStatus": "اتسجّل إكمال التقييم",
+  "exams.completeAttempt": "اتسجّل الامتحان",
+  "prayers.log": "اتسجّلت الصلاة",
+  "prayers.setNafl": "اتسجّلت النافلة",
+  "goals.updateProgress": "حققت هدفك",
+  "habits.complete": "اتسجّل الإنجاز",
+  "pomodoro.complete": "اتسجّلت جلسة التركيز",
+  "video.setProgress": "اتسجّل تقدّم الفيديو",
+  "video.end": "اتسجّلت جلسة الفيديو",
+};
+
 queryClient.getMutationCache().subscribe(event => {
+  if (event.type === "updated" && event.action.type === "success") {
+    const [path] = event.mutation.options.mutationKey ?? [];
+    const action = Array.isArray(path) ? path.join(".") : "";
+    const message = completionMessages[action];
+    const result = event.mutation.state.data as { alreadyCompleted?: boolean; completedNow?: boolean; missingHomework?: unknown[] } | undefined;
+    const input = event.mutation.state.variables as { status?: string; progress?: string; done?: boolean; finishEarly?: boolean } | undefined;
+    if (message && !result?.alreadyCompleted && !result?.missingHomework?.length
+      && (action !== "goals.updateProgress" || result?.completedNow)
+      && (action !== "planner.assessmentStatus" || input?.status === "completed")
+      && (action !== "video.setProgress" || input?.progress === "finished" || input?.progress === "reviewed")
+      && (action !== "prayers.setNafl" || input?.done)
+      && (action !== "pomodoro.complete" || input?.finishEarly)) {
+      notifyStudy(message, "completed");
+    }
+  }
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.mutation.state.error;
     redirectToLoginIfUnauthorized(error);

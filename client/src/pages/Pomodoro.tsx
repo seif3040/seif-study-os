@@ -1,3 +1,4 @@
+import { notifyStudy } from "@/lib/studyAlerts";
 import { FloatingFocus } from "@/components/FloatingFocus";
 import { focusReward, isFocusPreset } from "@shared/focusDuration";
 import { Input } from "@/components/ui/input";
@@ -51,7 +52,11 @@ const breakRemaining = routine && !routine.skippedBreak && routine.round < routi
   setStartingRoutine(undefined);
   toast.success("بدأت جلسة التركيز.");
   await invalidate();
-}, onError: e => { setStartingRoutine(undefined); toast.error(errorText(e)); } }); const pause = trpc.pomodoro.setPaused.useMutation({ onSuccess: invalidate, onError: e => toast.error(errorText(e)) }); const complete = trpc.pomodoro.complete.useMutation({ onSuccess: async r => { toast.success("amount" in r && r.amount ? `اكتملت الجلسة: +${money.format(r.amount)} Coins` : "اكتملت الجلسة."); (r.unlocks ?? []).forEach((x: any) => toast.success(`🏆 تم فتح: ${x.title}`)); await invalidate(); }, onError: e => toast.error(errorText(e)) }); useEffect(() => { if (active?.state === "running" && remaining === 0 && !complete.isPending) complete.mutate({ sessionId: active.id }); }, [remaining, active?.id, active?.state]);
+}, onError: e => { setStartingRoutine(undefined); toast.error(errorText(e)); } }); const pause = trpc.pomodoro.setPaused.useMutation({ onSuccess: invalidate, onError: e => toast.error(errorText(e)) }); const complete = trpc.pomodoro.complete.useMutation({ onSuccess: async r => { toast.success("amount" in r && r.amount ? `اكتملت الجلسة: +${money.format(r.amount)} Coins` : "اكتملت الجلسة."); (r.unlocks ?? []).forEach((x: any) => toast.success(`🏆 تم فتح: ${x.title}`)); await invalidate(); }, onError: e => toast.error(errorText(e)) }); useEffect(() => { if (active?.state === "running" && remaining === 0 && !complete.isPending) {
+  const until = +active.startedAt + (active.plannedMinutes * 60 + active.pausedSeconds) * 1000;
+  if (owner && Date.now() - until < 90_000) notifyStudy("وقت التركيز خلص", "timer", owner + ":focus:" + active.id + ":" + until);
+  complete.mutate({ sessionId: active.id });
+} }, [remaining, active?.id, active?.state]);
   const betweenRounds = !active && routine && finishedRound && routine.round < routine.rounds;
   function startNextRound() {
     if (!routine || !betweenRounds || breakRemaining > 0 || start.isPending) return;

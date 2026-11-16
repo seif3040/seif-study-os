@@ -10,6 +10,35 @@
   const pending = byId("pending");
   let snapshot;
   let timer;
+  let audio;
+  function unlockTimerSound() {
+    if (typeof AudioContext === "undefined") return;
+    try {
+      if (localStorage.getItem("seif-study-alert-sound") === "off") return;
+      audio ??= new AudioContext();
+      if (audio.state === "suspended") void audio.resume().catch(() => {});
+    } catch {}
+  }
+  document.addEventListener("pointerdown", unlockTimerSound, true);
+  document.addEventListener("keydown", unlockTimerSound, true);
+  function playOfflineSound(timed = false) {
+    try {
+      if (!audio || audio.state !== "running" || localStorage.getItem("seif-study-alert-sound") === "off") return;
+      const notes = timed ? [740, 988, 740, 988] : [523, 659, 784];
+      notes.forEach((frequency, index) => {
+        const tone = audio.createOscillator();
+        const volume = audio.createGain();
+        const start = audio.currentTime + index * 0.16;
+        tone.frequency.value = frequency;
+        volume.gain.setValueAtTime(0.001, start);
+        volume.gain.exponentialRampToValueAtTime(0.16, start + 0.025);
+        volume.gain.exponentialRampToValueAtTime(0.001, start + 0.19);
+        tone.connect(volume).connect(audio.destination);
+        tone.start(start);
+        tone.stop(start + 0.2);
+      });
+    } catch {}
+  }
   let busy = false;
 
   function showError() {
@@ -41,6 +70,7 @@
           button.disabled = true;
           try {
             await store.completeTask(snapshot.ownerId, task);
+            playOfflineSound();
             await refreshPending();
             await store.background().catch(() => undefined);
             await sync();
@@ -151,6 +181,7 @@
       start.disabled = !!timer;
       cancel.hidden = !timer;
       if (timer && remaining === 0 && await store.finish(snapshot.ownerId, timer.key)) {
+        playOfflineSound(true);
         status.textContent = "الجلسة اتحفظت على الجهاز.";
         await store.background().catch(() => undefined);
         await sync();
@@ -199,6 +230,7 @@
     byId("lesson-submit").disabled = true;
     try {
       await store.completeLesson(snapshot.ownerId, id);
+      playOfflineSound();
       await refreshPending();
       await store.background().catch(() => undefined);
       await sync();

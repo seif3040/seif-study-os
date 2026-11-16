@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { playStudySound, prepareStudySound, setStudySounds, studySoundsEnabled } from "@/lib/studyAlerts";
 import { Bell } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -57,6 +58,7 @@ export function StudyReminders({ ownerId }: { ownerId: number }) {
 }
 
 export function ReminderSettings() {
+  const [sound, setSound] = useState(studySoundsEnabled);
   const [enabled, setEnabled] = useState(() => {
     try { return localStorage.getItem(preferenceKey) === "on"; } catch { return false; }
   });
@@ -78,6 +80,16 @@ export function ReminderSettings() {
   return <section className="surface space-y-3 p-5">
     <h2 className="flex items-center gap-2 font-bold"><Bell className="size-4" />تنبيهات المذاكرة</h2>
     <p className="text-sm text-muted-foreground">تنبيه على الجهاز بالمراجعات المستحقة والامتحانات خلال ٢٤ ساعة، طالما الموقع مفتوح.</p>
-    <Button variant="outline" onClick={() => void toggle()}>{enabled ? "إيقاف التنبيهات" : "تشغيل التنبيهات"}</Button>
+    <div className="flex flex-wrap gap-2">
+      <Button variant="outline" onClick={() => void toggle()}>{enabled ? "إيقاف إشعارات الجهاز" : "تشغيل إشعارات الجهاز"}</Button>
+      <Button variant={sound ? "secondary" : "outline"} aria-pressed={sound} onClick={() => {
+        const next = !sound;
+        setStudySounds(next);
+        setSound(next);
+        if (next) prepareStudySound();
+      }}>صوت الإكمال {sound ? "شغّال" : "مكتوم"}</Button>
+      <Button variant="ghost" disabled={!sound} onClick={() => { void prepareStudySound().then(() => playStudySound("timer")); }}>جرّب الصوت</Button>
+    </div>
+    <p className="text-sm text-muted-foreground">صوت عند انتهاء التركيز والاستراحات والفيديو، ونغمة قصيرة لما تسجّل إنجاز.</p>
   </section>;
 }
