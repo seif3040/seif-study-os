@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import catalog from "./dailyQuranCatalog.json";
+import catalog from "./dailyQuranCatalog.js";
 import { dailyQuranSignals } from "./db.js";
 
 type Theme = "patience" | "effort" | "knowledge" | "gratitude" | "calm";

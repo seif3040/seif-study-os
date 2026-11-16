@@ -1,4 +1,5 @@
-{
+// QuranEnc, Al-Tafsir Al-Muyassar, King Fahd Glorious Quran Printing Complex.
+const catalog = {
   "edition": "1.0.1",
   "verses": {
     "2:153": {
@@ -112,4 +113,6 @@
       "footnotes": ""
     }
   }
-}
+};
+
+export default catalog;
