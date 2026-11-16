@@ -72,7 +72,7 @@ export default function CalendarPage() {
       if (due && due !== task.scheduledFor) add(due, { id: "due-" + task.id, label: task.title, kind: "deadline", task });
     }
     for (const exam of calendar.data?.exams ?? []) if (exam.scheduledAt) {
-      add(dayKey(new Date(exam.scheduledAt)), { id: "exam-" + exam.id, label: exam.title, kind: "exam" });
+      add(exam.day, { id: "exam-" + exam.id + "-" + exam.day, label: exam.title, kind: "exam" });
     }
     for (const goal of calendar.data?.goals ?? []) if (goal.deadline) {
       add(dayKey(new Date(goal.deadline)), { id: "goal-" + goal.id, label: goal.title, kind: "goal" });

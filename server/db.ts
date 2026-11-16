@@ -1,3 +1,5 @@
+import { sleepDuration, type SleepLog } from "../shared/sleep.js";
+import { cairoPlannerTime, examLocalDate, examOccurrences, type ExamScheduleOptions } from "../shared/examSchedule.js";
 import { buildYearReviews, emptyResources, yearReviewDate, type StudyResourceChange } from "../shared/studyResources.js";
 import { nawafil, prayerLoggingEnd } from "../shared/nawafil.js";
 import { defaultDesktopTabs, type NavigationPrefs } from "../shared/navigation.js";
@@ -274,8 +276,7 @@ export async function dashboard(userId: number) {
   const coins = await getCoinSummary(db, userId);
   const today = dateKey();
   const todaysTasks = await db.select().from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt), eq(tasks.scheduledFor, today))).orderBy(desc(tasks.priority));
-  const upcomingExams = await db.select({ id: exams.id, title: exams.title, scheduledAt: exams.scheduledAt, subject: subjects.title }).from(exams)
-    .leftJoin(subjects, eq(exams.subjectId, subjects.id)).where(and(eq(exams.userId, userId), isNull(exams.archivedAt), gte(exams.scheduledAt, new Date()))).orderBy(exams.scheduledAt).limit(4);
+  const upcomingExams = await upcomingExamOccurrences(userId, 4);
   const activeGoals = await db.select().from(goals).where(and(eq(goals.userId, userId), eq(goals.status, "active"))).orderBy(desc(goals.progress)).limit(4);
   const [latestPomodoro] = await db.select().from(pomodoroSessions).where(eq(pomodoroSessions.userId, userId)).orderBy(desc(pomodoroSessions.createdAt), desc(pomodoroSessions.id)).limit(1);
   const ongoingPomodoro = latestPomodoro && (latestPomodoro.state === "running" || latestPomodoro.state === "paused") ? latestPomodoro : null;
@@ -567,7 +568,7 @@ export async function getDailyStudySummary(userId: number) {
   const openTasks = await db.select().from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt), eq(tasks.status, "open"), lte(tasks.scheduledFor, today))).orderBy(desc(tasks.priority), tasks.scheduledFor).limit(6);
   const dueToday = openTasks.filter(task => task.scheduledFor === today);
   const urgent = openTasks.filter(task => task.priority === "urgent");
-  const upcoming = await db.select({ title: exams.title, scheduledAt: exams.scheduledAt }).from(exams).where(and(eq(exams.userId, userId), isNull(exams.archivedAt), gte(exams.scheduledAt, new Date()))).orderBy(exams.scheduledAt).limit(1);
+  const upcoming = await upcomingExamOccurrences(userId, 1);
   const names = openTasks.slice(0, 3).map(task => `«${task.title}»`).join("، ");
   const content = `صباح الفل يا سيف. النهاردة عندك ${dueToday.length} مهمة متخططلها${urgent.length ? `، منهم ${urgent.length} مهم` : ""}. ${openTasks.length ? `ابدأ بـ ${names}.` : "جدولك فاضي حاليًا؛ حط مهمة صغيرة ونكسب اليوم."}${upcoming[0]?.scheduledAt ? ` والامتحان الجاي «${upcoming[0].title}» يوم ${upcoming[0].scheduledAt.toLocaleDateString("ar-EG")}.` : ""}`;
   await db.insert(dailyStudySummaries).values({ userId, cycleId: cycle.id, summaryDate: today, content }).onDuplicateKeyUpdate({ set: { userId } });
@@ -761,7 +762,35 @@ export async function setExamAttemptDate(userId: number, attemptId: number, take
 export async function completeExamAttempt(userId: number, input: { examId: number; takenOn?: string; totalQuestions: number; correctAnswers: number; difficulty: "easy" | "medium" | "hard"; missedTopics: string[] }) { if (input.takenOn && input.takenOn > plannerToday()) throw new Error("اختار تاريخ النهارده أو يوم قبله."); const db = await database(); const exam = await db.select().from(exams).where(and(eq(exams.id, input.examId), eq(exams.userId, userId), isNull(exams.archivedAt))).limit(1); if (!exam[0]) throw new Error("الامتحان غير موجود."); if (input.correctAnswers > input.totalQuestions) throw new Error("عدد الإجابات الصحيحة غير صحيح."); const incorrectAnswers = input.totalQuestions - input.correctAnswers; const score = Math.round((input.correctAnswers / input.totalQuestions) * 100); const [prior] = await db.select({ average: sql<number>`coalesce(avg(${examAttempts.score}), 0)` }).from(examAttempts).where(eq(examAttempts.userId, userId)); const comprehensionScore = await estimateComprehension({ score, correctAnswers: input.correctAnswers, incorrectAnswers, difficulty: input.difficulty, missedTopics: input.missedTopics, priorAverage: Number(prior?.average ?? 0) }); const [inserted] = await db.insert(examAttempts).values({ userId, cycleId: exam[0].cycleId, examId: input.examId, totalQuestions: input.totalQuestions, correctAnswers: input.correctAnswers, incorrectAnswers, score, difficulty: input.difficulty, missedTopics: input.missedTopics, comprehensionScore, completionRewarded: true, takenOn: input.takenOn }); const attempt = await db.select().from(examAttempts).where(and(eq(examAttempts.id, inserted.insertId), eq(examAttempts.userId, userId))).limit(1); const ref = `examAttempt:${attempt[0].id}`; await recordStudyEvent({ userId, cycleId: exam[0].cycleId, eventType: "exam_complete", referenceId: ref }); const completion = await awardCoins({ userId, cycleId: exam[0].cycleId, amount: 15, rateKey: "exam_complete", reason: `إكمال امتحان: ${exam[0].title}`, referenceKey: `${ref}:completion` }); const bonusDefault = examBonusForComprehension(comprehensionScore); const threshold = [95, 90, 80, 70, 60].find(value => comprehensionScore >= value); const bonus = threshold ? await awardCoins({ userId, cycleId: exam[0].cycleId, amount: bonusDefault, rateKey: ("exam_bonus_" + threshold) as CoinRateKey, reason: `مكافأة الاستيعاب: ${comprehensionScore}%`, referenceKey: `${ref}:comprehension` }) : { awarded: false, amount: 0 }; return { attempt: attempt[0], score, comprehensionScore, completion, bonus, bonusAmount: bonus.amount, unlocks: await evaluateAchievements(userId, exam[0].cycleId) }; }
 
 
-export async function listCalendar(userId: number, from: Date, to: Date) { const db = await database(); const [taskItems, examItems, goalItems, customItems, sessions] = await Promise.all([db.select().from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt), gte(tasks.deadline, from), lte(tasks.deadline, to))), db.select().from(exams).where(and(eq(exams.userId, userId), isNull(exams.archivedAt), gte(exams.scheduledAt, from), lte(exams.scheduledAt, to))), db.select().from(goals).where(and(eq(goals.userId, userId), gte(goals.deadline, from), lte(goals.deadline, to))), db.select().from(calendarEvents).where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startsAt, from), lte(calendarEvents.startsAt, to))), db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "completed"), gte(pomodoroSessions.completedAt, from), lte(pomodoroSessions.completedAt, to)))]); return { tasks: taskItems, exams: examItems, goals: goalItems, events: customItems, sessions }; }
+async function scheduledExamRows(db: Pick<StudyTransaction, "select">, userId: number) {
+  return db.select().from(exams).where(and(eq(exams.userId, userId), isNull(exams.archivedAt), isNotNull(exams.scheduledAt)));
+}
+
+async function upcomingExamOccurrences(userId: number, limit: number) {
+  const db = await database();
+  const [rows, planner, subjectsRows] = await Promise.all([
+    scheduledExamRows(db, userId), getPlanner(userId),
+    db.select({ id: subjects.id, title: subjects.title }).from(subjects).where(eq(subjects.userId, userId)),
+  ]);
+  const today = plannerToday();
+  const now = Date.now();
+  const next = examOccurrences(rows, today, shiftPlannerDay(today, 28), planner.slots);
+  const later = rows.flatMap(exam => {
+    const day = exam.scheduledAt && examLocalDate(exam.scheduledAt).slice(0, 10);
+    return day && day > shiftPlannerDay(today, 28) ? examOccurrences([exam], day, day, planner.slots) : [];
+  });
+  const seen = new Set<number>();
+  return [...next, ...later].filter(exam => +exam.endAt > now).sort((a, b) => +a.scheduledAt - +b.scheduledAt)
+    .filter(exam => { if (seen.has(exam.id)) return false; seen.add(exam.id); return true; })
+    .slice(0, limit).map(exam => ({ ...exam, subject: subjectsRows.find(subject => subject.id === exam.subjectId)?.title ?? null }));
+}
+
+function examDays(from: Date, to: Date) {
+  const first = examLocalDate(from).slice(0, 10), last = examLocalDate(to).slice(0, 10);
+  return [first, last > shiftPlannerDay(first, 366) ? shiftPlannerDay(first, 366) : last] as const;
+}
+
+export async function listCalendar(userId: number, from: Date, to: Date) { const db = await database(); const [taskItems, scheduled, goalItems, customItems, sessions, planner] = await Promise.all([db.select().from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt), gte(tasks.deadline, from), lte(tasks.deadline, to))), scheduledExamRows(db, userId), db.select().from(goals).where(and(eq(goals.userId, userId), gte(goals.deadline, from), lte(goals.deadline, to))), db.select().from(calendarEvents).where(and(eq(calendarEvents.userId, userId), gte(calendarEvents.startsAt, from), lte(calendarEvents.startsAt, to))), db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "completed"), gte(pomodoroSessions.completedAt, from), lte(pomodoroSessions.completedAt, to))), getPlanner(userId)]); const examItems = examOccurrences(scheduled, ...examDays(from, to), planner.slots); return { tasks: taskItems, exams: examItems, goals: goalItems, events: customItems, sessions }; }
 export async function createCalendarEvent(userId: number, input: { title: string; startsAt: Date; endsAt?: Date; eventType: "important_date" | "custom" }) { const db = await database(); const cycle = await getActiveCycle(userId); await db.insert(calendarEvents).values({ userId, cycleId: cycle.id, title: input.title, startsAt: input.startsAt, endsAt: input.endsAt ?? null, eventType: input.eventType }); }
 
 export async function listRewards(userId: number, canManage = false) {
@@ -849,26 +878,29 @@ async function scopedExamLessons(db: any, userId: number, examId: number): Promi
   return rows.map((row: any) => ({ id: row.id, title: row.title, chapterTitle: row.chapterTitle, subjectTitle: row.subjectTitle, progress: Number(row.progress ?? 0), status: row.status ?? "not_started", lastReviewedAt: row.lastReviewedAt ?? null }));
 }
 
-export async function createExam(userId: number, input: { title: string; subjectId?: number; chapterId?: number; lessonId?: number; scheduledAt?: Date; lessonIds?: number[] }) {
+export async function createExam(userId: number, input: { title: string; subjectId?: number; chapterId?: number; lessonId?: number; scheduledAt?: Date; lessonIds?: number[]; scheduleOptions?: ExamScheduleOptions }) {
+  if (input.scheduleOptions?.repeatWeekly && !input.scheduledAt) throw new Error("حدد تاريخ أول امتحان أسبوعي.");
   const db = await database(); const cycle = await getActiveCycle(userId); const lessonIds = Array.from(new Set([...(input.lessonIds ?? []), ...(input.lessonId ? [input.lessonId] : [])]));
   return db.transaction(async tx => {
   if (lessonIds.length) {
     const owned = await tx.select({ id: lessons.id }).from(lessons).innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id)).where(and(inArray(lessons.id, lessonIds), eq(subjects.userId, userId), isNull(lessons.deletedAt)));
     if (owned.length !== lessonIds.length) throw new Error("اختر دروسًا موجودة ضمن خطتك فقط.");
   }
-  const [inserted] = await tx.insert(exams).values({ userId, cycleId: cycle.id, title: input.title, subjectId: input.subjectId ?? null, chapterId: input.chapterId ?? null, lessonId: input.lessonId ?? null, scheduledAt: input.scheduledAt ?? null });
+  const [inserted] = await tx.insert(exams).values({ userId, cycleId: cycle.id, title: input.title, subjectId: input.subjectId ?? null, chapterId: input.chapterId ?? null, lessonId: input.lessonId ?? null, scheduledAt: input.scheduledAt ?? null, scheduleOptions: input.scheduleOptions });
   const created = await tx.select().from(exams).where(and(eq(exams.userId, userId), eq(exams.id, inserted.insertId))).limit(1);
   if (created[0] && lessonIds.length) await tx.insert(examLessons).values(lessonIds.map(lessonId => ({ examId: created[0].id, lessonId })));
   return created[0];
   });
 }
 
-export async function updateExam(userId: number, input: { examId: number; title: string; scheduledAt?: Date | null; lessonIds?: number[]; subjectId?: number; chapterId?: number | null }) {
+export async function updateExam(userId: number, input: { examId: number; title: string; scheduledAt?: Date | null; lessonIds?: number[]; subjectId?: number; chapterId?: number | null; scheduleOptions?: ExamScheduleOptions }) {
   const db = await database();
   return db.transaction(async tx => {
     const owned = and(eq(exams.id, input.examId), eq(exams.userId, userId));
-    const [exam] = await tx.select({ id: exams.id }).from(exams).where(owned).for("update");
+    const [exam] = await tx.select({ id: exams.id, scheduledAt: exams.scheduledAt, scheduleOptions: exams.scheduleOptions }).from(exams).where(owned).for("update");
     if (!exam) throw new Error("الامتحان غير موجود.");
+    const scheduled = input.scheduledAt === undefined ? exam.scheduledAt : input.scheduledAt;
+    if ((input.scheduleOptions ?? exam.scheduleOptions)?.repeatWeekly && !scheduled) throw new Error("حدد تاريخ أول امتحان أسبوعي.");
     const lessonIds = input.lessonIds === undefined ? undefined : [...new Set(input.lessonIds)];
     if (lessonIds?.length) {
       const valid = await tx.select({ id: lessons.id }).from(lessons)
@@ -877,7 +909,7 @@ export async function updateExam(userId: number, input: { examId: number; title:
         .where(and(eq(subjects.userId, userId), isNull(lessons.deletedAt), inArray(lessons.id, lessonIds)));
       if (valid.length !== lessonIds.length) throw new Error("اختر دروسًا موجودة ضمن خطتك فقط.");
     }
-    await tx.update(exams).set({ title: input.title, scheduledAt: input.scheduledAt, ...(lessonIds === undefined ? {} : { lessonId: null, chapterId: input.chapterId ?? null, subjectId: input.subjectId ?? null }) }).where(owned);
+    await tx.update(exams).set({ title: input.title, scheduledAt: input.scheduledAt, scheduleOptions: input.scheduleOptions, ...(lessonIds === undefined ? {} : { lessonId: null, chapterId: input.chapterId ?? null, subjectId: input.subjectId ?? null }) }).where(owned);
     if (lessonIds !== undefined) {
       await tx.delete(examLessons).where(eq(examLessons.examId, input.examId));
       if (lessonIds.length) await tx.insert(examLessons).values(lessonIds.map(lessonId => ({ examId: input.examId, lessonId })));
@@ -896,12 +928,13 @@ export async function setExamArchived(userId: number, examId: number, archived: 
 
 export async function listExams(userId: number) {
   const db = await database();
-  const [rows, attempts] = await Promise.all([
+  const [rows, attempts, upcoming] = await Promise.all([
     db.select({ exam: exams, subject: subjects.title }).from(exams)
       .leftJoin(subjects, eq(exams.subjectId, subjects.id))
       .where(eq(exams.userId, userId)).orderBy(exams.scheduledAt),
     db.select({ id: examAttempts.id, examId: examAttempts.examId, score: examAttempts.score, comprehension: examAttempts.comprehensionScore, takenOn: examAttempts.takenOn, recordedAt: examAttempts.createdAt })
       .from(examAttempts).where(eq(examAttempts.userId, userId)).orderBy(desc(examAttempts.createdAt), desc(examAttempts.id)),
+    upcomingExamOccurrences(userId, Infinity),
   ]);
   const attemptsByExam = new Map<number, typeof attempts>();
   for (const attempt of attempts) {
@@ -909,12 +942,13 @@ export async function listExams(userId: number) {
     history.push(attempt);
     attemptsByExam.set(attempt.examId, history);
   }
+  const nextById = new Map(upcoming.map(item => [item.id, item.scheduledAt]));
   return Promise.all(rows.map(async row => {
     const scoped = await scopedExamLessons(db, userId, row.exam.id);
     const attempts = (attemptsByExam.get(row.exam.id) ?? []).map(attempt => ({
       ...attempt, date: examPerformanceDay({ ...attempt, scheduledAt: row.exam.scheduledAt }),
     }));
-    return { ...row, lessons: scoped, readiness: readinessForLessons(scoped), attempts };
+    return { ...row, nextScheduledAt: nextById.get(row.exam.id) ?? null, lessons: scoped, readiness: readinessForLessons(scoped), attempts };
   }));
 }
 
@@ -922,7 +956,7 @@ export async function analytics(userId: number) {
   const db = await database(); const cycle = await getActiveCycle(userId); const metrics = await metricSnapshot(db, userId); const coins = await getCoinSummary(db, userId);
   const eventDay = sql<string>`date(\`studyEvents\`.\`occurredAt\`)`;
   const subjectName = sql<string>`coalesce(${subjects.title}, 'بدون مادة')`;
-  const [daily, bySubject, completion, comprehension, purchases] = await Promise.all([
+  const [daily, bySubject, completion, comprehension, purchases, planner] = await Promise.all([
     db.select({ day: eventDay, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)`, events: count(),
       lessons: sql<number>`sum(case when ${studyEvents.eventType} = 'lesson_complete' then 1 else 0 end)`,
       tasks: sql<number>`sum(case when ${studyEvents.eventType} = 'task_complete' then 1 else 0 end)`,
@@ -934,8 +968,9 @@ export async function analytics(userId: number) {
       .from(examAttempts).innerJoin(exams, eq(examAttempts.examId, exams.id))
       .where(and(eq(examAttempts.userId, userId), eq(exams.userId, userId))),
     db.select({ value: count() }).from(rewardPurchases).where(eq(rewardPurchases.userId, userId)),
+    getPlanner(userId),
   ]);
-  return { cycle, metrics, coins, daily, bySubject, completion: completion[0] ?? { open: 0, completed: 0 }, comprehension: comprehension.map(attempt => ({ date: examPerformanceDay(attempt), score: attempt.score, comprehension: attempt.comprehension })), rewardsPurchased: Number(purchases[0]?.value ?? 0) };
+  return { cycle, metrics, coins, daily, sleepLogs: planner.sleepLogs ?? {}, bySubject, completion: completion[0] ?? { open: 0, completed: 0 }, comprehension: comprehension.map(attempt => ({ date: examPerformanceDay(attempt), score: attempt.score, comprehension: attempt.comprehension })), rewardsPurchased: Number(purchases[0]?.value ?? 0) };
 }
 
 export async function listFlashcardDecks(userId: number) {
@@ -1315,13 +1350,16 @@ export async function assignFocusSubject(userId: number, eventIds: number[], sub
 
 export async function upcomingExamReviews(userId: number) {
   const db = await database();
+  const upcoming = await upcomingExamOccurrences(userId, Infinity);
+  if (!upcoming.length) return [];
+  const scheduled = new Map(upcoming.map(exam => [exam.id, exam.scheduledAt]));
   const selectedLesson = db.select({ id: examLessons.lessonId }).from(examLessons)
     .where(and(eq(examLessons.examId, exams.id), eq(examLessons.lessonId, lessons.id)));
   const hasSelectedLessons = db.select({ id: examLessons.lessonId }).from(examLessons)
     .where(eq(examLessons.examId, exams.id));
   const rows = await db.select({
     id: lessons.id, title: lessons.title, subject: subjects.title,
-    examTitle: exams.title, scheduledAt: exams.scheduledAt,
+    examTitle: exams.title, examId: exams.id, scheduledAt: exams.scheduledAt,
   }).from(lessonProgress)
     .innerJoin(lessons, eq(lessons.id, lessonProgress.lessonId))
     .innerJoin(chapters, eq(chapters.id, lessons.chapterId))
@@ -1329,7 +1367,7 @@ export async function upcomingExamReviews(userId: number) {
     .innerJoin(exams, and(
       eq(exams.userId, userId),
       isNull(exams.archivedAt),
-      gte(exams.scheduledAt, new Date()),
+      inArray(exams.id, Array.from(scheduled.keys())),
     ))
     .where(and(
       or(
@@ -1349,7 +1387,9 @@ export async function upcomingExamReviews(userId: number) {
     .orderBy(exams.scheduledAt, exams.id, lessons.id);
 
   const byLesson = new Map<number, (typeof rows)[number]>();
-  for (const row of rows) {
+  const ordered = rows.map(row => ({ ...row, scheduledAt: scheduled.get(row.examId)! }))
+    .sort((a, b) => +a.scheduledAt - +b.scheduledAt);
+  for (const row of ordered) {
     if (!byLesson.has(row.id)) byLesson.set(row.id, row);
   }
   return Array.from(byLesson.values());
@@ -1573,6 +1613,15 @@ async function changePlanner<T>(userId: number, change: (state: PlannerState, tx
   });
 }
 
+export function logSleep(userId: number, input: SleepLog & { day: string }) {
+  if (input.day !== plannerToday()) throw new Error("راجع تاريخ اليوم وحدّث الصفحة.");
+  const duration = sleepDuration(input);
+  if (duration <= 0 || duration >= 20 * 60) throw new Error("راجع وقت النوم والصحيان.");
+  return changePlanner(userId, async state => {
+    (state.sleepLogs ??= {})[input.day] = { bed: input.bed, wake: input.wake };
+  });
+}
+
 export function savePlannerHours(userId: number, wake: string, sleep: string) {
   return changePlanner(userId, async state => {
     if (wake >= sleep) throw new Error("وقت النوم لازم يبقى بعد وقت الصحوة في نفس اليوم.");
@@ -1607,14 +1656,6 @@ export function removePlannerSlot(userId: number, slotId: string) {
   return changePlanner(userId, async state => {
     state.slots = state.slots.filter(slot => slot.id !== slotId);
   });
-}
-
-function cairoPlannerTime(day: string, time: string) {
-  const utc = Date.parse(day + "T" + time + ":00Z");
-  const zone = new Intl.DateTimeFormat("en", { timeZone: "Africa/Cairo", timeZoneName: "longOffset" })
-    .formatToParts(new Date(utc)).find(part => part.type === "timeZoneName")?.value;
-  const offset = zone?.match(/GMT([+-]\d{2}:\d{2})/)?.[1] ?? "+02:00";
-  return new Date(day + "T" + time + ":00" + offset);
 }
 
 export async function attendPlannerClass(userId: number, input: { slotId: string; day: string; lessonIds: number[] }) {
@@ -1873,9 +1914,8 @@ export function savePlannedStudy(userId: number, input: PlannedStudy) {
     if (events.some(item => item.startsAt < to && (item.endsAt ? item.endsAt > from : item.startsAt >= from))) {
       throw new Error("الوقت ده فيه موعد في التقويم.");
     }
-    const [exam] = await tx.select({ id: exams.id }).from(exams).where(and(eq(exams.userId, userId),
-      isNull(exams.archivedAt), gte(exams.scheduledAt, from), lte(exams.scheduledAt, to))).limit(1);
-    if (exam) throw new Error("فيه امتحان في الوقت ده. راجع التقويم.");
+    const examsInDay = examOccurrences(await scheduledExamRows(tx, userId), shiftPlannerDay(input.day, -1), input.day, state.slots);
+    if (examsInDay.some(exam => exam.scheduledAt < to && exam.endAt > from)) throw new Error("فيه امتحان في الوقت ده. راجع التقويم.");
     const postponeReason = input.postponeReason ?? previous?.postponeReason;
     state.studySessions = [...sessions.filter(item => item.id !== input.id), { ...input, postponeReason }];
   });
@@ -1950,14 +1990,16 @@ export function fillStudyDay(userId: number, day: string, subjectId: number) {
     const to = cairoPlannerTime(day, state.sleep);
     const events = await tx.select().from(calendarEvents).where(and(eq(calendarEvents.userId, userId),
       lte(calendarEvents.startsAt, to), or(gte(calendarEvents.startsAt, from), gte(calendarEvents.endsAt, from))));
-    const [exam] = await tx.select({ id: exams.id }).from(exams).where(and(eq(exams.userId, userId),
-      isNull(exams.archivedAt), gte(exams.scheduledAt, from), lte(exams.scheduledAt, to))).limit(1);
-    if (exam) throw new Error("اليوم فيه امتحان. ضيف المذاكرة بوقت محدد من خطة اليوم.");
+    const examsInDay = examOccurrences(await scheduledExamRows(tx, userId), shiftPlannerDay(day, -1), day, state.slots)
+      .filter(exam => exam.scheduledAt < to && exam.endAt > from);
     const time = (minutes: number) => [Math.floor(minutes / 60), minutes % 60]
       .map(value => String(value).padStart(2, "0")).join(":");
     const minuteOf = (date: Date) => plannerMinutes(state.wake) + Math.floor((+date - +from) / 60_000);
     const weekday = plannerWeekday(day);
     const busy = [...state.slots.filter(slot => slotOccurs(slot, day)), ...studySlots(state, day)];
+    for (const exam of examsInDay) busy.push({ id: "exam-" + exam.id, weekday, title: exam.title,
+      start: time(Math.max(plannerMinutes(state.wake), minuteOf(exam.scheduledAt))),
+      end: time(Math.min(plannerMinutes(state.sleep), minuteOf(exam.endAt))) });
     for (const event of events) {
       if (!event.endsAt || event.endsAt <= event.startsAt) {
         throw new Error("فيه موعد من غير وقت نهاية. ضيف المذاكرة بوقت محدد من خطة اليوم.");
@@ -1989,9 +2031,7 @@ async function suggestDailyStudy(tx: StudyTransaction, userId: number, state: Pl
   const to = cairoPlannerTime(day, state.sleep);
   const events = await tx.select().from(calendarEvents).where(and(eq(calendarEvents.userId, userId),
     lte(calendarEvents.startsAt, to), or(gte(calendarEvents.startsAt, from), gte(calendarEvents.endsAt, from))));
-  const assessments = await tx.select({ subjectId: exams.subjectId, at: exams.scheduledAt }).from(exams)
-    .where(and(eq(exams.userId, userId), isNull(exams.archivedAt),
-      gte(exams.scheduledAt, from), lte(exams.scheduledAt, cairoPlannerTime(shiftPlannerDay(day, 7), state.sleep))));
+  const assessments = examOccurrences(await scheduledExamRows(tx, userId), shiftPlannerDay(day, -1), shiftPlannerDay(day, 7), state.slots);
   const minuteOf = (value: Date) => plannerMinutes(state.wake) + Math.ceil((+value - +from) / 60_000);
   const gaps = plannerFreeTime(state.wake, state.sleep, [...state.slots.filter(slot => slotOccurs(slot, day)), ...studySlots(state, day)])
     .map(gap => ({ start: Math.max(gap.start, minuteOf(new Date())), end: gap.end }));
@@ -2005,8 +2045,8 @@ async function suggestDailyStudy(tx: StudyTransaction, userId: number, state: Pl
     end: event.endsAt ? minuteOf(event.endsAt) : plannerMinutes(state.sleep),
   }));
   blocked.push(...prayerBlocks);
-  for (const exam of assessments) if (exam.at && exam.at <= to) {
-    blocked.push({ start: minuteOf(exam.at), end: plannerMinutes(state.sleep) });
+  for (const exam of assessments) if (exam.scheduledAt < to && exam.endAt > from) {
+    blocked.push({ start: minuteOf(exam.scheduledAt), end: minuteOf(exam.endAt) });
   }
   const free = blocked.reduce((periods, block) => periods.flatMap(gap =>
     block.start >= gap.end || block.end <= gap.start ? [gap] : [
@@ -2032,7 +2072,7 @@ async function suggestDailyStudy(tx: StudyTransaction, userId: number, state: Pl
   const urgent = ranked.filter(([id]) => id !== primary).map(([id]) => {
     const days = Array.from({ length: 7 }, (_, i) => shiftPlannerDay(day, i + 1));
     const next = days.find(date => state.slots.some(slot => slot.subjectId === id && slotOccurs(slot, date)));
-    const exam = assessments.find(item => item.subjectId === id)?.at;
+    const exam = assessments.find(item => item.subjectId === id && item.endAt > new Date())?.scheduledAt;
     return { id, next: Math.min(next ? +cairoPlannerTime(next, "00:00") : Infinity, exam ? +exam : Infinity) };
   }).sort((a, b) => a.next - b.next);
   const secondary = urgent[0]?.id;

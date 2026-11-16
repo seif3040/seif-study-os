@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { plannerToday } from "@shared/studyPlanner";
+import SleepDialog from "@/components/SleepDialog";
+import { useEffect, useState } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
 import { toast } from "sonner";
 import type { AppRouter } from "../../../server/routers";
@@ -13,8 +15,17 @@ const dateLabel = new Intl.DateTimeFormat("ar-EG", { dateStyle: "full", timeZone
 
 export default function StudyPrompts() {
   const review = trpc.planner.hybridHomeworkReview.useQuery();
+  const planner = trpc.planner.list.useQuery();
+  const [day, setDay] = useState(plannerToday);
+  const [dismissed, setDismissed] = useState<string>();
+  useEffect(() => {
+    const refreshDay = () => setDay(plannerToday());
+    window.addEventListener("focus", refreshDay);
+    return () => window.removeEventListener("focus", refreshDay);
+  }, []);
   if (review.isLoading) return null;
   if (review.data?.length) return <HybridHomeworkReview entries={review.data} />;
+  if (planner.data && !planner.data.sleepLogs?.[day] && dismissed !== day) return <SleepDialog day={day} onClose={() => setDismissed(day)} />;
   return <DailyStudyPrompt />;
 }
 

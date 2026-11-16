@@ -1,3 +1,4 @@
+import { dailyQuranVerse } from "./dailyQuran.js";
 import { defaultDesktopTabs } from "../shared/navigation.js";
 import { studyPostponeReasons } from "../shared/studyPlanner.js";
 import { studyResourceChange } from "../shared/studyResources.js";
@@ -37,6 +38,8 @@ const lessonSourceInput = z.object({
   notes: z.string().trim().max(5000).optional(),
 });
 
+const examScheduleOptions = z.object({ kind: z.enum(["lesson", "comprehensive"]), repeatWeekly: z.boolean(),
+  duringClass: z.boolean(), durationMinutes: z.number().int().min(5).max(720) });
 const plannerTime = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
 const plannerSlot = z.object({
   everyOtherWeekFrom: z.string().date().optional(),
@@ -91,7 +94,10 @@ export const appRouter = router({
     restore: protectedProcedure.input(z.object({ raw: z.string().min(1).max(2_500_000), preview: z.boolean() }))
       .mutation(({ ctx, input }) => restoreStudyBackup(ctx.user.id, input.raw, input.preview)),
   }),
-  dashboard: router({ summary: protectedProcedure.query(({ ctx }) => db.dashboard(ctx.user.id)) }),
+  dashboard: router({
+    dailyQuran: protectedProcedure.input(z.object({ day: z.string().date() })).query(({ ctx, input }) => dailyQuranVerse(ctx.user.id, input.day)),
+    summary: protectedProcedure.query(({ ctx }) => db.dashboard(ctx.user.id)),
+  }),
   studyPlan: router({
     reopen: protectedProcedure.input(z.object({ lessonId: id })).mutation(({ ctx, input }) => db.reopenLesson(ctx.user.id, input.lessonId)),
     syncCompletion: protectedProcedure.input(z.object({ ownerId: id, lessonId: id, completedAt: z.number().int().positive() }))
@@ -143,6 +149,8 @@ export const appRouter = router({
     complete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.completeTask(ctx.user.id, input.taskId)),
   }),
   planner: router({
+    logSleep: protectedProcedure.input(z.object({ day: z.string().date(), bed: plannerTime, wake: plannerTime }))
+      .mutation(({ ctx, input }) => db.logSleep(ctx.user.id, input)),
     hybridHomeworkReview: protectedProcedure.query(({ ctx }) => db.pendingHybridHomeworkReview(ctx.user.id)),
     finishHybridHomeworkReview: protectedProcedure.input(z.array(z.object({ key: z.string().max(80), watched: z.boolean() })).max(1000))
       .mutation(({ ctx, input }) => db.finishHybridHomeworkReview(ctx.user.id, input)),
@@ -270,8 +278,8 @@ export const appRouter = router({
       return db.syncOfflineExam(ctx.user.id, { ...input, completedAt: new Date(input.completedAt) });
     }),
     list: protectedProcedure.query(({ ctx }) => db.listExams(ctx.user.id)),
-    create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), subjectId: id.optional(), chapterId: id.optional(), lessonId: id.optional(), lessonIds: z.array(id).max(250).optional(), scheduledAt: date.optional() })).mutation(({ ctx, input }) => db.createExam(ctx.user.id, input)),
-    update: protectedProcedure.input(z.object({ examId: id, title: z.string().trim().min(1).max(200), scheduledAt: date.nullable().optional(), lessonIds: z.array(id).max(250).optional(), subjectId: id.optional(), chapterId: id.nullable().optional() })).mutation(({ ctx, input }) => db.updateExam(ctx.user.id, input)),
+    create: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), subjectId: id.optional(), chapterId: id.optional(), lessonId: id.optional(), lessonIds: z.array(id).max(250).optional(), scheduledAt: date.optional(), scheduleOptions: examScheduleOptions.optional() })).mutation(({ ctx, input }) => db.createExam(ctx.user.id, input)),
+    update: protectedProcedure.input(z.object({ examId: id, title: z.string().trim().min(1).max(200), scheduledAt: date.nullable().optional(), lessonIds: z.array(id).max(250).optional(), subjectId: id.optional(), chapterId: id.nullable().optional(), scheduleOptions: examScheduleOptions.optional() })).mutation(({ ctx, input }) => db.updateExam(ctx.user.id, input)),
     setArchived: protectedProcedure.input(z.object({ examId: id, archived: z.boolean() })).mutation(({ ctx, input }) => db.setExamArchived(ctx.user.id, input.examId, input.archived)),
     setAttemptDate: protectedProcedure.input(z.object({ attemptId: id, takenOn: z.string().date() }))
       .mutation(({ ctx, input }) => db.setExamAttemptDate(ctx.user.id, input.attemptId, input.takenOn)),

@@ -1,3 +1,4 @@
+import SleepReport from "@/components/SleepReport";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { plannerToday, shiftPlannerDay } from "@shared/studyPlanner";
 import { useState } from "react";
@@ -91,6 +92,7 @@ function Overview() {
       </article>)}
     </div>
     <AchievementTrend daily={data.daily} attempts={data.comprehension} />
+    <SleepReport logs={data.sleepLogs ?? {}} daily={data.daily} />
     <div className="surface space-y-3 p-4 sm:p-6">
       <h2 className="font-bold">إنجازات يوم بيوم</h2>
       {!daily.length && <p>أول يوم مذاكرة هيتسجل هنا.</p>}

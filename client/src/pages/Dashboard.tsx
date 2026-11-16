@@ -1,3 +1,4 @@
+import TodayNotices, { DailyQuran } from "@/components/TodayNotices";
 import { YearReviewSchedule } from "@/pages/StudyLibrary";
 import { AssessmentOverview } from "@/pages/Assessments";
 import DailyPrayers from "@/components/DailyPrayers";
@@ -110,6 +111,8 @@ export default function Dashboard() {
         </li>; })}
       </ul> : <p className="text-sm text-muted-foreground">الواجب هيظهر هنا أول ما تسجّل حضور حصة.</p>}
     </section>
+    <DailyQuran day={today} />
+    <TodayNotices day={today} />
     <DailyPrayers day={today} />
     <AssessmentOverview />
     <YearReviewSchedule compact />

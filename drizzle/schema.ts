@@ -210,6 +210,7 @@ export const exams = mysqlTable("exams", {
   quizReviewedAt: timestamp("quizReviewedAt"),
   archivedAt: timestamp("archivedAt"),
   scheduledAt: timestamp("scheduledAt"),
+  scheduleOptions: json("scheduleOptions").$type<import("../shared/examSchedule.js").ExamScheduleOptions>(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => [index("exams_user_cycle_idx").on(table.userId, table.cycleId)]);
 export const examLessons = mysqlTable("examLessons", {

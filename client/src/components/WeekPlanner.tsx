@@ -1,3 +1,4 @@
+import { cairoPlannerTime, examLocalDate } from "@shared/examSchedule";
 import { hybridHomeworkSources } from "@shared/lessonSources";
 import StudyLibrary from "@/pages/StudyLibrary";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -41,8 +42,14 @@ export default function WeekPlanner() {
     const [hour, minute] = item.start.split(":").map(Number);
     return [{ id: item.id, weekday, start: item.start, end: timeLabel(Math.min(1440, hour * 60 + minute + item.minutes)), title: item.title }];
   });
+  const calendar = trpc.calendar.list.useQuery({ from: cairoPlannerTime(shiftPlannerDay(day, -1), "00:00"), to: cairoPlannerTime(day, "23:59") });
+  const examSlots = (calendar.data?.exams ?? []).filter(exam => exam.day <= day && exam.endAt > cairoPlannerTime(day, "00:00")).map(exam => ({
+    id: "exam-" + exam.id, title: exam.title, weekday,
+    start: exam.day < day ? "00:00" : examLocalDate(exam.scheduledAt).slice(11),
+    end: examLocalDate(exam.endAt).slice(0, 10) > day ? "24:00" : examLocalDate(exam.endAt).slice(11),
+  }));
   const inactiveSlots = state.slots.filter(slot => slot.weekday === weekday && !slotOccurs(slot, day));
-  const gaps = plannerFreeTime(state.wake, state.sleep, [...slots, ...datedSlots, ...studySlots(state, day)]);
+  const gaps = plannerFreeTime(state.wake, state.sleep, [...slots, ...datedSlots, ...examSlots, ...studySlots(state, day)]);
   const free = gaps.reduce((sum, gap) => sum + gap.end - gap.start, 0);
   const teacherNext = trpc.planner.teacherNext.useMutation({
     onSuccess: () => utils.planner.list.invalidate(),

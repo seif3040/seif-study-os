@@ -42,6 +42,7 @@ export type PlannerState = {
   teacherNext?: Record<number, number>;
   studySessions?: PlannedStudy[];
   completedYearReviews?: string[];
+  sleepLogs?: Record<string, import("./sleep.js").SleepLog>;
   dailyPrompt?: { day: string; outcome: 'approved' | 'skipped' };
   wake: string;
   sleep: string;

@@ -1,3 +1,4 @@
+import { cairoPlannerTime, defaultExamSchedule, examLocalDate, type ExamScheduleOptions } from "@shared/examSchedule";
 import { plannerToday } from "@shared/studyPlanner";
 import { yearReviewDate } from "@shared/studyResources";
 import { useState } from "react";
@@ -13,7 +14,7 @@ import { toast } from "sonner";
 
 export default function Exams() {
   const utils = trpc.useUtils(); const { data, isLoading } = trpc.exams.list.useQuery(); const { data: plan } = trpc.studyPlan.list.useQuery();
-  const invalidate = () => Promise.all([utils.exams.list.invalidate(), utils.dashboard.summary.invalidate(), utils.analytics.overview.invalidate(), utils.coins.ledger.invalidate(), utils.achievements.list.invalidate()]);
+  const invalidate = () => Promise.all([utils.exams.list.invalidate(), utils.calendar.list.invalidate(), utils.studyPlan.examReviews.invalidate(), utils.dashboard.summary.invalidate(), utils.analytics.overview.invalidate(), utils.coins.ledger.invalidate(), utils.achievements.list.invalidate()]);
   if (isLoading) return <div className="h-64 animate-pulse rounded-2xl bg-muted" />;
   const active = data?.filter(item => !item.exam.archivedAt) ?? [];
   const archived = data?.filter(item => item.exam.archivedAt) ?? [];
@@ -24,13 +25,15 @@ function ExamCard({ item, plan, onDone }: { item: any; plan: any; onDone: () => 
   const [open, setOpen] = useState(false), [reviewOpen, setReviewOpen] = useState(false), [total, setTotal] = useState(String(item.exam.quizPayload?.questions?.length ?? 10)), [correct, setCorrect] = useState("0"), [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">("medium"), [result, setResult] = useState<any>(null);
   const scheduledDay = item.exam.scheduledAt ? yearReviewDate(+new Date(item.exam.scheduledAt)) : "";
   const today = plannerToday();
-  const [takenOn, setTakenOn] = useState(scheduledDay && scheduledDay <= today ? scheduledDay : today);
+  const [takenOn, setTakenOn] = useState(!item.exam.scheduleOptions?.repeatWeekly && scheduledDay && scheduledDay <= today ? scheduledDay : today);
   const mutation = trpc.exams.completeAttempt.useMutation({ onSuccess: async r => { setResult(r); toast.success(`تم تسجيل النتيجة: ${r.score}% — الاستيعاب ${r.comprehensionScore}%`); await onDone(); }, onError: e => toast.error(errorText(e)) });
   const reviewMutation = trpc.notebooks.markQuizReviewed.useMutation({ onSuccess: () => onDone(), onError: e => toast.error(errorText(e)) });
   const readiness = item.readiness; const weak = readiness?.weakLessons ?? []; const quiz = item.exam.quizPayload; const notebookQuiz = item.exam.origin === "notebook_ai" && quiz?.questions?.length;
-  return <div className="surface p-5"><div className="mb-5 flex items-start justify-between"><span className="metric-icon bg-sky-100 text-sky-700"><GraduationCap /></span><Badge variant="secondary">{notebookQuiz ? "Notebook AI · من ملفاتك" : item.subject || "امتحان محدد الدروس"}</Badge></div><h2 className="font-bold">{item.exam.title}</h2><p className="mt-1 text-sm text-muted-foreground">{notebookQuiz ? `${quiz.questions.length} أسئلة محفوظة للمراجعة` : item.exam.scheduledAt ? `موعده ${examTime.format(new Date(item.exam.scheduledAt))}` : "اختبار مرن"}</p>
+  const displayDate = item.nextScheduledAt ?? item.exam.scheduledAt;
+  return <div className="surface p-5"><div className="mb-5 flex items-start justify-between"><span className="metric-icon bg-sky-100 text-sky-700"><GraduationCap /></span><Badge variant="secondary">{notebookQuiz ? "Notebook AI · من ملفاتك" : item.subject || "امتحان محدد الدروس"}</Badge></div><h2 className="font-bold">{item.exam.title}</h2><p className="mt-1 text-sm text-muted-foreground">{notebookQuiz ? `${quiz.questions.length} أسئلة محفوظة للمراجعة` : displayDate ? `موعده ${examTime.format(new Date(displayDate))}` : "اختبار مرن"}</p>
     <div className="mt-4 rounded-xl bg-primary/5 p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-2"><Target className="size-4 text-primary" /><p className="text-sm font-bold">مدى جاهزيتك</p></div><b className="font-[Manrope] text-2xl text-primary">{readiness?.score ?? 0}%</b></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-primary/10"><div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${readiness?.score ?? 0}%` }} /></div><p className="mt-2 text-xs text-muted-foreground">{readiness?.level ?? "أضف الدروس أولًا"} · مكتمل {readiness?.completed ?? 0}/{item.lessons?.length ?? 0} · مُراجع {readiness?.reviewed ?? 0}/{item.lessons?.length ?? 0}</p></div>
     {notebookQuiz ? <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50/60 p-3 text-xs text-violet-900"><p className="font-bold">المصادر: {quiz.sourceNames?.join("، ") || "ملفات Notebook AI"}</p><p className="mt-1 leading-5">الأسئلة والإجابات محفوظة هنا من الملفات التي رفعتها وقت الإنشاء.</p><p className="mt-2 font-semibold">{item.exam.quizReviewedAt ? "تمت المراجعة" : "لسه ما اتراجعش"}</p></div> : item.lessons?.length ? <div className="mt-4"><p className="mb-2 text-xs font-bold text-muted-foreground">دروس الامتحان ({item.lessons.length})</p><div className="space-y-2">{item.lessons.map((lesson: any) => <div key={`${lesson.subjectTitle}-${lesson.title}`} className="flex items-center justify-between gap-2 text-xs"><span className="truncate">{lesson.title}</span><span className={lesson.status === "completed" && lesson.lastReviewedAt ? "text-emerald-600" : "text-amber-600"}>{lesson.status === "completed" && lesson.lastReviewedAt ? "مكتمل ومراجع" : lesson.status === "completed" ? "يحتاج مراجعة" : "غير مكتمل"}</span></div>)}</div>{weak.length > 0 && <p className="mt-3 text-xs text-amber-700">ركّز قبل الامتحان على: {weak.slice(0, 2).map((lesson: any) => lesson.title).join("، ")}{weak.length > 2 ? "…" : ""}</p>}</div> : <p className="mt-4 rounded-xl border border-dashed p-3 text-xs text-muted-foreground">هذا الامتحان لم تُضف له دروس بعد، لذلك لا يمكن تقدير الجاهزية بدقة.</p>}
+    {item.exam.scheduleOptions && <p className="mt-2 text-sm text-muted-foreground">{item.exam.scheduleOptions.kind === "comprehensive" ? "شامل" : "امتحان درس"} · {item.exam.scheduleOptions.repeatWeekly ? "أسبوعي" : "مرة واحدة"}{item.exam.scheduleOptions.duringClass ? " · ضمن الحصة" : ""}</p>}
     <ExamActions item={item} plan={plan} onDone={onDone} />
     {item.attempts.length > 0 && <details className="mt-4 rounded-xl border p-3"><summary className="cursor-pointer text-sm font-bold">سجل المحاولات ({item.attempts.length})</summary><ul className="mt-3 space-y-2 text-sm">{item.attempts.map((attempt: AttemptResult) => <AttemptHistory key={attempt.id + ":" + attempt.takenOn} attempt={attempt} onDone={onDone} />)}</ul></details>}
     {result && <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-primary/5 p-3 text-center"><div><p className="text-xs text-muted-foreground">النتيجة</p><p className="font-[Manrope] text-xl font-extrabold text-primary">{result.score}%</p></div><div><p className="text-xs text-muted-foreground">الاستيعاب</p><p className="font-[Manrope] text-xl font-extrabold text-primary">{result.comprehensionScore}%</p></div></div>}
@@ -65,30 +68,29 @@ function AttemptHistory({ attempt, onDone }: { attempt: AttemptResult; onDone: (
 type Scope = { subjectId: number; chapterId: number; lessonIds: number[]; full: boolean };
 const emptyScope: Scope = { subjectId: 0, chapterId: 0, lessonIds: [], full: true };
 const selectClass = "block h-10 w-full rounded-md border bg-background px-2";
-const examTime = new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short", hour12: true });
+const examTime = new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short", hour12: true, timeZone: "Africa/Cairo" });
 function localExamDate(value?: Date | string | null) {
   if (!value) return "";
-  const date = new Date(value);
-  return new Date(+date - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  return examLocalDate(new Date(value));
 }
-function ExamScopeFields({ plan, scope, onChange }: { plan: any; scope: Scope; onChange(scope: Scope): void }) {
+function ExamScopeFields({ plan, scope, lessonOnly = false, onChange }: { plan: any; scope: Scope; lessonOnly?: boolean; onChange(scope: Scope): void }) {
   const rows: any[] = plan?.rows ?? [];
   const subjects = Array.from(new Map<number, string>(rows.map(row => [row.subject.id, row.subject.title])));
   const chapters = Array.from(new Map<number, string>(rows.filter(row => row.subject.id === scope.subjectId && row.chapter)
     .map(row => [row.chapter.id, row.chapter.title])));
   const lessons = rows.filter(row => row.chapter?.id === scope.chapterId && row.lesson);
   return <div className="space-y-3">
-    <label className="block">المادة<select className={selectClass} value={scope.subjectId} onChange={e => onChange({ ...emptyScope, subjectId: Number(e.target.value) })}>
+    <label className="block">المادة<select className={selectClass} value={scope.subjectId} onChange={e => onChange({ ...emptyScope, full: !lessonOnly, subjectId: Number(e.target.value) })}>
       <option value={0}>اختار المادة</option>
       {subjects.map(([id, title]) => <option key={id} value={id}>{title}</option>)}
     </select></label>
-    {scope.subjectId > 0 && <label className="block">نطاق الامتحان<select className={selectClass} value={scope.chapterId} onChange={e => onChange({ ...scope, chapterId: Number(e.target.value), full: true, lessonIds: [] })}>
-      <option value={0}>شامل المادة</option>
+    {scope.subjectId > 0 && <label className="block">نطاق الامتحان<select className={selectClass} value={scope.chapterId} onChange={e => onChange({ ...scope, chapterId: Number(e.target.value), full: !lessonOnly, lessonIds: [] })}>
+      <option value={0}>{lessonOnly ? "اختار الفصل" : "شامل المادة"}</option>
       {chapters.map(([id, title]) => <option key={id} value={id}>{title}</option>)}
     </select></label>}
     {scope.chapterId > 0 && <fieldset className="space-y-2 rounded-xl border p-3">
-      <label className="flex gap-2"><input type="checkbox" checked={scope.full} onChange={e => onChange({ ...scope, full: e.target.checked, lessonIds: [] })} /> شامل الفصل كله</label>
-      {!scope.full && <div className="max-h-48 space-y-2 overflow-auto">{lessons.map(({ lesson }) =>
+      {!lessonOnly && <label className="flex gap-2"><input type="checkbox" checked={scope.full} onChange={e => onChange({ ...scope, full: e.target.checked, lessonIds: [] })} /> شامل الفصل كله</label>}
+      {(lessonOnly || !scope.full) && <div className="max-h-48 space-y-2 overflow-auto">{lessons.map(({ lesson }) =>
         <label key={lesson.id} className="flex gap-2"><input type="checkbox" checked={scope.lessonIds.includes(lesson.id)}
           onChange={e => onChange({ ...scope, lessonIds: e.target.checked ? [...scope.lessonIds, lesson.id] : scope.lessonIds.filter(id => id !== lesson.id) })} />{lesson.title}</label>)}</div>}
     </fieldset>}
@@ -107,11 +109,36 @@ function ExamDateFields({ value, setValue }: { value: string; setValue(value: st
     <label>الساعة<Input type="time" disabled={!value} required={Boolean(value)} value={value.slice(11)} onChange={e => setValue(value.slice(0, 11) + e.target.value)} /></label>
   </div>;
 }
+function scheduledExamDate(value: string) {
+  return value ? cairoPlannerTime(value.slice(0, 10), value.slice(11)) : undefined;
+}
+
+function ExamScheduleFields({ value, onChange }: { value: ExamScheduleOptions; onChange(value: ExamScheduleOptions): void }) {
+  return <fieldset className="space-y-2 rounded-xl border p-3">
+    <legend className="px-1 font-medium">نوع الامتحان وميعاده</legend>
+    <div className="grid grid-cols-2 gap-2">
+      <label>نوع الامتحان<select className={selectClass} value={value.kind} onChange={event => {
+        const kind = event.target.value as ExamScheduleOptions["kind"];
+        onChange({ ...value, kind, duringClass: kind === "lesson" });
+      }}><option value="lesson">امتحان درس</option><option value="comprehensive">امتحان شامل</option></select></label>
+      <label>التكرار<select className={selectClass} value={String(value.repeatWeekly)} onChange={event => onChange({ ...value, repeatWeekly: event.target.value === "true" })}>
+        <option value="false">مرة واحدة</option><option value="true">أسبوعي</option></select></label>
+    </div>
+    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={value.duringClass}
+      onChange={event => onChange({ ...value, duringClass: event.target.checked })} /> ضمن وقت حصة المادة</label>
+    <label className="block text-sm">{value.duringClass ? "المدة لو مفيش حصة في اليوم (دقيقة)" : "مدة الامتحان (دقيقة)"}
+      <Input type="number" min={5} max={720} required value={value.durationMinutes || ""} onChange={event => onChange({ ...value, durationMinutes: Number(event.target.value) })} />
+    </label>
+  </fieldset>;
+}
+
 function CreateExam({ onDone, plan }: { onDone: () => Promise<unknown>; plan: any }) {
   const [open, setOpen] = useState(false), [title, setTitle] = useState(""), [date, setDate] = useState("");
   const [scope, setScope] = useState(emptyScope);
+  const [schedule, setSchedule] = useState(defaultExamSchedule);
+  const lessonOnly = schedule.kind === "lesson";
   const mutation = trpc.exams.create.useMutation({
-    onSuccess: async () => { setOpen(false); setTitle(""); setDate(""); setScope(emptyScope); await onDone(); toast.success("اتضاف الامتحان."); },
+    onSuccess: async () => { setOpen(false); setTitle(""); setDate(""); setScope(emptyScope); setSchedule(defaultExamSchedule); await onDone(); toast.success("اتضاف الامتحان."); },
     onError: e => toast.error(errorText(e)),
   });
   return <Dialog open={open} onOpenChange={setOpen}>
@@ -120,13 +147,14 @@ function CreateExam({ onDone, plan }: { onDone: () => Promise<unknown>; plan: an
       <DialogHeader><DialogTitle>امتحان جديد</DialogTitle></DialogHeader>
       <form className="space-y-3" onSubmit={e => {
         e.preventDefault();
-        mutation.mutate({ title: title.trim() || (scope.full ? "امتحان شامل" : "امتحان") + " · " + (plan?.rows ?? []).find((row: any) => row.subject.id === scope.subjectId)?.subject.title,
-          scheduledAt: date ? new Date(date) : undefined, ...examScopeInput(scope, plan) });
+        mutation.mutate({ title: title.trim() || (schedule.kind === "comprehensive" ? "امتحان شامل" : "امتحان درس") + " · " + (plan?.rows ?? []).find((row: any) => row.subject.id === scope.subjectId)?.subject.title,
+          scheduledAt: scheduledExamDate(date), scheduleOptions: schedule, ...examScopeInput(lessonOnly ? { ...scope, full: false } : scope, plan) });
       }}>
+        <ExamScheduleFields value={schedule} onChange={setSchedule} />
         <ExamDateFields value={date} setValue={setDate} />
-        <ExamScopeFields plan={plan} scope={scope} onChange={setScope} />
+        <ExamScopeFields plan={plan} scope={scope} lessonOnly={lessonOnly} onChange={setScope} />
         <label>اسم الامتحان (اختياري)<Input value={title} maxLength={200} onChange={e => setTitle(e.target.value)} /></label>
-        <DialogFooter><Button type="submit" disabled={!scope.subjectId || (!scope.full && !scope.lessonIds.length) || mutation.isPending}><Plus />إضافة الامتحان</Button></DialogFooter>
+        <DialogFooter><Button type="submit" disabled={!scope.subjectId || (schedule.repeatWeekly && !date) || ((lessonOnly || !scope.full) && !scope.lessonIds.length) || mutation.isPending}><Plus />إضافة الامتحان</Button></DialogFooter>
       </form>
     </DialogContent>
   </Dialog>;
@@ -139,6 +167,8 @@ function ExamActions({ item, plan, onDone }: { item: any; plan: any; onDone: () 
   const [date, setDate] = useState("");
   const [scope, setScope] = useState(emptyScope);
   const [changedLessons, setChangedLessons] = useState(false);
+  const [schedule, setSchedule] = useState<ExamScheduleOptions>(defaultExamSchedule);
+  const [changedSchedule, setChangedSchedule] = useState(false);
   const originalDate = localExamDate(item.exam.scheduledAt);
   const update = trpc.exams.update.useMutation({
     onSuccess: async () => { setEditOpen(false); toast.success("تم حفظ التعديل."); await onDone(); },
@@ -160,20 +190,23 @@ function ExamActions({ item, plan, onDone }: { item: any; plan: any; onDone: () 
           setDate(originalDate);
           setScope(emptyScope);
           setChangedLessons(false);
+          setSchedule(item.exam.scheduleOptions ?? { ...defaultExamSchedule, kind: item.exam.title.includes("شامل") ? "comprehensive" : "lesson", duringClass: !item.exam.title.includes("شامل") });
+          setChangedSchedule(false);
         }}><Pencil /> تعديل الامتحان</Button></DialogTrigger>
         <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>تعديل الامتحان</DialogTitle></DialogHeader>
           <form className="space-y-4" onSubmit={event => {
             event.preventDefault();
             if (!title.trim() || update.isPending) return;
-            update.mutate({ examId: item.exam.id, title: title.trim(), scheduledAt: date === originalDate ? undefined : date ? new Date(date) : null, ...(changedLessons ? { ...examScopeInput(scope, plan), chapterId: scope.chapterId || null } : {}) });
+            update.mutate({ examId: item.exam.id, title: title.trim(), scheduledAt: date === originalDate ? undefined : scheduledExamDate(date) ?? null, scheduleOptions: changedSchedule ? schedule : undefined, ...(changedLessons ? { ...examScopeInput(schedule.kind === "lesson" ? { ...scope, full: false } : scope, plan), chapterId: scope.chapterId || null } : {}) });
           }}>
             <label className="block space-y-1"><span>اسم الامتحان</span><Input value={title} onChange={e => setTitle(e.target.value)} maxLength={200} required /></label>
+            <ExamScheduleFields value={schedule} onChange={value => { setSchedule(value); setChangedSchedule(true); }} />
             <ExamDateFields value={date} setValue={setDate} />
             <details><summary className="cursor-pointer">تغيير نطاق الامتحان</summary>
-              <ExamScopeFields plan={plan} scope={scope} onChange={value => { setScope(value); setChangedLessons(true); }} />
+              <ExamScopeFields plan={plan} scope={scope} lessonOnly={schedule.kind === "lesson"} onChange={value => { setScope(value); setChangedLessons(true); }} />
             </details>
-            <DialogFooter><Button type="submit" disabled={!title.trim() || update.isPending || (changedLessons && (!scope.subjectId || (!scope.full && !scope.lessonIds.length)))}>حفظ التعديل</Button></DialogFooter>
+            <DialogFooter><Button type="submit" disabled={!title.trim() || update.isPending || (schedule.repeatWeekly && !date) || (changedLessons && (!scope.subjectId || ((schedule.kind === "lesson" || !scope.full) && !scope.lessonIds.length)))}>حفظ التعديل</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
