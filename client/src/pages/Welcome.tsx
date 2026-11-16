@@ -1,3 +1,4 @@
+import WeeklyStudyPanel from "@/components/WeeklyStudyPanel";
 import { useEffect, useState } from "react";
 import { ArrowLeft, BookOpen, CalendarDays, CheckSquare, Coffee, Moon, Sparkles, Sun, Timer } from "lucide-react";
 import { Link } from "wouter";
@@ -90,6 +91,8 @@ export default function Welcome() {
         </>}
       <Button asChild variant="outline"><Link href="/analytics">كل التحليلات <ArrowLeft /></Link></Button>
     </section>
+
+    <WeeklyStudyPanel day={today} friday={friday} />
 
     {friday && recap.isSuccess && <section className="surface space-y-4 border-primary/25 bg-primary/5 p-4 sm:p-6">
       <h2 className="flex items-center gap-2 text-xl font-bold"><Sparkles className="size-5 text-primary" aria-hidden />نكمل الأسبوع الجاي</h2>

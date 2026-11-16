@@ -1,3 +1,4 @@
+import { studyEfforts, type StudyEffort, type StudyItem, type WeeklyStudy } from "../shared/weeklyStudy.js";
 import { sleepDuration, type SleepLog } from "../shared/sleep.js";
 import { cairoPlannerTime, examLocalDate, examOccurrences, type ExamScheduleOptions } from "../shared/examSchedule.js";
 import { buildYearReviews, emptyResources, yearReviewDate, type StudyResourceChange } from "../shared/studyResources.js";
@@ -6,7 +7,7 @@ import { defaultDesktopTabs, type NavigationPrefs } from "../shared/navigation.j
 import { assessmentCatalog, type AssessmentStatus } from "../shared/assessments.js";
 import { cairoPrayers, prayers, prayerNames, type Prayer } from "./prayerTimes.js";
 import { focusReward, isFocusPreset } from "../shared/focusDuration.js";
-import { slotOccurs } from "../shared/studyPlanner.js";
+import { slotOccurs, upcomingClassLessons } from "../shared/studyPlanner.js";
 import { plannerMinutes, plannerFreeTime, studySlots, type PlannedStudy } from "../shared/studyPlanner.js";
 import { emptyPlanner, overlapsPlannerSlot, plannerPolicy, plannerToday, plannerWeekday, shiftPlannerDay, type PlannerSlot, type PlannerState } from "../shared/studyPlanner.js";
 import { studyPlanner } from "../drizzle/schema.js";
@@ -952,6 +953,176 @@ export async function listExams(userId: number) {
   }));
 }
 
+function studyWeek(day: string) {
+  return shiftPlannerDay(day, -((plannerWeekday(day) + 1) % 7));
+}
+
+export async function weeklyStudyOverview(userId: number, day: string) {
+  if (day !== plannerToday()) throw new Error("حدّث الصفحة عشان تشوف خطة الأسبوع الحالية.");
+  const friday = plannerWeekday(day) === 5;
+  const currentWeek = studyWeek(day);
+  const week = friday ? shiftPlannerDay(currentWeek, 7) : currentWeek;
+  const recapStart = friday ? shiftPlannerDay(day, -7) : day;
+  const recapEnd = friday ? shiftPlannerDay(day, -1) : day;
+  const db = await database();
+  const [state, plan, taskRows, attempts, activity] = await Promise.all([
+    getPlanner(userId),
+    listStudyPlan(userId),
+    listTasks(userId),
+    db.select({ id: examAttempts.id, takenOn: examAttempts.takenOn, recordedAt: examAttempts.createdAt,
+      scheduledAt: exams.scheduledAt, score: examAttempts.score, title: exams.title, subjectId: exams.subjectId })
+      .from(examAttempts).innerJoin(exams, eq(exams.id, examAttempts.examId))
+      .where(and(eq(examAttempts.userId, userId), eq(exams.userId, userId))),
+    db.select({ subjectId: studyEvents.subjectId, at: studyEvents.occurredAt }).from(studyEvents)
+      .where(and(eq(studyEvents.userId, userId), isNotNull(studyEvents.subjectId),
+        gte(studyEvents.occurredAt, cairoPlannerTime(shiftPlannerDay(day, -14), "00:00"))))
+      .orderBy(desc(studyEvents.occurredAt)),
+  ]);
+  const prefs: WeeklyStudy = state.weeklyStudy?.[week] ?? {};
+  const backlog = new Set(state.backlog ?? []);
+  const inRecap = (date: string) => date >= recapStart && date <= recapEnd;
+  const lessonRows = plan.rows.flatMap(row => row.lesson ? [{ ...row, lesson: row.lesson }] : []);
+  const waiting = lessonRows.filter(row => backlog.has(row.lesson.id) && row.progress?.status !== "completed");
+  const lessonDetails = lessonRows.flatMap(row => {
+    const completed = row.progress?.status === "completed" && row.progress.completedAt && plannerToday(row.progress.completedAt);
+    if (!completed || !inRecap(completed)) return [];
+    return [{ id: row.lesson.id, title: row.lesson.title, subject: row.subject.title, day: completed,
+      backlog: backlog.has(row.lesson.id) || state.finishedBacklog?.[row.lesson.id] === completed }];
+  }).sort((a, b) => b.day.localeCompare(a.day));
+  const completedTasks = taskRows.filter(task => task.status === "completed" && task.completedAt && inRecap(plannerToday(task.completedAt)));
+  const dueHomework = taskRows.filter(task => task.category === "واجب" && task.deadline && inRecap(plannerToday(task.deadline)));
+  const onTime = (task: typeof taskRows[number]) => task.status === "completed" && task.completedAt !== null
+    && task.deadline !== null && +task.completedAt <= +task.deadline;
+  const bestPrevious = new Map<number, number>();
+  const improved = attempts.flatMap(attempt => {
+    const date = examPerformanceDay(attempt);
+    return date && date <= recapEnd && attempt.subjectId !== null ? [{ ...attempt, date, subjectId: attempt.subjectId }] : [];
+  }).sort((a, b) => a.date.localeCompare(b.date) || +a.recordedAt - +b.recordedAt || a.id - b.id).flatMap(attempt => {
+    const prior = bestPrevious.get(attempt.subjectId);
+    bestPrevious.set(attempt.subjectId, Math.max(prior ?? 0, attempt.score));
+    return prior !== undefined && attempt.score > prior && inRecap(attempt.date)
+      ? [{ id: attempt.id, title: attempt.title, score: attempt.score, previous: prior, day: attempt.date }] : [];
+  });
+  const homework = taskRows.filter(task => task.category === "واجب" && task.status === "open")
+    .sort((a, b) => (a.deadline ? +a.deadline : Infinity) - (b.deadline ? +b.deadline : Infinity) || a.id - b.id);
+  const effort = prefs.effort ?? "normal";
+  const pickingSaturday = friday || day === week;
+  const { free } = await studyAvailability(db, userId, state, friday ? week : day);
+  const available = Math.max(0, ...free.map(gap => gap.end - gap.start));
+  const remaining = free.reduce((sum, gap) => sum + gap.end - gap.start, 0);
+  const budget = Math.min(available, Math.max(0, remaining - 30), studyEfforts[effort].minutes);
+  const nextClass = (id: number) => Array.from({ length: 7 }, (_, index) => shiftPlannerDay(week, index))
+    .find(date => date >= day && state.slots.some(slot => slot.subjectId === id && slotOccurs(slot, date)));
+  const bySubject = new Map<number, typeof waiting>();
+  for (const row of waiting) {
+    const group = bySubject.get(row.subject.id) ?? [];
+    group.push(row);
+    bySubject.set(row.subject.id, group);
+  }
+  const ranked = Array.from(bySubject.entries()).map(([id, group]) => {
+    const next = nextClass(id);
+    const last = activity.find(item => item.subjectId === id)?.at;
+    const [currentRow] = upcomingClassLessons(lessonRows.filter(row => row.subject.id === id), state, id);
+    const prerequisite = currentRow && group.find(row => row.chapter?.id === currentRow.chapter?.id
+      && lessonRows.indexOf(row) < lessonRows.indexOf(currentRow));
+    return { id, group, next, last, prerequisite };
+  }).sort((a, b) => Number(Boolean(b.prerequisite && b.next)) - Number(Boolean(a.prerequisite && a.next))
+    || (a.next ?? "9999").localeCompare(b.next ?? "9999") || +(a.last ?? 0) - +(b.last ?? 0));
+  const lessonOption = (row: typeof lessonRows[number], reason: string) => ({
+    kind: "lesson" as const, id: row.lesson.id, title: row.lesson.title, subject: row.subject.title, description: row.lesson.description,
+    minutes: Math.min(budget, Math.max(5, row.lesson.estimatedMinutes)), reason,
+  });
+  const homeworkOption = (task: typeof taskRows[number]) => ({
+    kind: "homework" as const, id: task.id, title: task.title, subject: null, description: task.description,
+    minutes: Math.min(budget, 25), reason: task.deadline ? "واجب له ميعاد تسليم" : "واجب لسه مفتوح",
+  });
+  const first = ranked[0];
+  const balance = ranked.filter(entry => entry.id !== first?.id)
+    .sort((a, b) => +(a.last ?? 0) - +(b.last ?? 0))[0];
+  const suggestions = budget < 5 ? [] : [
+    ...(first ? [lessonOption(first.prerequisite ?? first.group[0], first.prerequisite && first.next
+      ? "درس أقدم من نفس الفصل قبل الحصة الجاية" : first.next ? "مادة لها حصة قريبة" : "درس من المتراكم")] : []),
+    ...(homework[0] ? [homeworkOption(homework[0])] : []),
+    ...(balance ? [lessonOption(balance.group[0], "مادة بقالها مدة من غير نشاط")] : []),
+    ...ranked.flatMap(entry => entry.group.map(row => lessonOption(row, "درس من المتراكم"))),
+    ...homework.map(homeworkOption),
+    ...lessonRows.filter(row => row.progress?.status !== "completed").map(row => lessonOption(row, "الدرس الجاي في المنهج")),
+  ].filter((item, index, all) => all.findIndex(other => other.kind === item.kind && other.id === item.id) === index).slice(0, 3);
+  const pickedLesson = prefs.start?.kind === "lesson" ? lessonRows.find(row => row.lesson.id === prefs.start?.id) : undefined;
+  const pickedTask = prefs.start?.kind === "homework" ? taskRows.find(task => task.id === prefs.start?.id) : undefined;
+  const picked = pickedLesson?.progress?.status !== "completed" && pickedLesson ? lessonOption(pickedLesson, "اختيارك لبداية السبت")
+    : pickedTask?.status === "open" ? homeworkOption(pickedTask) : null;
+  const cutoff = shiftPlannerDay(week, 7);
+  const goalProgress = (goal: WeeklyStudy["goal"], start: string, end: string) => {
+    if (!goal) return null;
+    const includes = (date: Date | null) => Boolean(date && plannerToday(date) >= start && plannerToday(date) < end);
+    if (goal.kind === "backlog") {
+      const units = lessonRows.filter(row => goal.lessonIds.includes(row.lesson.id) && row.progress?.status === "completed"
+        && includes(row.progress.completedAt)).length;
+      return { title: "دروس متراكمة · " + (plan.rows.find(row => row.subject.id === goal.subjectId)?.subject.title ?? "مادة"), done: units, target: goal.target };
+    }
+    const task = taskRows.find(row => row.id === goal.taskId);
+    const complete = task?.status === "completed" && includes(task.completedAt)
+      && (!goal.deadline || Boolean(task.completedAt && +task.completedAt <= +new Date(goal.deadline)));
+    return { title: task?.title ?? "واجب الأسبوع", done: Number(complete), target: 1 };
+  };
+  return { week, effort, pickingSaturday, available, budget, suggestions, picked: pickingSaturday ? picked : null,
+    choices: { subjects: Array.from(bySubject.entries()).map(([id, rows]) => ({ id, title: rows[0].subject.title, count: rows.length })),
+      homework: homework.map(task => ({ id: task.id, title: task.title })) },
+    goal: goalProgress(prefs.goal, week, cutoff),
+    recapGoal: friday ? goalProgress(state.weeklyStudy?.[currentWeek]?.goal, currentWeek, week) : null,
+    lessons: lessonDetails, tasks: completedTasks.map(task => ({ id: task.id, title: task.title })),
+    improved,
+    cleared: lessonDetails.filter(item => item.backlog).length,
+    allHomeworkOnTime: friday && dueHomework.length > 0 && dueHomework.every(onTime),
+  };
+}
+
+export function saveWeeklyStudy(userId: number, input: {
+  week: string; effort?: StudyEffort; start?: StudyItem | null;
+  goal?: { kind: "backlog"; subjectId: number; target: number } | { kind: "homework"; taskId: number } | null;
+}) {
+  const day = plannerToday();
+  const currentWeek = studyWeek(day);
+  const planningWeek = plannerWeekday(day) === 5 ? shiftPlannerDay(currentWeek, 7) : currentWeek;
+  if (input.week !== planningWeek) throw new Error("حدّث الصفحة عشان تختار للأسبوع الحالي.");
+  return changePlanner(userId, async (state, tx) => {
+    const existing = (state.weeklyStudy ??= {})[input.week] ?? {};
+    const next = { ...existing };
+    if (input.effort !== undefined) next.effort = input.effort;
+    if (input.start !== undefined) {
+      if (input.start?.kind === "lesson") await ownedLesson(tx, userId, input.start.id);
+      if (input.start?.kind === "homework") {
+        const [task] = await tx.select({ id: tasks.id }).from(tasks).where(and(eq(tasks.userId, userId),
+          eq(tasks.id, input.start.id), eq(tasks.category, "واجب"), eq(tasks.status, "open"), isNull(tasks.deletedAt)));
+        if (!task) throw new Error("الواجب مش متاح.");
+      }
+      next.start = input.start ?? undefined;
+    }
+    if (input.goal === null) next.goal = undefined;
+    if (input.goal?.kind === "backlog") {
+      const goal = input.goal;
+      const marked = state.backlog ?? [];
+      if (!marked.length) throw new Error("مفيش دروس متراكمة للهدف.");
+      const rows = await tx.select({ id: lessons.id, status: lessonProgress.status }).from(lessons)
+        .innerJoin(chapters, eq(chapters.id, lessons.chapterId))
+        .innerJoin(subjects, eq(subjects.id, chapters.subjectId))
+        .leftJoin(lessonProgress, and(eq(lessonProgress.lessonId, lessons.id), eq(lessonProgress.userId, userId)))
+        .where(and(eq(subjects.userId, userId), eq(subjects.id, goal.subjectId), isNull(lessons.deletedAt), inArray(lessons.id, marked)));
+      const lessonIds = rows.filter(row => row.status !== "completed").map(row => row.id);
+      if (lessonIds.length < goal.target) throw new Error("اختار عدد دروس موجود في المتراكم.");
+      next.goal = { ...goal, lessonIds };
+    }
+    if (input.goal?.kind === "homework") {
+      const [task] = await tx.select({ deadline: tasks.deadline }).from(tasks).where(and(eq(tasks.userId, userId),
+        eq(tasks.id, input.goal.taskId), eq(tasks.category, "واجب"), eq(tasks.status, "open"), isNull(tasks.deletedAt)));
+      if (!task) throw new Error("الواجب مش متاح.");
+      next.goal = { ...input.goal, deadline: task.deadline?.toISOString() ?? null };
+    }
+    state.weeklyStudy[input.week] = next;
+  });
+}
+
 export async function welcomeAchievements(userId: number, day: string) {
   const today = plannerToday();
   if (day > today || day < shiftPlannerDay(today, -1)) throw new Error("اختار يوم العرض الحالي.");
@@ -1773,7 +1944,10 @@ export async function attendPlannerClass(userId: number, input: { slotId: string
       addPlannerMilestone(state, "arabic-exam-" + subject.id + "-" + count, "امتحان العربي الشامل", undefined, "arabic-workshop-" + subject.id + "-" + count);
     }
     for (const row of next) await completeLessonInTransaction(tx, userId, row.lesson!.id, new Date());
-    if (state.backlog) state.backlog = state.backlog.filter(id => !selectedIds.has(id));
+    if (state.backlog) {
+      for (const id of state.backlog.filter(id => selectedIds.has(id))) (state.finishedBacklog ??= {})[id] = plannerToday();
+      state.backlog = state.backlog.filter(id => !selectedIds.has(id));
+    }
     return true;
   });
   if (completed) await evaluateAchievements(userId, cycle.id).catch(() => []);
@@ -2078,8 +2252,7 @@ export function fillStudyDay(userId: number, day: string, subjectId: number) {
 
 type DailyPlanInput = { count: number; reserve: number; budget: number; exclude: number[]; subjectId?: number };
 
-async function suggestDailyStudy(tx: StudyTransaction, userId: number, state: PlannerState, rows: Awaited<ReturnType<typeof listStudyPlan>>["rows"], input: DailyPlanInput) {
-  const day = plannerToday();
+async function studyAvailability(tx: Pick<StudyTransaction, "select">, userId: number, state: PlannerState, day: string) {
   const from = cairoPlannerTime(day, state.wake);
   const to = cairoPlannerTime(day, state.sleep);
   const events = await tx.select().from(calendarEvents).where(and(eq(calendarEvents.userId, userId),
@@ -2087,7 +2260,7 @@ async function suggestDailyStudy(tx: StudyTransaction, userId: number, state: Pl
   const assessments = examOccurrences(await scheduledExamRows(tx, userId), shiftPlannerDay(day, -1), shiftPlannerDay(day, 7), state.slots);
   const minuteOf = (value: Date) => plannerMinutes(state.wake) + Math.ceil((+value - +from) / 60_000);
   const gaps = plannerFreeTime(state.wake, state.sleep, [...state.slots.filter(slot => slotOccurs(slot, day)), ...studySlots(state, day)])
-    .map(gap => ({ start: Math.max(gap.start, minuteOf(new Date())), end: gap.end }));
+    .map(gap => ({ start: day === plannerToday() ? Math.max(gap.start, minuteOf(new Date())) : gap.start, end: gap.end }));
   const prayerTimes = await cairoPrayers(day).catch(() => null);
   const prayerBlocks = prayerTimes ? prayers.map(prayer => {
     const start = plannerMinutes(prayerTimes[prayer]);
@@ -2105,6 +2278,12 @@ async function suggestDailyStudy(tx: StudyTransaction, userId: number, state: Pl
     block.start >= gap.end || block.end <= gap.start ? [gap] : [
       { start: gap.start, end: block.start }, { start: block.end, end: gap.end },
     ]), gaps).filter(gap => gap.end > gap.start);
+  return { free, assessments };
+}
+
+async function suggestDailyStudy(tx: StudyTransaction, userId: number, state: PlannerState, rows: Awaited<ReturnType<typeof listStudyPlan>>["rows"], input: DailyPlanInput) {
+  const day = plannerToday();
+  const { free, assessments } = await studyAvailability(tx, userId, state, day);
   const available = free.reduce((sum, gap) => sum + gap.end - gap.start, 0);
   const queued = new Set((state.studySessions ?? []).filter(item => !item.done && item.day >= day).map(item => item.lessonId));
   const marked = new Set(state.backlog ?? []);

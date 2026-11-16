@@ -95,6 +95,16 @@ export const appRouter = router({
       .mutation(({ ctx, input }) => restoreStudyBackup(ctx.user.id, input.raw, input.preview)),
   }),
   dashboard: router({
+    weeklyStudy: protectedProcedure.input(z.object({ day: z.string().date() }))
+      .query(({ ctx, input }) => db.weeklyStudyOverview(ctx.user.id, input.day)),
+    saveWeeklyStudy: protectedProcedure.input(z.object({
+      week: z.string().date(), effort: z.enum(["light", "normal", "focused"]).optional(),
+      start: z.object({ kind: z.enum(["lesson", "homework"]), id }).nullable().optional(),
+      goal: z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("backlog"), subjectId: id, target: z.number().int().min(1).max(20) }),
+        z.object({ kind: z.literal("homework"), taskId: id }),
+      ]).nullable().optional(),
+    })).mutation(({ ctx, input }) => db.saveWeeklyStudy(ctx.user.id, input)),
     welcome: protectedProcedure.input(z.object({ day: z.string().date() })).query(({ ctx, input }) => db.welcomeAchievements(ctx.user.id, input.day)),
     dailyQuran: protectedProcedure.input(z.object({ day: z.string().date() })).query(({ ctx, input }) => dailyQuranVerse(ctx.user.id, input.day)),
     summary: protectedProcedure.query(({ ctx }) => db.dashboard(ctx.user.id)),

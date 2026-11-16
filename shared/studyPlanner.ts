@@ -37,6 +37,8 @@ export type PlannerState = {
   nawafilByDay?: Record<string, string[]>;
   navigation?: import("./navigation.js").NavigationPrefs;
   backlog?: number[];
+  finishedBacklog?: Record<number, string>;
+  weeklyStudy?: Record<string, import("./weeklyStudy.js").WeeklyStudy>;
   assessments?: Record<number, import('./assessments.js').AssessmentStatus>;
   backlogSubjects?: Record<string, number>;
   teacherNext?: Record<number, number>;
