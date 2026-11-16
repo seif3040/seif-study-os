@@ -232,10 +232,12 @@ async function metricSnapshot(db: any, userId: number) {
     else if (streak === 0 && day === cursor - DAY_MS) { streak += 1; cursor = day - DAY_MS; }
     else break;
   }
+  const planner = await getPlanner(userId);
+  const manualVideoMinutes = planner.manualVideoMinutes ?? 0;
   const values = {
     lessonsCompleted: Number(events?.lessonsCompleted ?? 0), reviews: Number(events?.reviews ?? 0), studyMinutes: Number(events?.studyMinutes ?? 0),
     pomodoros: Number(events?.pomodoros ?? 0), tasksCompleted: Number(events?.tasksCompleted ?? 0), urgentTasks: Number(urgent?.value ?? 0),
-    goalsCompleted: Number(events?.goalsCompleted ?? 0), habitDays: Number(events?.habitDays ?? 0), videoMinutes: Number(events?.videoMinutes ?? 0),
+    goalsCompleted: Number(events?.goalsCompleted ?? 0), habitDays: Number(events?.habitDays ?? 0), videoMinutes: Number(events?.videoMinutes ?? 0) + manualVideoMinutes, manualVideoMinutes,
     videoBlocks: Number(events?.videoBlocks ?? 0), examsCompleted: Number(events?.examsCompleted ?? 0), bestExamScore: Number(examSummary?.best ?? 0),
     averageExamScore: Number(examSummary?.average ?? 0), coinsEarned: coins.earned, activeDays: Number(events?.activeDays ?? 0), currentStreak: streak,
   };

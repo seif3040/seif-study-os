@@ -32,6 +32,7 @@ export type PlannerMilestone = {
 };
 
 export type PlannerState = {
+  manualVideoMinutes?: number;
   resources?: import("./studyResources.js").StudyResources;
   prayersByDay?: Record<string, string[]>;
   nawafilByDay?: Record<string, string[]>;

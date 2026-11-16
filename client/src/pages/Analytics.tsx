@@ -97,6 +97,7 @@ function Overview() {
             ? minutesLabel(Number(data.metrics[key] ?? 0)) : key === "averageExamScore"
               ? data.comprehension.length ? percent(Number(data.metrics.averageExamScore)) : "—"
               : money.format(Number(data.metrics[key] ?? 0))}</p>
+          {key === "videoMinutes" && data.metrics.manualVideoMinutes > 0 && <p className="text-xs text-muted-foreground">يشمل وقت فيديو مسجّل يدويًا</p>}
         </div>
       </article>)}
     </div>
