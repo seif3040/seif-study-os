@@ -75,15 +75,18 @@ function Carousel({
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable]")) return;
       if (event.key === "ArrowLeft") {
         event.preventDefault();
-        scrollPrev();
+        if (opts?.direction === "rtl") scrollNext();
+        else scrollPrev();
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
-        scrollNext();
+        if (opts?.direction === "rtl") scrollPrev();
+        else scrollNext();
       }
     },
-    [scrollPrev, scrollNext]
+    [opts?.direction, scrollPrev, scrollNext]
   );
 
   React.useEffect(() => {
@@ -98,7 +101,8 @@ function Carousel({
     api.on("select", onSelect);
 
     return () => {
-      api?.off("select", onSelect);
+      api.off("select", onSelect);
+      api.off("reInit", onSelect);
     };
   }, [api, onSelect]);
 

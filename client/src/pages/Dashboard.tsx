@@ -1,3 +1,4 @@
+import TodayAnnouncements from "@/components/TodayAnnouncements";
 import TodayNotices, { DailyQuran } from "@/components/TodayNotices";
 import { YearReviewSchedule } from "@/pages/StudyLibrary";
 import { AssessmentOverview } from "@/pages/Assessments";
@@ -76,7 +77,10 @@ export default function Dashboard() {
       </div>
       <Button asChild variant="secondary" className="mt-3"><Link href="/study-library"><BookOpen />كتبي</Link></Button>
     </section>
-    <section aria-label="العد التنازلي لنهاية البكالوريا"
+    <TodayAnnouncements slides={[
+      { title: "آية اليوم", content: <DailyQuran day={today} /> },
+      { title: "تنبيهات النوم والمذاكرة", content: <TodayNotices day={today} /> },
+      { title: "نهاية رحلة البكالوريا", content: <section aria-label="العد التنازلي لنهاية البكالوريا"
       className="surface flex flex-wrap items-center justify-between gap-4 rounded-3xl border-primary/30 bg-primary/10 p-5 sm:px-7">
       <div className="flex items-center gap-3">
         <div className="rounded-2xl bg-primary/15 p-3 text-primary"><GraduationCap className="size-7" aria-hidden="true" /></div>
@@ -89,7 +93,8 @@ export default function Dashboard() {
         {daysRemaining > 0 ? <>باقي <span className="text-3xl tabular-nums">{money.format(daysRemaining)}</span> يوم</>
           : daysRemaining === 0 ? "وصلنا للتاريخ المستهدف" : "العدّ التنازلي انتهى"}
       </p>
-    </section>
+    </section> },
+    ]} />
     <section className="surface space-y-3 p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 font-bold"><BookOpen className="size-5" /> الواجبات القادمة</h2>
@@ -111,8 +116,6 @@ export default function Dashboard() {
         </li>; })}
       </ul> : <p className="text-sm text-muted-foreground">الواجب هيظهر هنا أول ما تسجّل حضور حصة.</p>}
     </section>
-    <DailyQuran day={today} />
-    <TodayNotices day={today} />
     <DailyPrayers day={today} />
     <AssessmentOverview />
     <YearReviewSchedule compact />
