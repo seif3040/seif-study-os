@@ -2226,7 +2226,7 @@ export function saveNavigation(userId: number, navigation: NavigationPrefs) {
     }
   }
   if (!navigation.desktop.includes("/settings")) throw new Error("الإعدادات لازم تفضل متاحة في القائمة الجانبية.");
-  return changePlanner(userId, async state => { state.navigation = { ...navigation, libraryTabSeen: true, librarySectionsSeen: true, quranTabSeen: true }; });
+  return changePlanner(userId, async state => { state.navigation = { ...navigation, libraryTabSeen: true, librarySectionsSeen: true, quranTabSeen: true, musicTabSeen: true }; });
 }
 
 export async function setNafl(userId: number, day: string, name: typeof nawafil[number], done: boolean) {
