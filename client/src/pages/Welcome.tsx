@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, BookOpen, CalendarDays, CheckSquare, Coffee, Moon, Sun, Timer } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, CheckSquare, Coffee, Moon, Sparkles, Sun, Timer } from "lucide-react";
 import { Link } from "wouter";
 import { plannerToday, plannerWeekday, shiftPlannerDay } from "@shared/studyPlanner";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,9 @@ export default function Welcome() {
     tasks: sum.tasks + day.tasks, sessions: sum.sessions + day.sessions,
   }), emptyDay);
   const max = Math.max(1, ...days.map(day => day.minutes));
+  const activeDays = days.filter(day => day.minutes > 0 || day.lessons > 0 || day.tasks > 0 || day.sessions > 0).length;
+  const bestDay = days.reduce((best, day) => day.minutes > best.minutes ? day : best, days[0]);
+  const nextWeekStart = shiftPlannerDay(today, 1);
 
   return <div className="mx-auto max-w-5xl space-y-5">
     <section className="study-hero space-y-4 rounded-[2rem] p-6 sm:p-9">
@@ -87,5 +90,20 @@ export default function Welcome() {
         </>}
       <Button asChild variant="outline"><Link href="/analytics">كل التحليلات <ArrowLeft /></Link></Button>
     </section>
+
+    {friday && recap.isSuccess && <section className="surface space-y-4 border-primary/25 bg-primary/5 p-4 sm:p-6">
+      <h2 className="flex items-center gap-2 text-xl font-bold"><Sparkles className="size-5 text-primary" aria-hidden />نكمل الأسبوع الجاي</h2>
+      <p className="text-sm text-muted-foreground">{activeDays > 0
+        ? `اشتغلت في ${money.format(activeDays)} من ٧ أيام الأسبوع ده. خد راحتك النهارده وابدأ السبت بخطوة تقدر تكمّلها.`
+        : "السبت بداية جديدة. اختار درس واحد أو مهمة صغيرة تبدأ بيها."}</p>
+      {bestDay.minutes > 0 && <p className="rounded-xl border bg-background/60 p-3 text-sm">
+        أكتر يوم ذاكرت فيه كان <strong>{recapDate.format(dateAtNoon(bestDay.day))}</strong> · {minutesLabel(bestDay.minutes)}. لو كان الوقت ده مناسب لك، جرّب تحجز وقت شبهه الأسبوع الجاي.
+      </p>}
+      <p className="text-sm">ابدأ يوم {recapDate.format(dateAtNoon(nextWeekStart))} بجلسة تركيز ٢٥ دقيقة أو بمهمة واحدة من جدولك.</p>
+      <div className="flex flex-wrap gap-2">
+        <Button asChild><Link href="/lesson-sources"><CalendarDays />خطط للأسبوع الجاي</Link></Button>
+        <Button asChild variant="outline"><Link href="/backlog"><BookOpen />اختار أول درس</Link></Button>
+      </div>
+    </section>}
   </div>;
 }
