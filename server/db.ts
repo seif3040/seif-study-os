@@ -11,7 +11,7 @@ import { plannerMinutes, plannerFreeTime, studySlots, type PlannedStudy } from "
 import { emptyPlanner, overlapsPlannerSlot, plannerPolicy, plannerToday, plannerWeekday, shiftPlannerDay, type PlannerSlot, type PlannerState } from "../shared/studyPlanner.js";
 import { studyPlanner } from "../drizzle/schema.js";
 import { coinRateCatalog, coinRateKeys, type CoinRateKey } from "../shared/coinRates.js";
-import { and, count, desc, eq, exists, gte, inArray, isNotNull, isNull, like, lte, notExists, notInArray, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, exists, gte, inArray, isNotNull, isNull, like, lt, lte, notExists, notInArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   achievements, calendarEvents, chapters, coinTransactions, examAttempts, examLessons, exams, goalMilestones,
@@ -950,6 +950,29 @@ export async function listExams(userId: number) {
     }));
     return { ...row, nextScheduledAt: nextById.get(row.exam.id) ?? null, lessons: scoped, readiness: readinessForLessons(scoped), attempts };
   }));
+}
+
+export async function welcomeAchievements(userId: number, day: string) {
+  const today = plannerToday();
+  if (day > today || day < shiftPlannerDay(today, -1)) throw new Error("اختار يوم العرض الحالي.");
+  const start = plannerWeekday(day) === 5 ? shiftPlannerDay(day, -7) : day;
+  const end = plannerWeekday(day) === 5 ? day : shiftPlannerDay(day, 1);
+  const db = await database();
+  const rows = await db.select({
+    occurredAt: studyEvents.occurredAt, minutes: studyEvents.durationMinutes, kind: studyEvents.eventType,
+  }).from(studyEvents).where(and(eq(studyEvents.userId, userId),
+    gte(studyEvents.occurredAt, cairoPlannerTime(start, "00:00")),
+    lt(studyEvents.occurredAt, cairoPlannerTime(end, "00:00"))));
+  const totals: Record<string, { minutes: number; lessons: number; tasks: number; sessions: number }> = {};
+  for (const row of rows) {
+    const date = plannerToday(row.occurredAt);
+    const current = totals[date] ??= { minutes: 0, lessons: 0, tasks: 0, sessions: 0 };
+    current.minutes += Number(row.minutes);
+    if (row.kind === "lesson_complete") current.lessons++;
+    if (row.kind === "task_complete") current.tasks++;
+    if (row.kind === "pomodoro_complete") current.sessions++;
+  }
+  return totals;
 }
 
 export async function analytics(userId: number) {
@@ -2256,7 +2279,7 @@ export function saveNavigation(userId: number, navigation: NavigationPrefs) {
     }
   }
   if (!navigation.desktop.includes("/settings")) throw new Error("الإعدادات لازم تفضل متاحة في القائمة الجانبية.");
-  return changePlanner(userId, async state => { state.navigation = { ...navigation, libraryTabSeen: true, librarySectionsSeen: true, quranTabSeen: true, musicTabSeen: true }; });
+  return changePlanner(userId, async state => { state.navigation = { ...navigation, libraryTabSeen: true, librarySectionsSeen: true, quranTabSeen: true, musicTabSeen: true, welcomeTabSeen: true }; });
 }
 
 export async function setNafl(userId: number, day: string, name: typeof nawafil[number], done: boolean) {

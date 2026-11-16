@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { menu } from "@/lib/navigation";
 import { errorText } from "@/lib/study";
 import { trpc } from "@/lib/trpc";
-import { defaultDesktopTabs, defaultMobileTabs, desktopNavigation, type NavigationPrefs } from "@shared/navigation";
+import { defaultDesktopTabs, defaultMobileTabs, desktopNavigation, mobileNavigation, type NavigationPrefs } from "@shared/navigation";
 
 const defaults = { mobile: [...defaultMobileTabs], desktop: [...defaultDesktopTabs] };
 
@@ -15,7 +15,7 @@ export default function NavigationSettings() {
   const [draft, setDraft] = useState<NavigationPrefs>();
   const [device, setDevice] = useState<"mobile" | "desktop">("mobile");
   const saved = planner.data?.navigation;
-  const prefs = draft ?? (saved ? { mobile: saved.mobile, desktop: [...desktopNavigation(saved)] } : defaults);
+  const prefs = draft ?? (saved ? { mobile: [...mobileNavigation(saved)], desktop: [...desktopNavigation(saved)] } : defaults);
   const paths = prefs[device];
   const limit = device === "mobile" ? 5 : menu.length;
   const available = menu.filter(([, path]) => !paths.includes(path));

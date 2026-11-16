@@ -67,8 +67,8 @@ export function plannerWeekday(day: string) {
   return new Date(day + "T12:00:00Z").getUTCDay();
 }
 
-export function plannerToday() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+export function plannerToday(now = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 }
 
 export function plannerMinutes(time: string) {

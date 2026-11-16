@@ -1,4 +1,4 @@
-import { plannerToday } from "@shared/studyPlanner";
+import { plannerToday, plannerWeekday } from "@shared/studyPlanner";
 import SleepDialog from "@/components/SleepDialog";
 import { useEffect, useState } from "react";
 import type { inferRouterOutputs } from "@trpc/server";
@@ -26,7 +26,7 @@ export default function StudyPrompts() {
   if (review.isLoading) return null;
   if (review.data?.length) return <HybridHomeworkReview entries={review.data} />;
   if (planner.data && !planner.data.sleepLogs?.[day] && dismissed !== day) return <SleepDialog day={day} onClose={() => setDismissed(day)} />;
-  return <DailyStudyPrompt />;
+  return plannerWeekday(day) === 5 ? null : <DailyStudyPrompt />;
 }
 
 function HybridHomeworkReview({ entries }: { entries: Entries }) {

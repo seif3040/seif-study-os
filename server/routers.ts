@@ -95,6 +95,7 @@ export const appRouter = router({
       .mutation(({ ctx, input }) => restoreStudyBackup(ctx.user.id, input.raw, input.preview)),
   }),
   dashboard: router({
+    welcome: protectedProcedure.input(z.object({ day: z.string().date() })).query(({ ctx, input }) => db.welcomeAchievements(ctx.user.id, input.day)),
     dailyQuran: protectedProcedure.input(z.object({ day: z.string().date() })).query(({ ctx, input }) => dailyQuranVerse(ctx.user.id, input.day)),
     summary: protectedProcedure.query(({ ctx }) => db.dashboard(ctx.user.id)),
   }),
