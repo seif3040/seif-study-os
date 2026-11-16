@@ -1,3 +1,4 @@
+import ActionDialog from "@/components/ActionDialog";
 import { slotOccurs } from "@shared/studyPlanner";
 import { useState } from "react";
 import { Link } from "wouter";
@@ -114,7 +115,8 @@ export default function DayStudy({ day, showSchedule = false, embedded = false }
           <Button size="sm" variant="ghost" disabled={remove.isPending} onClick={() => remove.mutate({ id: item.id })}>شيل من الخطة</Button>
         </>}
       </div>)}
-      {editor && <form className="grid gap-2 rounded-xl border p-3" onSubmit={event => {
+      {editor && <ActionDialog title={postponing ? "تأجيل المذاكرة" : sessions.some(item => item.id === editor.id) ? "نقل أو تعديل موعد المذاكرة" : "ميعاد مذاكرة جديد"} pending={save.isPending} onClose={() => setEditor(undefined)}>
+      <form className="grid gap-3" onSubmit={event => {
         event.preventDefault();
         if (postponing && !reason) return;
         save.mutate({ ...editor, postponeReason: postponing && reason ? reason : undefined });
@@ -137,8 +139,8 @@ export default function DayStudy({ day, showSchedule = false, embedded = false }
           </select></label>
         </div>
         <div className="flex gap-2"><Button size="sm" type="submit" disabled={save.isPending || (postponing && !reason)}>{postponing ? "أكّد التأجيل" : "حفظ"}</Button>
-          <Button size="sm" type="button" variant="ghost" onClick={() => setEditor(undefined)}>إلغاء</Button></div>
-      </form>}
+          <Button size="sm" type="button" variant="ghost" disabled={save.isPending} onClick={() => setEditor(undefined)}>إلغاء</Button></div>
+      </form></ActionDialog>}
     </section>
     {showSchedule && <section className="surface space-y-3 p-5">
       <h2 className="flex items-center gap-2 font-bold"><CalendarClock className="size-5" /> الالتزامات</h2>

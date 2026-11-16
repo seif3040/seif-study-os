@@ -1,3 +1,4 @@
+import ActionDialog from "@/components/ActionDialog";
 import { cairoPlannerTime, examLocalDate } from "@shared/examSchedule";
 import { hybridHomeworkSources } from "@shared/lessonSources";
 import StudyLibrary from "@/pages/StudyLibrary";
@@ -28,6 +29,7 @@ export default function WeekPlanner() {
   const [day, setDay] = useState(today);
   const [editing, setEditing] = useState<PlannerSlot>();
   const [attendanceDraft, setAttendanceDraft] = useState<{ slotId: string; day: string; lessonIds: number[] }>();
+  const [editingMilestone, setEditingMilestone] = useState<string>();
   const [attending, setAttending] = useState<string>();
   const [chosen, setChosen] = useState<number[]>([]);
   const [allowOverlap, setAllowOverlap] = useState(false);
@@ -78,7 +80,7 @@ export default function WeekPlanner() {
     onError,
   });
   const milestone = trpc.planner.schedule.useMutation({
-    onSuccess: async () => { await Promise.all([refresh(), utils.calendar.list.invalidate()]); toast.success("اتحفظ الموعد في التقويم."); },
+    onSuccess: async () => { await Promise.all([refresh(), utils.calendar.list.invalidate()]); setEditingMilestone(undefined); toast.success("اتحفظ الموعد في التقويم."); },
     onError,
   });
 
@@ -141,7 +143,8 @@ export default function WeekPlanner() {
             setEditing({ id: crypto.randomUUID(), weekday, title: "", start: "16:00", end: "17:00" });
           }}><Plus /> ميعاد أسبوعي</Button>
         </div>
-        {editing && <form className="grid gap-2 rounded-xl border p-3" onSubmit={event => {
+        {editing && <ActionDialog title={state.slots.some(slot => slot.id === editing.id) ? "تعديل الموعد الأسبوعي" : "ميعاد أسبوعي جديد"} pending={save.isPending} onClose={() => setEditing(undefined)}>
+        <form className="grid gap-3" onSubmit={event => {
           event.preventDefault();
           save.mutate({ slot: editing, allowOverlap });
         }}>
@@ -176,7 +179,7 @@ export default function WeekPlanner() {
             <Button type="submit" disabled={save.isPending}>حفظ</Button>
             <Button type="button" variant="ghost" onClick={() => setEditing(undefined)}>إلغاء</Button>
           </div>
-        </form>}
+        </form></ActionDialog>}
         {inactiveSlots.map(slot => <div key={slot.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3">
           <span>{slot.title} · مفيش موعد الأسبوع ده</span>
           <Button size="sm" variant="outline" disabled={override.isPending} onClick={() => override.mutate({ id: slot.id, day, active: true })}>أكد الموعد لليوم ده</Button>
@@ -215,7 +218,8 @@ export default function WeekPlanner() {
               </select>
             </label>}
             {!recorded.length && next && !arabic && <p className="text-sm">الدرس التالي · {next.title}</p>}
-            {selecting && !recorded.length && <fieldset className="max-h-72 space-y-3 overflow-y-auto rounded border p-3">
+            {selecting && !recorded.length && !attendanceDraft && <ActionDialog title="دروس الحصة" onClose={() => setAttending(undefined)}>
+            <fieldset className="max-h-72 space-y-3 overflow-y-auto rounded border p-3">
               <legend className="px-1 font-medium">اختار الدروس اللي اتشرحت في الحصة</legend>
               {Array.from(new Map(subjectRows.flatMap(row => row.chapter ? [[row.chapter.id, row.chapter] as const] : [])).values()).map(branch =>
                 <fieldset key={branch.id} className="space-y-2 rounded border p-2">
@@ -233,15 +237,13 @@ export default function WeekPlanner() {
                     </label>;
                   })}
                 </fieldset>)}
-            </fieldset>}
+            </fieldset>
+              <Button disabled={!chosen.length} onClick={() => setAttendanceDraft({ slotId: slot.id, day, lessonIds: chosen })}>كمّل تفاصيل الواجب</Button>
+            </ActionDialog>}
             <div className="flex flex-wrap gap-2">
               {!recorded.length && subjectRows.length > 0 && day <= today && <Button size="sm"
-                disabled={attend.isPending || (selecting && !chosen.length)}
-                onClick={() => {
-                  if (!selecting) { setChosen(!arabic && next ? [next.id] : []); setAttending(attendanceKey); return; }
-                  setAttendanceDraft({ slotId: slot.id, day, lessonIds: chosen });
-                }}><Check /> {selecting ? "كمّل تفاصيل الواجب" : "حضرت الحصة"}</Button>}
-              {selecting && <Button size="sm" variant="ghost" onClick={() => setAttending(undefined)}>إلغاء اختيار الدروس</Button>}
+                disabled={attend.isPending}
+                onClick={() => { setChosen(!arabic && next ? [next.id] : []); setAttending(attendanceKey); }}><Check /> حضرت الحصة</Button>}
               {!recorded.length && <Button size="sm" variant="outline" disabled={override.isPending}
                 onClick={() => override.mutate({ id: slot.id, day, active: false })}>إلغاء اليوم بس</Button>}
               <Button size="sm" variant="outline" onClick={() => { setEditing(slot); setAllowOverlap(false); }}>تعديل</Button>
@@ -262,14 +264,17 @@ export default function WeekPlanner() {
     </div>
     {state.milestones.length > 0 && <div className="surface space-y-3 p-4">
       <h3 className="font-bold">الورش والامتحانات ومعسكرات المراجعة</h3>
-      {state.milestones.map(item => <form key={item.id + ":" + (state.milestones.find(value => value.id === item.follows)?.day ?? "")} className="flex flex-wrap items-end gap-2 rounded-lg border p-3"
+      {state.milestones.map(item => <div key={item.id} className="flex flex-wrap items-center gap-2 rounded-lg border p-3">
+        <div className="min-w-44 flex-1"><p className="font-bold">{item.title}</p><p className="text-sm text-muted-foreground">{item.day ? item.day + " · " + formatClock(item.start ?? "") : "بانتظار الموعد"}</p></div>
+        <Button size="sm" variant="outline" onClick={() => setEditingMilestone(item.id)}>{item.eventId ? "تعديل الموعد" : "حدد الموعد"}</Button>
+        {editingMilestone === item.id && <ActionDialog title={item.title} pending={milestone.isPending} onClose={() => setEditingMilestone(undefined)}>
+        <form className="grid gap-3"
         onSubmit={event => {
           event.preventDefault();
           const values = new FormData(event.currentTarget);
           milestone.mutate({ id: item.id, day: String(values.get("day")), start: String(values.get("start")),
             minutes: item.duration ?? Number(values.get("minutes")) });
         }}>
-        <div className="min-w-44 flex-1"><p className="font-bold">{item.title}</p><p className="text-sm text-muted-foreground">{item.eventId ? "اتضاف للتقويم" : "بانتظار الموعد"}</p></div>
         <label>اليوم<Input name="day" type="date" defaultValue={item.day ?? (() => {
           const previous = state.milestones.find(value => value.id === item.follows);
           return previous?.day ? shiftPlannerDay(previous.day, 7) : undefined;
@@ -277,7 +282,7 @@ export default function WeekPlanner() {
         <label>الساعة<Input name="start" type="time" defaultValue={item.start} required /></label>
         {item.duration ? <span>{item.duration / 60} ساعات</span> : <label>الدقائق<Input name="minutes" type="number" min={5} max={1440} defaultValue={item.minutes ?? 60} required /></label>}
         <Button type="submit" size="sm" disabled={milestone.isPending}>حفظ الموعد</Button>
-      </form>)}
+      </form></ActionDialog>}</div>)}
     </div>}
   </section>;
 }

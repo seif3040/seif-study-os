@@ -1,3 +1,4 @@
+import ActionDialog from "@/components/ActionDialog";
 import { useState } from "react";
 import { BookOpen, ClipboardList, CalendarDays, Pencil } from "lucide-react";
 import { toast } from "sonner";
@@ -41,6 +42,8 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
   const [subject, setSubject] = useState(0);
   const [bookId, setBookId] = useState("");
   const [editHomework, setEditHomework] = useState("");
+  const [homeworkFormOpen, setHomeworkFormOpen] = useState(false);
+  const [mistakeFormOpen, setMistakeFormOpen] = useState(false);
   const assignedTasks = trpc.tasks.list.useQuery(undefined, { enabled: tab === "الواجبات" });
   const [editBook, setEditBook] = useState("");
   const [through, setThrough] = useState<number | null>(null);
@@ -54,7 +57,8 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
     onSuccess: async (_, entry) => {
       await Promise.all([utils.planner.list.invalidate(), utils.tasks.list.invalidate(), utils.dashboard.summary.invalidate(), utils.calendar.list.invalidate(), utils.coins.ledger.invalidate()]);
       if (entry.type === "book") setBookFormOpen(false);
-      if (entry.type === "homework") { setEditHomework(""); setBookId(""); }
+      if (entry.type === "homework") closeHomework();
+      if (entry.type === "mistake") setMistakeFormOpen(false);
       setShow(false); setResponse(""); toast.success("اتحفظ.");
     },
     onError: error => toast.error(errorText(error)),
@@ -85,9 +89,28 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
     setManualBacklog(item?.backlog ?? []);
     setBookFormOpen(true);
   };
+  function closeHomework() { setHomeworkFormOpen(false); setEditHomework(""); setBookId(""); }
+  const homeworkForm = (
+      <form key={editHomework} className="space-y-3" onSubmit={event => {
+        event.preventDefault();
+        const form = fields(event.currentTarget);
+        change.mutate({ type: "homework", item: { id: editHomework || crypto.randomUUID(), bookId,
+          lessonId: Number(str(form, "lesson")), pages: str(form, "pages"), prompt: str(form, "prompt") } });
+      }}>
+        <label>الكتاب<select required className={select} value={bookId} onChange={event => setBookId(event.target.value)}>
+          <option value="">اختار الكتاب</option>{books.filter(item => !attendanceLessons || rows.some(row => row.subject.id === item.subjectId && row.lesson && attendanceLessons.includes(row.lesson.id))).map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+        </select></label>
+        <label>الدرس<select key={bookId} name="lesson" defaultValue={assignment?.lessonId ?? ""} required className={select}><option value="">اختار الدرس</option>{lessonOptions}</select></label>
+        <label>الصفحات<Input name="pages" defaultValue={assignment?.pages} placeholder="مثال ٣٥–٣٩" required maxLength={120} /></label>
+        <label>المطلوب بالضبط<Textarea name="prompt" defaultValue={assignment?.prompt} maxLength={900} /></label>
+        <Button disabled={!bookId || change.isPending}>احفظ واجب الدرس</Button>
+      </form>
+  );
   return <div className="space-y-4">
     {!attendanceLessons && <PageHeader title={section === "الكتب" ? "كتبي" : section} description={sectionDescriptions[section]}
-      action={section === "الكتب" ? { label: "كتاب جديد", onClick: () => openBook() } : undefined} />}
+      action={section === "الكتب" ? { label: "كتاب جديد", onClick: () => openBook() }
+        : section === "الواجبات" ? { label: "سجّل واجب درس", onClick: () => setHomeworkFormOpen(true) }
+        : section === "كشكول الأخطاء" ? { label: "ضيف سؤال", onClick: () => setMistakeFormOpen(true) } : undefined} />}
     {attendanceLessons && <p className="text-sm">اختار كتاب وصفحات الواجب. لو في كتاب تاني، احفظ الأول وبعدين ضيفه. لو الكتاب مش موجود، ضيفه من «الكتب» هنا.</p>}
     {attendanceLessons && <div className="flex flex-wrap gap-2">
       {(["الكتب", "الواجبات"] as const).map(item => <Button key={item} variant={item === tab ? "default" : "outline"} aria-pressed={item === tab} onClick={() => setAttendanceTab(item)}>{item}</Button>)}
@@ -101,8 +124,7 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
         </select>
       </label>}
       {attendanceLessons && <Button variant="outline" onClick={() => openBook()}>كتاب جديد</Button>}
-      {bookFormOpen && <section className="surface space-y-3 p-5">
-        <h2 className="font-bold">{book ? "تعديل الكتاب" : "كتاب جديد"}</h2>
+      {bookFormOpen && <ActionDialog title={book ? "تعديل الكتاب" : "كتاب جديد"} pending={change.isPending} onClose={() => setBookFormOpen(false)}>
       <form key={editBook} className="space-y-3" onSubmit={event => {
         event.preventDefault();
         const form = fields(event.currentTarget);
@@ -167,7 +189,7 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
         </fieldset>}
         <div className="flex gap-2"><Button disabled={!subject || change.isPending}>حفظ الكتاب</Button>
           <Button type="button" variant="outline" onClick={() => setBookFormOpen(false)}>إغلاق</Button></div>
-      </form></section>}
+      </form></ActionDialog>}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {books.filter(item => !subjectFilter || item.subjectId === subjectFilter).map(item => {
           const last = rows.find(row => row.lesson?.id === item.through)?.lesson?.title;
@@ -183,25 +205,10 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
       </div>
       {!books.some(item => !subjectFilter || item.subjectId === subjectFilter) && <p className="surface p-5 text-sm text-muted-foreground">مفيش كتب هنا لسه.</p>}
     </div>}
-    {tab === "الواجبات" && <div className={attendanceLessons ? "grid gap-4" : "grid items-start gap-4 xl:grid-cols-2"}>
-      <section className="surface space-y-3 p-5">
-      <h2 className="font-bold">{editHomework ? "تعديل تفاصيل الواجب" : "سجّل واجب درس"}</h2>
-      {editHomework && <Button size="sm" variant="ghost" onClick={() => { setEditHomework(""); setBookId(""); }}>إلغاء تعديل الواجب</Button>}
-      <form key={editHomework} className="space-y-3" onSubmit={event => {
-        event.preventDefault();
-        const form = fields(event.currentTarget);
-        change.mutate({ type: "homework", item: { id: editHomework || crypto.randomUUID(), bookId,
-          lessonId: Number(str(form, "lesson")), pages: str(form, "pages"), prompt: str(form, "prompt") } });
-      }}>
-        <label>الكتاب<select required className={select} value={bookId} onChange={event => setBookId(event.target.value)}>
-          <option value="">اختار الكتاب</option>{books.filter(item => !attendanceLessons || rows.some(row => row.subject.id === item.subjectId && row.lesson && attendanceLessons.includes(row.lesson.id))).map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
-        </select></label>
-        <label>الدرس<select key={bookId} name="lesson" defaultValue={assignment?.lessonId ?? ""} required className={select}><option value="">اختار الدرس</option>{lessonOptions}</select></label>
-        <label>الصفحات<Input name="pages" defaultValue={assignment?.pages} placeholder="مثال ٣٥–٣٩" required maxLength={120} /></label>
-        <label>المطلوب بالضبط<Textarea name="prompt" defaultValue={assignment?.prompt} maxLength={900} /></label>
-        <Button disabled={!bookId || change.isPending}>احفظ واجب الدرس</Button>
-      </form>
-      </section>
+    {tab === "الواجبات" && <div className={"grid gap-4"}>
+      {attendanceLessons && !homeworkFormOpen && <section className="surface p-4">{homeworkForm}</section>}
+      {homeworkFormOpen && <ActionDialog title={editHomework ? "تعديل تفاصيل الواجب" : "سجّل واجب درس"}
+        pending={change.isPending} onClose={closeHomework}>{homeworkForm}</ActionDialog>}
       <div className="space-y-4">
       {!attendanceLessons && <section className="surface space-y-2 p-5">
         <h2 className="flex items-center gap-2 font-bold"><ClipboardList className="size-5 text-primary" /> مواعيد التسليم</h2>
@@ -215,7 +222,7 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
       {(resources?.homework ?? []).filter(item => !attendanceLessons || attendanceLessons.includes(item.lessonId)).map(item => <article key={item.id} className="rounded border p-2 text-sm">
         <strong>{rows.find(row => row.lesson?.id === item.lessonId)?.lesson?.title} · {books.find(row => row.id === item.bookId)?.title}</strong>
         <p>ص {item.pages} · {item.prompt}</p>
-        <Button size="sm" variant="ghost" onClick={() => { setEditHomework(item.id); setBookId(item.bookId); }}>تعديل الواجب</Button>
+        <Button size="sm" variant="ghost" onClick={() => { setEditHomework(item.id); setBookId(item.bookId); setHomeworkFormOpen(true); }}>تعديل الواجب</Button>
       </article>)}
       </section></div>
     </div>}
@@ -233,21 +240,21 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
         </> : <Button disabled={!response.trim()} onClick={() => setShow(true)}>اعرض الإجابة</Button>}
       </article> : <p>مفيش أسئلة مستحقة دلوقتي.</p>}
       </section>
-      <form className="surface space-y-3 p-5" onSubmit={event => {
+      {mistakeFormOpen && <ActionDialog title="ضيف سؤال غلطت فيه" pending={change.isPending} onClose={() => setMistakeFormOpen(false)}>
+      <form className="space-y-3" onSubmit={event => {
         event.preventDefault();
         const form = fields(event.currentTarget);
         change.mutate({ type: "mistake", item: { id: crypto.randomUUID(), subjectId: Number(str(form, "subject")),
           question: str(form, "question"), kind, options: kind === "choice" ? str(form, "options").split("\n").map(x => x.trim()).filter(Boolean) : [],
           answer: str(form, "answer") } });
       }}>
-        <h2 className="font-bold">ضيف سؤال غلطت فيه</h2>
         <select name="subject" required aria-label="المادة" className={select}><option value="">اختار المادة</option>{subjects.map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select>
         <select value={kind} aria-label="نوع السؤال" className={select} onChange={e => setKind(e.target.value === "choice" ? "choice" : "essay")}><option value="essay">مقالي</option><option value="choice">اختياري</option></select>
         <Textarea name="question" required maxLength={1500} placeholder="نص السؤال" />
         {kind === "choice" && <Textarea name="options" required placeholder="كل اختيار في سطر" />}
         <Textarea name="answer" required maxLength={1200} placeholder="الإجابة النموذجية أو الاختيار الصحيح بالنص" />
         <Button disabled={change.isPending}>احفظ السؤال</Button>
-      </form>
+      </form></ActionDialog>}
     </div>}
   </div>;
 }
