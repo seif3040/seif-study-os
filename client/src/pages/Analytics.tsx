@@ -16,7 +16,8 @@ export default function Analytics() {
 function SubjectReport() {
   const report = trpc.analytics.subjects.useQuery();
   const [selection, setSelection] = useState("all");
-  const subjects = report.data ?? [];
+  const [showUnassigned, setShowUnassigned] = useState(() => localStorage.getItem("seif-show-unassigned-analytics") === "true");
+  const subjects = (report.data ?? []).filter(subject => showUnassigned || subject.id !== null);
   const visible = subjects.filter(subject => selection === "all" || String(subject.id) === selection);
   const hours = (minutes: number) => scoreFormat.format(Math.floor(minutes / 60)) + " س " + scoreFormat.format(minutes % 60) + " د";
   return <section>
@@ -27,6 +28,14 @@ function SubjectReport() {
           <option value="all">كل المواد</option>
           {subjects.map(subject => <option key={subject.id ?? "none"} value={String(subject.id)}>{subject.title}</option>)}
         </select>
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={showUnassigned} onChange={event => {
+          const checked = event.target.checked;
+          setShowUnassigned(checked);
+          if (!checked && selection === "null") setSelection("all");
+          localStorage.setItem("seif-show-unassigned-analytics", String(checked));
+        }} /> أظهر بدون مادة
       </label>
       <a className="rounded-lg border px-3 py-2 text-sm font-bold hover:bg-muted" href="/api/analytics/subjects?format=csv">تنزيل CSV</a>
       <a className="rounded-lg px-3 py-2 text-sm font-bold text-primary hover:bg-muted" href="/api/analytics/subjects" target="_blank" rel="noreferrer">عرض API</a>

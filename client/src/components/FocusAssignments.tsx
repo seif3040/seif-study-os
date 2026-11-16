@@ -1,3 +1,4 @@
+import ActionDialog from "@/components/ActionDialog";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,9 @@ import { trpc } from "@/lib/trpc";
 export default function FocusAssignments({ subjects }: { subjects: [number, string][] }) {
   const assignments = trpc.pomodoro.assignments.useQuery();
   const assign = trpc.pomodoro.assignSubject.useMutation();
+  const remove = trpc.pomodoro.removeUnassigned.useMutation();
   const utils = trpc.useUtils();
+  const [confirmRemoval, setConfirmRemoval] = useState(false);
   const [selected, setSelected] = useState<number[]>([]);
   const [subject, setSubject] = useState("");
   const [onlyUnassigned, setOnlyUnassigned] = useState(true);
@@ -20,6 +23,8 @@ export default function FocusAssignments({ subjects }: { subjects: [number, stri
   const selectedRows = all.filter(row => selected.includes(row.id));
   const total = selectedRows.reduce((minutes, row) => minutes + (row.minutes ?? 0), 0);
   const titles = new Map(subjects);
+  const canRemove = selectedRows.length > 0 && selectedRows.every(row => row.subjectId === null);
+  const busy = assign.isPending || remove.isPending;
 
   async function save() {
     try {
@@ -27,6 +32,16 @@ export default function FocusAssignments({ subjects }: { subjects: [number, stri
       setSelected([]);
       toast.success("اتحدّث تخصيص " + result.updated + " سجل تركيز");
       await Promise.all([utils.pomodoro.invalidate(), utils.analytics.invalidate()]);
+    } catch (error) { toast.error(errorText(error)); }
+  }
+
+  async function removeSelected() {
+    try {
+      const result = await remove.mutateAsync({ eventIds: selected });
+      setSelected([]);
+      setConfirmRemoval(false);
+      toast.success("اتحذف " + result.removed + " سجل تركيز");
+      await utils.invalidate();
     } catch (error) { toast.error(errorText(error)); }
   }
 
@@ -44,7 +59,7 @@ export default function FocusAssignments({ subjects }: { subjects: [number, stri
       <ul className="max-h-72 divide-y overflow-auto rounded-xl border">
         {rows.slice(0, visibleCount).map(row => <li key={row.id}>
           <label className="flex cursor-pointer flex-wrap items-center gap-3 p-3 text-sm">
-            <input type="checkbox" checked={selected.includes(row.id)} disabled={assign.isPending || (!selected.includes(row.id) && selected.length >= 400)} onChange={event => {
+            <input type="checkbox" checked={selected.includes(row.id)} disabled={busy || (!selected.includes(row.id) && selected.length >= 400)} onChange={event => {
               const checked = event.target.checked;
               setSelected(previous => checked ? [...previous, row.id] : previous.filter(id => id !== row.id));
             }} />
@@ -60,8 +75,16 @@ export default function FocusAssignments({ subjects }: { subjects: [number, stri
       <select aria-label="المادة الجديدة" value={subject} onChange={event => setSubject(event.target.value)} className="h-9 rounded-lg border bg-background px-3 text-sm">
         <option value="">من غير مادة</option>{subjects.map(([id, title]) => <option value={id} key={id}>{title}</option>)}
       </select>
-      <Button disabled={!selected.length || assign.isPending} onClick={() => void save()}>حفظ تخصيص {minutesLabel(total)}</Button>
+      <Button disabled={!selected.length || busy} onClick={() => void save()}>حفظ تخصيص {minutesLabel(total)}</Button>
+      {canRemove && <Button variant="outline" disabled={busy} onClick={() => setConfirmRemoval(true)}>حذف الجلسات المحددة</Button>}
       {selected.length > 0 && <Button variant="ghost" onClick={() => setSelected([])}>إلغاء التحديد</Button>}
     </div>
+    {confirmRemoval && <ActionDialog title="حذف جلسات التركيز المحددة" pending={remove.isPending} onClose={() => setConfirmRemoval(false)}>
+      <p className="text-sm">هيتحذف {minutesLabel(total)} من سجل التركيز والتحليلات. رصيد النقاط الحالي هيفضل محفوظ.</p>
+      <div className="flex gap-2">
+        <Button variant="destructive" disabled={remove.isPending} onClick={() => void removeSelected()}>أكد الحذف</Button>
+        <Button variant="outline" disabled={remove.isPending} onClick={() => setConfirmRemoval(false)}>إلغاء</Button>
+      </div>
+    </ActionDialog>}
   </section>;
 }

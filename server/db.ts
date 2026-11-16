@@ -11,7 +11,7 @@ import { plannerMinutes, plannerFreeTime, studySlots, type PlannedStudy } from "
 import { emptyPlanner, overlapsPlannerSlot, plannerPolicy, plannerToday, plannerWeekday, shiftPlannerDay, type PlannerSlot, type PlannerState } from "../shared/studyPlanner.js";
 import { studyPlanner } from "../drizzle/schema.js";
 import { coinRateCatalog, coinRateKeys, type CoinRateKey } from "../shared/coinRates.js";
-import { and, count, desc, eq, exists, gte, inArray, isNotNull, isNull, like, lte, notExists, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, exists, gte, inArray, isNotNull, isNull, like, lte, notExists, notInArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   achievements, calendarEvents, chapters, coinTransactions, examAttempts, examLessons, exams, goalMilestones,
@@ -1318,9 +1318,39 @@ export async function importStudyCsv(userId: number, kind: "tasks" | "exams", ro
 export async function listFocusAssignments(userId: number) {
   const db = await database();
   return db.select({
-    id: studyEvents.id, subjectId: studyEvents.subjectId, minutes: studyEvents.durationMinutes, date: studyEvents.occurredAt,
-  }).from(studyEvents).where(and(eq(studyEvents.userId, userId), eq(studyEvents.eventType, "pomodoro_complete")))
+    id: studyEvents.id, subjectId: subjects.id, minutes: studyEvents.durationMinutes, date: studyEvents.occurredAt,
+  }).from(studyEvents).leftJoin(subjects, and(eq(subjects.id, studyEvents.subjectId), eq(subjects.userId, userId))).where(and(eq(studyEvents.userId, userId), eq(studyEvents.eventType, "pomodoro_complete")))
     .orderBy(studyEvents.occurredAt, studyEvents.id);
+}
+
+function focusSessionId(reference: string) {
+  const id = reference.match(/^pomodoro:(\d+):complete$/)?.[1] ?? reference.match(/^offline-focus:[a-f0-9-]{36}:(\d+)$/)?.[1];
+  return id === undefined ? [] : [Number(id)];
+}
+
+export async function removeUnassignedFocus(userId: number, eventIds: number[]) {
+  const db = await database();
+  return db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const uniqueIds = [...new Set(eventIds)];
+    const ownedSubjects = tx.select({ id: subjects.id }).from(subjects).where(eq(subjects.userId, userId));
+    const subjectMissing = or(isNull(studyEvents.subjectId), notInArray(studyEvents.subjectId, ownedSubjects));
+    const selected = and(eq(studyEvents.userId, userId), eq(studyEvents.eventType, "pomodoro_complete"), subjectMissing, inArray(studyEvents.id, uniqueIds));
+    const rows = await tx.select({ reference: studyEvents.referenceId, cycleId: studyEvents.cycleId }).from(studyEvents).where(selected).for("update");
+    if (rows.length !== uniqueIds.length) throw new Error("اختار جلسات موجودة من غير مادة فقط.");
+    for (const row of rows.filter(item => item.reference.startsWith("offline-focus:"))) {
+      await tx.insert(coinTransactions).values({
+        userId, cycleId: row.cycleId, amount: 0, type: "earn", referenceKey: row.reference,
+        reason: "جلسة تركيز حُذفت بعد المزامنة",
+      }).onDuplicateKeyUpdate({ set: { referenceKey: row.reference } });
+    }
+    const sessionIds = rows.flatMap(row => focusSessionId(row.reference));
+    if (sessionIds.length) await tx.delete(pomodoroSessions).where(and(
+      eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "completed"), inArray(pomodoroSessions.id, sessionIds),
+    ));
+    await tx.delete(studyEvents).where(selected);
+    return { removed: rows.length };
+  });
 }
 
 export async function assignFocusSubject(userId: number, eventIds: number[], subjectId: number | null) {
@@ -1336,10 +1366,7 @@ export async function assignFocusSubject(userId: number, eventIds: number[], sub
     const selected = and(eq(studyEvents.userId, userId), eq(studyEvents.eventType, "pomodoro_complete"), inArray(studyEvents.id, uniqueIds));
     const rows = await tx.select({ id: studyEvents.id, reference: studyEvents.referenceId }).from(studyEvents).where(selected).for("update");
     if (rows.length !== uniqueIds.length) throw new Error("اختار جلسات تركيز موجودة عندك.");
-    const sessionIds = rows.flatMap(row => {
-      const id = row.reference?.match(/^pomodoro:(\d+):complete$/)?.[1] ?? row.reference?.match(/^offline-focus:[a-f0-9-]{36}:(\d+)$/)?.[1];
-      return id ? [Number(id)] : [];
-    });
+    const sessionIds = rows.flatMap(row => focusSessionId(row.reference));
     await tx.update(studyEvents).set({ subjectId }).where(selected);
     if (sessionIds.length) await tx.update(pomodoroSessions).set({ subjectId })
       .where(and(eq(pomodoroSessions.userId, userId), inArray(pomodoroSessions.id, sessionIds)));
@@ -1436,6 +1463,9 @@ export async function syncOfflineFocus(userId: number, input: {
       .where(and(eq(studyEvents.userId, userId), eq(studyEvents.eventType, "pomodoro_complete"), like(studyEvents.referenceId, prefix + "%")))
       .limit(1);
     if (existing) return { alreadySynced: true, amount: 0 };
+    const [receipt] = await tx.select({ id: coinTransactions.id }).from(coinTransactions)
+      .where(and(eq(coinTransactions.userId, userId), like(coinTransactions.referenceKey, prefix + "%"))).limit(1);
+    if (receipt) return { alreadySynced: true, amount: 0 };
 
     const startedAt = new Date(input.startedAt);
     const completedAt = new Date(input.completedAt);
