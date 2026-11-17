@@ -28,8 +28,24 @@ async function handle(message, sender) {
   const studySite = new URL(sender.url).origin === site;
   const key = lessonKey(extensionPage || studySite ? message.url : sender.tab?.url || sender.url);
   if (!key) return null;
+  if (studySite && message.type === "list") {
+    const host = new URL(key).hostname;
+    const all = await chrome.storage.local.get(null);
+    return Object.entries(all).filter(([id, value]) => id.startsWith(prefix)
+      && (value.position !== undefined || value.watched > 0 || value.manual > 0 || value.manualSince || value.notes?.length))
+      .flatMap(([id, value]) => {
+        const url = id.slice(prefix.length);
+        const normalized = lessonKey(url);
+        if (!normalized || new URL(normalized).hostname !== host) return [];
+        return [{ url: normalized, title: value.title || new URL(normalized).pathname, position: value.position, updatedAt: value.updatedAt ?? value.lastAutoAt ?? value.manualSince ?? 0 }];
+      }).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 30);
+  }
   if (studySite && message.type !== "read") return null;
-  if (!extensionPage && !studySite && (message.type !== "sample" || !sender.tab)) return null;
+  if (!extensionPage && !studySite) {
+    if (message.type !== "sample" || !sender.tab?.url) return null;
+    const pattern = new URL(key).origin + "/*";
+    if (!await chrome.permissions.contains({ origins: [pattern] })) return null;
+  }
   return onLesson(key, async (data, id) => {
     const now = Date.now();
     if (message.type === "read") return { ...data, manual: data.manual + (data.manualSince ? Math.floor((now - data.manualSince) / 1000) : 0) };
@@ -62,6 +78,8 @@ async function handle(message, sender) {
     } else {
       return null;
     }
+    if (extensionPage && typeof message.title === "string" && message.title.trim()) data.title = message.title.trim().slice(0, 160);
+    data.updatedAt = now;
     await chrome.storage.local.set({ [id]: data });
     return data;
   });

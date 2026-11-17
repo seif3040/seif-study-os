@@ -46,7 +46,7 @@
     if (sender.id !== chrome.runtime.id) return;
     discover();
     const video = currentVideo();
-    if (message.type === "player") respond({ available: !!video });
+    if (message.type === "player" && video) respond({ available: true });
     if (message.type === "seek" && video && Number.isFinite(message.position)) {
       video.currentTime = Math.max(0, Math.min(video.duration, message.position));
       respond({ sought: true });

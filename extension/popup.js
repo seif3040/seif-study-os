@@ -15,7 +15,7 @@ async function initialize() {
   const origin = new URL(key).origin;
   const pattern = origin + "/*";
   const scriptId = "seif-" + [...origin].map(char => char.charCodeAt(0).toString(16)).join("");
-  const send = (type, data = {}) => chrome.runtime.sendMessage({ type, url: key, ...data });
+  const send = (type, data = {}) => chrome.runtime.sendMessage({ type, url: key, title: tab.title, ...data });
   const clock = value => {
     const seconds = Math.max(0, Math.floor(value));
     const hours = Math.floor(seconds / 3600);
@@ -32,7 +32,23 @@ async function initialize() {
       const player = await chrome.tabs.sendMessage(tab.id, { type: "player" }, { frameId }).catch(() => null);
       if (player?.available) return frameId;
     }
-    return null;
+    const player = await chrome.tabs.sendMessage(tab.id, { type: "player" }).catch(() => null);
+    return player?.available ? -1 : null;
+  }
+
+  async function offerFrames() {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => Array.from(new Set([...document.querySelectorAll("iframe[src]")].flatMap(frame => {
+        const bounds = frame.getBoundingClientRect();
+        try {
+          const url = new URL(frame.src);
+          return bounds.width >= 240 && bounds.height >= 120 && url.protocol === "https:" && url.origin !== location.origin ? [url.origin] : [];
+        } catch { return []; }
+      }))),
+    });
+    byId("frame").replaceChildren(...result.map(frameOrigin => new Option(new URL(frameOrigin).hostname, frameOrigin)));
+    byId("frames").hidden = supported || !result.length;
   }
 
   async function installForTab() {
@@ -40,6 +56,7 @@ async function initialize() {
       .catch(() => chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["tracker.js"] }));
     frameIds = frames.map(frame => frame.frameId);
     supported = (await probe()) !== null;
+    await offerFrames().catch(() => {});
   }
 
   async function refresh() {
@@ -77,10 +94,24 @@ async function initialize() {
     await refresh();
   });
 
+  listen("enable-frame", "click", async () => {
+    const frameOrigin = byId("frame").value;
+    if (!frameOrigin) return;
+    const framePattern = frameOrigin + "/*";
+    if (!await chrome.permissions.request({ origins: [framePattern] })) return;
+    const id = "seif-frame-" + [...frameOrigin].map(char => char.charCodeAt(0).toString(16)).join("");
+    if (!(await chrome.scripting.getRegisteredContentScripts({ ids: [id] })).length) {
+      await chrome.scripting.registerContentScripts([{ id, matches: [framePattern], js: ["tracker.js"], allFrames: true }]);
+    }
+    status.textContent = "اتفعّلت صلاحية المشغّل. حدّث صفحة الدرس وشغّل الفيديو وجرب تاني.";
+  });
+
   listen("resume", "click", async () => {
     const frameId = await probe();
     if (frameId === null) { status.textContent = "شغّل الفيديو الأول أو ابدأه من التوقيت المحفوظ."; return; }
-    await chrome.tabs.sendMessage(tab.id, { type: "seek", position: resumeAt ?? savedPlace }, { frameId });
+    const result = await chrome.tabs.sendMessage(tab.id, { type: "seek", position: resumeAt ?? savedPlace },
+      frameId === -1 ? {} : { frameId });
+    if (!result?.sought) throw new Error("No player");
     resumeAt = undefined;
     status.textContent = "رجّعنا الفيديو لآخر مكان محفوظ.";
   });

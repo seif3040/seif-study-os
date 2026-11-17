@@ -15,6 +15,9 @@ function clock(value: number) {
 }
 
 export default function ExternalPlaybackProgress({ url }: { url: string }) {
+  const key = "study-extension-lesson:" + url;
+  const [linkedUrl, setLinkedUrl] = useState(() => localStorage.getItem(key) ?? "");
+  const [lessons, setLessons] = useState<{ url: string; title: string; position?: number }[]>([]);
   const [progress, setProgress] = useState<PlaybackProgress>();
   useEffect(() => {
     const id = crypto.randomUUID();
@@ -22,25 +25,49 @@ export default function ExternalPlaybackProgress({ url }: { url: string }) {
       if (event.source !== window || event.origin !== location.origin || event.data?.id !== id ||
           event.data.type !== "seif-study-extension:progress") return;
       const data = event.data.data;
+      if (event.data.list && Array.isArray(data)) {
+        setLessons(data);
+        return;
+      }
       if (data && Number.isFinite(data.watched) && Number.isFinite(data.manual) &&
           Array.isArray(data.ranges) && Array.isArray(data.notes)) setProgress(data);
     }
     function refresh() {
-      window.postMessage({ type: "seif-study-extension:request", id, url }, location.origin);
+      window.postMessage({ type: "seif-study-extension:request", id, url: linkedUrl || url }, location.origin);
+    }
+    function refreshLessons() {
+      refresh();
+      window.postMessage({ type: "seif-study-extension:request", id, url, list: true }, location.origin);
     }
     window.addEventListener("message", receive);
-    window.addEventListener("focus", refresh);
-    refresh();
+    window.addEventListener("focus", refreshLessons);
+    refreshLessons();
     const interval = window.setInterval(refresh, 6000);
     return () => {
       window.removeEventListener("message", receive);
-      window.removeEventListener("focus", refresh);
+      window.removeEventListener("focus", refreshLessons);
       window.clearInterval(interval);
     };
-  }, [url]);
+  }, [url, linkedUrl]);
 
   return <div className="space-y-2 border-b p-4 text-sm">
     <h3 className="font-semibold">متابعة الفيديو من إضافة المتصفح</h3>
+    {lessons.length > 0 && <label className="grid gap-1">
+      اربط جلسة الموقع بالدرس المحفوظ في الإضافة
+      <select className="rounded-md border bg-background p-2" value={linkedUrl} onChange={event => {
+        const choice = event.target.value;
+        setProgress(undefined);
+        setLinkedUrl(choice);
+        if (choice) localStorage.setItem(key, choice);
+        else localStorage.removeItem(key);
+      }}>
+        <option value="">استخدم رابط الجلسة الحالي</option>
+        {lessons.map(lesson => <option key={lesson.url} value={lesson.url}>
+          {lesson.title} · {new URL(lesson.url).pathname.split("/").filter(Boolean).at(-1)}{lesson.position !== undefined ? " · " + clock(lesson.position) : ""}
+        </option>)}
+      </select>
+    </label>}
+    {linkedUrl && <a href={linkedUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary underline">افتح الدرس المرتبط</a>}
     {progress ? <>
       <div className="flex flex-wrap gap-x-4 gap-y-1">
         <span>آخر مكان <b dir="ltr">{progress.position === undefined ? "—" : clock(progress.position)}</b></span>
