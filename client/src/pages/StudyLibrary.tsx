@@ -29,11 +29,13 @@ const sectionDescriptions = {
   "مراجعة آخر السنة": "شوف مواعيد مراجعة المواد ونطاق الدروس في كل جلسة.",
 } as const;
 
-export default function StudyLibrary({ attendanceLessons, section = "الكتب" }: {
+export default function StudyLibrary({ attendanceLessons, attendanceSourceId, section = "الكتب" }: {
   attendanceLessons?: number[];
+  attendanceSourceId?: number;
   section?: keyof typeof sectionDescriptions;
 } = {}) {
   const planner = trpc.planner.list.useQuery();
+  const sources = trpc.lessonSources.list.useQuery();
   const plan = trpc.studyPlan.list.useQuery();
   const utils = trpc.useUtils();
   const [attendanceTab, setAttendanceTab] = useState<"الكتب" | "الواجبات">("الواجبات");
@@ -41,6 +43,10 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
   const [bookFormOpen, setBookFormOpen] = useState(false);
   const [subjectFilter, setSubjectFilter] = useState(0);
   const [subject, setSubject] = useState(0);
+  const [teacher, setTeacher] = useState(attendanceSourceId ?? 0);
+  const [platform, setPlatform] = useState("");
+  const [website, setWebsite] = useState("");
+  const [siteUrl, setSiteUrl] = useState("");
   const [homeworkSubject, setHomeworkSubject] = useState(0);
   const [homeworkChapter, setHomeworkChapter] = useState(0);
   const [homeworkKind, setHomeworkKind] = useState<"book" | "online">("book");
@@ -106,14 +112,14 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
     setManualBacklog(item?.backlog ?? []);
     setBookFormOpen(true);
   };
-  function closeHomework() { setHomeworkFormOpen(false); setEditHomework(""); setBookId(""); setHomeworkKind("book"); setHomeworkSubject(0); setHomeworkChapter(0); }
+  function closeHomework() { setTeacher(attendanceSourceId ?? 0); setPlatform(""); setWebsite(""); setSiteUrl(""); setHomeworkFormOpen(false); setEditHomework(""); setBookId(""); setHomeworkKind("book"); setHomeworkSubject(0); setHomeworkChapter(0); }
   const homeworkForm = (
       <form key={editHomework} className="space-y-3" onSubmit={event => {
         event.preventDefault();
         const form = fields(event.currentTarget);
         const details = { id: editHomework || crypto.randomUUID(), lessonId: Number(str(form, "lesson")), prompt: str(form, "prompt") };
         change.mutate({ type: "homework", item: homeworkKind === "online"
-          ? { ...details, kind: "online", platform: str(form, "platform"), url: str(form, "url") }
+          ? { ...details, kind: "online", platform, url: website, sourceId: teacher || undefined, rememberSite: form.has("rememberSite"), siteUrl: siteUrl || undefined }
           : { ...details, bookId, pages: str(form, "pages") } });
       }}>
         <label>نوع الواجب<select aria-label="نوع الواجب" value={homeworkKind} className={select} onChange={event => { setHomeworkKind(event.target.value === "online" ? "online" : "book"); setHomeworkChapter(0); }}>
@@ -122,8 +128,22 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
         {homeworkKind === "book" ? <label>الكتاب<select required className={select} value={bookId} onChange={event => { setBookId(event.target.value); setHomeworkChapter(0); }}>
           <option value="">اختار الكتاب</option>{books.filter(item => !attendanceLessons || rows.some(row => row.subject.id === item.subjectId && row.lesson && attendanceLessons.includes(row.lesson.id))).map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
         </select></label> : <div className="grid gap-2 sm:grid-cols-2">
-          <label>اسم المنصة<Input name="platform" defaultValue={assignment?.kind === "online" ? assignment.platform : ""} required maxLength={180} /></label>
-          <label>لينك الواجب<Input name="url" type="url" dir="ltr" defaultValue={assignment?.kind === "online" ? assignment.url : ""} required maxLength={2000} /></label>
+          <label>المدرس<select className={select} value={teacher || ""} onChange={event => setTeacher(Number(event.target.value))}>
+            <option value="">اختار مدرس لو هتحفظ الموقع</option>
+            {sources.data?.filter(item => item.active).map(item => <option value={item.id} key={item.id}>{item.teacherName} · {item.subject}</option>)}
+          </select></label>
+          {teacher > 0 && <label>مواقع محفوظة<select className={select} value="" onChange={event => {
+            const saved = planner.data?.savedHomeworkSites?.filter(item => item.sourceId === teacher)[Number(event.target.value)];
+            if (saved) { setPlatform(saved.name); setWebsite(saved.url); setSiteUrl(saved.url); }
+          }}><option value="" disabled>اختار موقع</option>
+            {planner.data?.savedHomeworkSites?.filter(item => item.sourceId === teacher).map((item, index) => <option value={index} key={item.name}>{item.name}</option>)}
+          </select></label>}
+          <label>اسم المنصة<Input value={platform} onChange={event => setPlatform(event.target.value)} required maxLength={180} /></label>
+          <label>لينك الواجب<Input type="url" dir="ltr" value={website} onChange={event => setWebsite(event.target.value)} required maxLength={2000} /></label>
+          {teacher > 0 && <div className="space-y-2 sm:col-span-2">
+            <label className="flex items-center gap-2"><input type="checkbox" name="rememberSite" />احفظ الموقع للمدرس ده</label>
+            <label className="block">الرابط الأساسي للموقع (اختياري)<Input type="url" dir="ltr" value={siteUrl} onChange={event => setSiteUrl(event.target.value)} maxLength={2000} /></label>
+          </div>}
         </div>}
         {homeworkKind === "online" && (attendanceRows.length
           ? <p className="text-sm text-muted-foreground">المادة · {attendanceRows[0].subject.title}</p>
@@ -269,7 +289,7 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
         <strong>{rows.find(row => row.lesson?.id === item.lessonId)?.lesson?.title} · {item.kind === "online" ? item.platform : books.find(row => row.id === item.bookId)?.title}</strong>
         <p>{item.kind === "online" ? item.prompt : "ص " + item.pages + (item.prompt ? " · " + item.prompt : "")}</p>
         {item.kind === "online" && safeStudyUrl(item.url) && <a href={safeStudyUrl(item.url) ?? undefined} target="_blank" rel="noreferrer" className="text-primary underline">افتح الواجب</a>}
-        <Button size="sm" variant="ghost" onClick={() => { const row = rows.find(row => row.lesson?.id === item.lessonId); setHomeworkSubject(row?.subject.id ?? 0); setHomeworkChapter(row?.chapter?.id ?? 0); setEditHomework(item.id); setHomeworkKind(item.kind === "online" ? "online" : "book"); setBookId(item.kind === "online" ? "" : item.bookId); setHomeworkFormOpen(true); }}>تعديل الواجب</Button>
+        <Button size="sm" variant="ghost" onClick={() => { const row = rows.find(row => row.lesson?.id === item.lessonId); setHomeworkSubject(row?.subject.id ?? 0); setHomeworkChapter(row?.chapter?.id ?? 0); setEditHomework(item.id); if (item.kind === "online") { setTeacher(item.sourceId ?? attendanceSourceId ?? 0); setPlatform(item.platform); setWebsite(item.url); setSiteUrl(item.siteUrl ?? ""); } setHomeworkKind(item.kind === "online" ? "online" : "book"); setBookId(item.kind === "online" ? "" : item.bookId); setHomeworkFormOpen(true); }}>تعديل الواجب</Button>
       </article>)}
       </section></div>
     </div>}

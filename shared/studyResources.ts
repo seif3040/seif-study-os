@@ -14,6 +14,7 @@ export const bookSchema = z.object({
 const homeworkDetails = z.object({ id, lessonId: lesson, prompt: z.string().trim().max(900) });
 export const homeworkSchema = z.union([
   homeworkDetails.extend({ kind: z.literal("online"), platform: z.string().trim().min(1).max(180),
+    sourceId: z.number().int().positive().optional(), rememberSite: z.boolean().optional(), siteUrl: z.string().trim().url().max(2000).optional(),
     url: z.string().trim().url().max(2000).refine(value => /^https?:\/\//i.test(value), "استخدم رابط http أو https.") }),
   homeworkDetails.extend({ kind: z.literal("book").optional(), bookId: id, pages: z.string().trim().min(1).max(120) }),
 ]);

@@ -99,7 +99,7 @@ export default function WeekPlanner() {
         <DialogTitle>واجب الحصة</DialogTitle>
         {attendanceDraft && <>
           {watchSources.length > 0 && <p className="rounded-lg border p-3 text-sm">بعد تأكيد الحضور، هينزل واجب مشاهدة المحاضرة الأونلاين من {watchSources.map(source => source.teacherName).join("، ")}.</p>}
-          <StudyLibrary attendanceLessons={attendanceDraft.lessonIds} />
+          <StudyLibrary attendanceLessons={attendanceDraft.lessonIds} attendanceSourceId={attendanceSlot?.sourceId} />
           <div className="space-y-2 border-t pt-3">
             <p className="text-sm text-muted-foreground">{homeworkReady ? "بعد ما تخلص إضافة واجبات الكتب والمواقع، أكّد الحضور." : "احفظ واجب لكل درس في الحصة عشان تقدر تأكد الحضور."}</p>
             <div className="flex flex-wrap gap-2">

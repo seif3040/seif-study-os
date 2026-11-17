@@ -4,9 +4,10 @@ import { notifyStudy } from "@/lib/studyAlerts";
 import ActionDialog from "@/components/ActionDialog";
 import { NoteWorkspace, NoteContent, noteSummary } from "@/components/NoteWorkspace";
 import { YouTubeStudyPlayer } from "@/components/YouTubeStudyPlayer";
-import { useSearch } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/PageHeader";
 import { errorText, money, shortDate } from "@/lib/study";
@@ -26,7 +27,7 @@ type VideoHistoryItem = { id: number; videoUrl: string; lessonTitle: string | nu
 type BookmarkSession = { id: number; userId: number; updatedAt: Date | string; lastPlaybackPosition?: number | null };
 const bookmarkKey = (session: BookmarkSession) => "study-video-position:" + session.userId + ":" + session.id;
 
-function resumePosition(session?: BookmarkSession | null) {
+export function resumePosition(session?: BookmarkSession | null) {
   if (!session) return 0;
   try {
     const mark = JSON.parse(localStorage.getItem(bookmarkKey(session)) ?? "null");
@@ -62,11 +63,16 @@ export default function StudyVideo({ embedded = false }: { embedded?: boolean })
 }
 
 function SubjectVideoSession({ subject, files, onSubject, autoPlay }: { subject: SubjectKey; files: Map<number, File>; onSubject(subject: SubjectKey): void; autoPlay: boolean }) {
+  const [, navigate] = useLocation();
   const utils = trpc.useUtils();
   const reward = trpc.economy.rates.useQuery().data?.find(item => item.key === "video_block")?.amount; const { data: session, isLoading } = trpc.video.current.useQuery({ subject }); const { data: history = [] } = trpc.video.history.useQuery();
   const [url, setUrl] = useState(""); const [lessonTitle, setLessonTitle] = useState(""); const [requestedMode, setRequestedMode] = useState<"auto" | "embedded" | "external">("auto"); const [now, setNow] = useState(Date.now()); const [noteRevision, setNoteRevision] = useState(0); const [noteTitle, setNoteTitle] = useState(""); const [noteContent, setNoteContent] = useState(""); const [editingNote, setEditingNote] = useState<VideoNote | null>(null); const video = useRef<HTMLVideoElement>(null); const interval = useRef<number | null>(null);
   const savedSources = trpc.lessonSources.list.useQuery(undefined, { enabled: !session });
   const [sourceId, setSourceId] = useState("");
+  const [finishOpen, setFinishOpen] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewNote, setReviewNote] = useState("");
+  const [settling, setSettling] = useState(false);
   const [file, setFile] = useState<File>();
   const [localUrl, setLocalUrl] = useState("");
   const localSession = session?.videoUrl.startsWith("local-video:");
@@ -177,10 +183,54 @@ function SubjectVideoSession({ subject, files, onSubject, autoPlay }: { subject:
   const launchSubject = source ? sourceSubject(source.subject) : subject;
   const launch = () => { if (preview === "invalid") { toast.error("استخدم رابطًا صالحًا يبدأ بـ http:// أو https://."); return; } start.mutate({ videoUrl: url.trim(), lessonTitle: lessonTitle.trim() || source?.teacherName || undefined, subject: launchSubject, requestedMode }); };
   const noteTimestamp = session?.sourceMode === "external" ? activeNow : Math.floor(video.current?.currentTime ?? videoPosition);
+  async function finishLesson(outcome: "understood" | "review" | "later") {
+    if (!session || settling) return;
+    setSettling(true);
+    try {
+      video.current?.pause();
+      onPause();
+      if (session.sourceMode === "embedded" && position?.id === session.id) send(false, position.seconds);
+      await queue.current;
+      if (outcome === "later") {
+        if (session.sourceMode === "external" && session.timerRunning) await externalTimer.mutateAsync({ sessionId: session.id, running: false });
+        toast.success("حفظنا مكانك عشان تكمّل بعدين.");
+        navigate("/");
+      } else {
+        if (outcome === "review") {
+          await utils.client.video.scheduleReview.mutate({ sessionId: session.id, note: reviewNote.trim() || "ارجع للجزء المحدد في الفيديو.",
+            seconds: Math.min(172800, Math.max(0, Math.floor(noteTimestamp))) });
+          await Promise.all([utils.tasks.list.invalidate(), utils.calendar.list.invalidate()]);
+          toast.success("اتضافت المراجعة للجدول واتحفظ التوقيت.");
+        }
+        if (outcome === "understood" && session.manualProgress !== "reviewed") {
+          await utils.client.video.setProgress.mutate({ sessionId: session.id, progress: "finished" });
+        }
+        await end.mutateAsync({ sessionId: session.id });
+      }
+      setFinishOpen(false);
+      setReviewing(false);
+      setReviewNote("");
+    } catch (error) { toast.error(errorText(error)); }
+    finally { setSettling(false); }
+  }
   const saveNote = () => { if ((!session && !editingNote) || !noteTitle.trim() || !noteContent.trim()) return; const timestampSeconds = editingNote ? editingNote.timestampSeconds ?? undefined : noteTimestamp; if (editingNote) updateNote.mutate({ noteId: editingNote.id, title: noteTitle.trim(), content: noteContent.trim(), timestampSeconds }); else createNote.mutate({ sessionId: session!.id, title: noteTitle.trim(), content: noteContent.trim(), timestampSeconds }); };
   const beginEdit = (note: VideoNote) => { setEditingNote(note); setNoteTitle(note.title); setNoteContent(note.content); };
   if (isLoading) return <div className="h-96 animate-pulse rounded-2xl bg-muted" />;
   return <div>
+    {finishOpen && session && <ActionDialog title="خلصت الدرس؟" pending={settling} onClose={() => { setFinishOpen(false); setReviewing(false); }}>
+      <div className="flex flex-wrap gap-2">
+        <Button disabled={settling} onClick={() => void finishLesson("understood")}>فهمت</Button>
+        <Button disabled={settling} variant="outline" onClick={() => setReviewing(true)}>محتاج أراجع</Button>
+        <Button disabled={settling} variant="ghost" onClick={() => void finishLesson("later")}>هكمّل بعدين</Button>
+      </div>
+      {reviewing && <form className="space-y-2" onSubmit={event => { event.preventDefault(); void finishLesson("review"); }}>
+        <label className="grid gap-1 text-sm">إيه الجزء اللي محتاج ترجع له؟
+          <Textarea maxLength={2000} value={reviewNote} onChange={event => setReviewNote(event.target.value)} />
+        </label>
+        <p className="text-sm text-muted-foreground">هنحفظ التوقيت {clock(noteTimestamp)} ونضيف مراجعة للجدول.</p>
+        <Button type="submit" disabled={settling}>احفظ المراجعة وأنهِ الدرس</Button>
+      </form>}
+    </ActionDialog>}
     {!session ? <><VideoSetup sources={sourceOptions} sourceId={sourceId} onSource={id => {
       const saved = sourceOptions.find(item => String(item.id) === id);
       setSourceId(id);
@@ -193,7 +243,7 @@ function SubjectVideoSession({ subject, files, onSubject, autoPlay }: { subject:
       <Button disabled={!file || localStart.isPending || start.isPending} onClick={() => file && localStart.mutate({ lessonTitle: (lessonTitle.trim() || file.name).slice(0, 220), subject })}>ابدأ فيديو من الجهاز</Button>
     </section>{editingNote && <div className="mx-auto mt-5 max-w-5xl"><NoteEditor key={editingNote?.id ?? "new-" + noteRevision} title={noteTitle} content={noteContent} editing onTitle={setNoteTitle} onContent={setNoteContent} onSave={saveNote} onCancel={() => { setEditingNote(null); setNoteTitle(""); setNoteContent(""); }} busy={updateNote.isPending} /></div>}<VideoHistory history={history as VideoHistoryItem[]} onEdit={beginEdit} onDelete={noteId => deleteNote.mutate({ noteId })} /></> : <><div className="grid gap-5 xl:grid-cols-[1fr_.36fr]"><section className="surface overflow-hidden">{session.sourceMode === "external" ? <ExternalLessonCard session={session} activeSeconds={activeNow} breakRemaining={breakRemaining} busy={externalTimer.isPending || resume.isPending} onSkipBreak={() => resume.mutate({ sessionId: session.id, skipBreak: true })} onTimer={running => externalTimer.mutate({ sessionId: session.id, running })} onProgress={progress => setProgress.mutate({ sessionId: session.id, progress })} /> : localSession && !localUrl && session.phase !== "break" ? <div className="space-y-2 p-4">
         <label className="block">اختار نفس ملف الفيديو عشان تكمّل من مكانك<Input type="file" accept="video/*,.mkv,.avi" onChange={event => { const picked = event.target.files?.[0]; if (picked) files.set(session.id, picked); setFile(picked); }} /></label>
-      </div> : <Player key={session.id} autoPlay={autoPlay} localUrl={localSession ? localUrl : undefined} session={session} startAt={videoPosition} video={video} onPosition={updatePosition} onPlay={onPlay} onPause={onPause} onEnded={() => notifyStudy("فيديو المذاكرة خلص", "timer")} breakRemaining={breakRemaining} resumePending={resume.isPending} onResume={() => resume.mutate({ sessionId: session.id, skipBreak: true })} />}<div className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-sm font-semibold">{session.sourceMode === "external" ? "جلسة درس خارجي نشطة" : "جلسة فيديو نشطة"}</p><p className="mt-1 text-xs text-muted-foreground">{session.lessonTitle || sourceDomain(session.videoUrl)} · {subjects[session.subject as SubjectKey]}</p></div><Button size="sm" variant="outline" disabled={end.isPending} onClick={async () => { video.current?.pause(); onPause(); if (session.sourceMode === "embedded" && position?.id === session.id) send(false, video.current?.currentTime ?? position.seconds); await queue.current; end.mutate({ sessionId: session.id }); }}><Square />إنهاء الجلسة</Button>{!youtubeEmbed(session.videoUrl) && session.sourceMode === "embedded" && document.pictureInPictureEnabled && <Button size="sm" variant="outline" onClick={() => void video.current?.requestPictureInPicture().catch(() => toast.error("شغّل الفيديو الأول."))}>نافذة فيديو عائمة</Button>}</div></section><VideoSidebar session={session} activeSeconds={activeNow} position={videoPosition} reward={reward} /></div><div className="mt-5 grid gap-5 lg:grid-cols-[.72fr_1fr]"><NoteEditor key={editingNote?.id ?? "new-" + noteRevision} title={noteTitle} content={noteContent} editing={Boolean(editingNote)} onTitle={setNoteTitle} onContent={setNoteContent} onSave={saveNote} onCancel={() => { setEditingNote(null); setNoteTitle(""); setNoteContent(""); }} busy={createNote.isPending || updateNote.isPending} external={session.sourceMode === "external"} /><VideoHistory history={history as VideoHistoryItem[]} sessionId={session.id} onEdit={beginEdit} onDelete={noteId => deleteNote.mutate({ noteId })} /></div></>}
+      </div> : <Player key={session.id} autoPlay={autoPlay} localUrl={localSession ? localUrl : undefined} session={session} startAt={videoPosition} video={video} onPosition={updatePosition} onPlay={onPlay} onPause={onPause} onEnded={() => notifyStudy("فيديو المذاكرة خلص", "timer")} breakRemaining={breakRemaining} resumePending={resume.isPending} onResume={() => resume.mutate({ sessionId: session.id, skipBreak: true })} />}<div className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-sm font-semibold">{session.sourceMode === "external" ? "جلسة درس خارجي نشطة" : "جلسة فيديو نشطة"}</p><p className="mt-1 text-xs text-muted-foreground">{session.lessonTitle || sourceDomain(session.videoUrl)} · {subjects[session.subject as SubjectKey]}</p></div><Button size="sm" variant="outline" disabled={end.isPending} onClick={() => setFinishOpen(true)}><Square />إنهاء الجلسة</Button>{!youtubeEmbed(session.videoUrl) && session.sourceMode === "embedded" && document.pictureInPictureEnabled && <Button size="sm" variant="outline" onClick={() => void video.current?.requestPictureInPicture().catch(() => toast.error("شغّل الفيديو الأول."))}>نافذة فيديو عائمة</Button>}</div></section><VideoSidebar session={session} activeSeconds={activeNow} position={videoPosition} reward={reward} /></div><div className="mt-5 grid gap-5 lg:grid-cols-[.72fr_1fr]"><NoteEditor key={editingNote?.id ?? "new-" + noteRevision} title={noteTitle} content={noteContent} editing={Boolean(editingNote)} onTitle={setNoteTitle} onContent={setNoteContent} onSave={saveNote} onCancel={() => { setEditingNote(null); setNoteTitle(""); setNoteContent(""); }} busy={createNote.isPending || updateNote.isPending} external={session.sourceMode === "external"} /><VideoHistory history={history as VideoHistoryItem[]} sessionId={session.id} onEdit={beginEdit} onDelete={noteId => deleteNote.mutate({ noteId })} /></div></>}
   </div>;
 }
 
@@ -217,7 +267,28 @@ function downloadText(item: VideoHistoryItem) { const blob = new Blob(["\ufeff" 
 function escapeHtml(value: string) { return value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char] ?? char); }
 function printPdf(item: VideoHistoryItem) { const popup = window.open("", "_blank", "width=900,height=700"); if (!popup) { toast.error("اسمح بالنوافذ المنبثقة لإنشاء ملف PDF."); return; } const notes = item.notes.map((note, index) => `<article><h2>${index + 1}. ${escapeHtml(note.title)}</h2><p class=meta>${escapeHtml(noteTime(note.timestampSeconds))} · ${escapeHtml(shortDate.format(new Date(note.updatedAt)))}</p><p>${escapeHtml(noteSummary(note.content)).replace(/\n/g, "<br />")}</p></article>`).join(""); popup.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>ملاحظات الدرس</title><style>body{font-family:Arial,sans-serif;line-height:1.8;padding:40px;color:#10211d}h1{color:#087f6a;border-bottom:2px solid #bde7dc;padding-bottom:12px}h2{margin-bottom:4px}p{white-space:normal}.meta{color:#60736e;font-size:12px}article{border-bottom:1px solid #d9e4e0;padding:14px 0}@media print{button{display:none}}</style></head><body><h1>ملاحظات الدرس</h1><p>${escapeHtml(item.lessonTitle || sourceDomain(item.videoUrl))}</p><p>${escapeHtml(subjects[item.subject])} · ${escapeHtml(item.sourceMode === "external" ? "منصة خارجية" : "داخل الموقع")} · ${escapeHtml(progressLabels[item.manualProgress])}</p><p class="meta">${escapeHtml(shortDate.format(new Date(item.updatedAt)))} · ${clock(item.activeSeconds)} مذاكرة · ${item.completedBlocks} دورات</p>${notes || "<p>لا توجد ملاحظات لهذا الدرس.</p>"}<button onclick="window.print()">طباعة / حفظ كـ PDF</button></body></html>`); popup.document.close(); popup.focus(); window.setTimeout(() => popup.print(), 300); }
 
-function VideoHistory({ history, sessionId, onEdit, onDelete }: { history: VideoHistoryItem[]; sessionId?: number; onEdit: (note: VideoNote) => void; onDelete: (noteId: number) => void }) { const items = sessionId ? history.filter(item => item.id === sessionId) : history; return <section className="surface mx-auto mt-5 w-full max-w-5xl p-5"><div className="mb-4 flex items-center gap-2"><History className="size-5 text-primary" /><h2 className="font-bold">سجل الدروس والملاحظات</h2></div>{items.length ? <div className="space-y-4">{items.map(item => <article key={item.id} className="rounded-2xl border border-border/70 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{item.lessonTitle || sourceDomain(item.videoUrl)}</p><p className="mt-1 text-xs text-muted-foreground">{subjects[item.subject]} · {item.sourceMode === "external" ? "على منصة خارجية" : "داخل الموقع"} · {progressLabels[item.manualProgress]}</p><p className="mt-1 text-xs text-muted-foreground">{shortDate.format(new Date(item.updatedAt))} · {clock(item.activeSeconds)} مذاكرة · {item.completedBlocks} دورات</p></div><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">{item.notes.length} ملاحظات</span>{item.sourceMode === "external" && <a href={item.videoUrl} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline"><ExternalLink className="size-4" />افتح المصدر</Button></a>}<Button size="sm" variant="outline" onClick={() => downloadText(item)}><Download className="size-4" />TXT</Button><Button size="sm" variant="outline" onClick={() => printPdf(item)}><Printer className="size-4" />PDF</Button></div></div>{item.notes.length ? <div className="mt-4 space-y-3">{item.notes.map(note => <div key={note.id} className="rounded-xl bg-muted/50 p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1"><p className="font-semibold">{note.title}</p><div className="mt-1"><NoteContent value={note.content} /></div><p className="mt-2 text-xs text-primary">{noteTime(note.timestampSeconds)} · {shortDate.format(new Date(note.updatedAt))}</p></div><div className="flex shrink-0 gap-1"><Button size="icon" variant="ghost" aria-label="تعديل الملاحظة" onClick={() => onEdit(note)}><Pencil className="size-4" /></Button><Button size="icon" variant="ghost" aria-label="حذف الملاحظة" onClick={() => onDelete(note.id)}><Trash2 className="size-4 text-destructive" /></Button></div></div></div>)}</div> : <p className="mt-4 text-sm text-muted-foreground">لا توجد ملاحظات لهذا الدرس حتى الآن.</p>}</article>)}</div> : <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">ستظهر هنا الدروس وملاحظاتها بعد بدء أول جلسة.</div>}</section>; }
+function CorrectExternalTime({ item }: { item: VideoHistoryItem }) {
+  const [open, setOpen] = useState(false);
+  const [minutes, setMinutes] = useState(Math.floor(item.activeSeconds / 60));
+  const utils = trpc.useUtils();
+  const correct = trpc.video.correctExternalMinutes.useMutation({
+    onSuccess: async () => { setOpen(false); await utils.invalidate(); toast.success("اتعدّل وقت الدرس الخارجي."); },
+    onError: error => toast.error(errorText(error)),
+  });
+  return <>
+    <Button size="sm" variant="outline" onClick={() => { setMinutes(Math.floor(item.activeSeconds / 60)); setOpen(true); }}>عدّل الوقت</Button>
+    {open && <ActionDialog title="عدّل وقت الدرس الخارجي" pending={correct.isPending} onClose={() => setOpen(false)}>
+      <form className="space-y-2" onSubmit={event => { event.preventDefault(); correct.mutate({ sessionId: item.id, minutes }); }}>
+        <label className="grid gap-1 text-sm">عدد الدقائق الفعلي<Input required type="number" min={0} max={720} step={1}
+          value={minutes} onChange={event => setMinutes(Number(event.target.value))} /></label>
+        <p className="text-xs text-muted-foreground">التعديل يغيّر وقت الجلسة وإجمالي وقت الفيديو. النقاط والدورات المكتسبة تفضل زي ما هي.</p>
+        <Button type="submit" disabled={correct.isPending}>احفظ الوقت</Button>
+      </form>
+    </ActionDialog>}
+  </>;
+}
+
+function VideoHistory({ history, sessionId, onEdit, onDelete }: { history: VideoHistoryItem[]; sessionId?: number; onEdit: (note: VideoNote) => void; onDelete: (noteId: number) => void }) { const items = sessionId ? history.filter(item => item.id === sessionId) : history; return <section className="surface mx-auto mt-5 w-full max-w-5xl p-5"><div className="mb-4 flex items-center gap-2"><History className="size-5 text-primary" /><h2 className="font-bold">سجل الدروس والملاحظات</h2></div>{items.length ? <div className="space-y-4">{items.map(item => <article key={item.id} className="rounded-2xl border border-border/70 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{item.lessonTitle || sourceDomain(item.videoUrl)}</p><p className="mt-1 text-xs text-muted-foreground">{subjects[item.subject]} · {item.sourceMode === "external" ? "على منصة خارجية" : "داخل الموقع"} · {progressLabels[item.manualProgress]}</p><p className="mt-1 text-xs text-muted-foreground">{shortDate.format(new Date(item.updatedAt))} · {clock(item.activeSeconds)} مذاكرة · {item.completedBlocks} دورات</p></div><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">{item.notes.length} ملاحظات</span>{item.sourceMode === "external" && item.phase === "completed" && <CorrectExternalTime item={item} />}{item.sourceMode === "external" && <a href={item.videoUrl} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline"><ExternalLink className="size-4" />افتح المصدر</Button></a>}<Button size="sm" variant="outline" onClick={() => downloadText(item)}><Download className="size-4" />TXT</Button><Button size="sm" variant="outline" onClick={() => printPdf(item)}><Printer className="size-4" />PDF</Button></div></div>{item.notes.length ? <div className="mt-4 space-y-3">{item.notes.map(note => <div key={note.id} className="rounded-xl bg-muted/50 p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1"><p className="font-semibold">{note.title}</p><div className="mt-1"><NoteContent value={note.content} /></div><p className="mt-2 text-xs text-primary">{noteTime(note.timestampSeconds)} · {shortDate.format(new Date(note.updatedAt))}</p></div><div className="flex shrink-0 gap-1"><Button size="icon" variant="ghost" aria-label="تعديل الملاحظة" onClick={() => onEdit(note)}><Pencil className="size-4" /></Button><Button size="icon" variant="ghost" aria-label="حذف الملاحظة" onClick={() => onDelete(note.id)}><Trash2 className="size-4 text-destructive" /></Button></div></div></div>)}</div> : <p className="mt-4 text-sm text-muted-foreground">لا توجد ملاحظات لهذا الدرس حتى الآن.</p>}</article>)}</div> : <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">ستظهر هنا الدروس وملاحظاتها بعد بدء أول جلسة.</div>}</section>; }
 
 function Player({ session, startAt, autoPlay, localUrl, video, onPosition, onPlay, onPause, onEnded, breakRemaining, onResume, resumePending }:  { session: any; startAt: number; autoPlay: boolean; localUrl?: string; onPosition: (seconds: number) => void; video: React.RefObject<HTMLVideoElement | null>; onPlay: (read: () => number, rate: () => number) => void; onPause: (position?: number) => void; onEnded: () => void; breakRemaining: number; onResume: () => void; resumePending: boolean }) { const embed = youtubeEmbed(session.videoUrl); if (session.phase === "break") return <div className="relative aspect-video bg-slate-950"><div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-white"><CirclePause className="mb-4 size-10 text-amber-300" /><p className="text-sm text-slate-300">فترة استراحة</p><p className="font-[Manrope] text-6xl font-extrabold">{String(Math.floor(breakRemaining / 60)).padStart(2, "0")}:{String(breakRemaining % 60).padStart(2, "0")}</p><Button className="mt-5" onClick={onResume} disabled={resumePending}><CirclePlay />{breakRemaining > 0 ? "تخطّي الاستراحة" : "استئناف"}</Button></div></div>; if (embed) return <YouTubeStudyPlayer embed={embed} startAt={startAt} autoPlay={autoPlay} onPlaying={onPlay} onStopped={onPause} onPosition={onPosition} onEnded={onEnded} />; if (localUrl || isDirectMedia(session.videoUrl)) return <div className="aspect-video bg-black"><video ref={video} controls autoPlay={autoPlay} className="h-full w-full" src={localUrl || session.videoUrl} onError={() => toast.error("المتصفح مش قادر يشغّل الملف ده. جرّب MP4 أو WebM.")} onLoadedMetadata={() => {
   if (video.current && startAt > 0 && startAt < video.current.duration) {

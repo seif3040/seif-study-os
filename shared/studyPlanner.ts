@@ -33,6 +33,10 @@ export type PlannerMilestone = {
 
 export type PlannerState = {
   manualVideoMinutes?: number;
+  correctedVideoMinutes?: number;
+  correctedVideoSessions?: Record<number, true>;
+  savedHomeworkSites?: { sourceId: number; name: string; url: string }[];
+  videoReviewTasks?: Record<number, number>;
   resources?: import("./studyResources.js").StudyResources;
   prayersByDay?: Record<string, string[]>;
   nawafilByDay?: Record<string, string[]>;

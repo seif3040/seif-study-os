@@ -1,3 +1,4 @@
+import { ReplanStudy } from "@/components/ReplanStudy";
 import { QuickStudyStart } from "@/components/QuickStudyStart";
 import ActionDialog from "@/components/ActionDialog";
 import { slotOccurs } from "@shared/studyPlanner";
@@ -88,6 +89,7 @@ export default function DayStudy({ day, showSchedule = false, embedded = false }
     <section className={embedded ? "space-y-3 border-t pt-3" : "surface space-y-3 p-5"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 font-bold"><BookOpen className="size-5" /> {showSchedule ? "هذاكر النهارده" : "خطة المذاكرة"}</h2>
+        <ReplanStudy day={day} />
         <Button size="sm" variant="outline" onClick={() => openEditor({ id: crypto.randomUUID(), day, title: "", start: "17:00", end: "17:30", kind: "study" })}>{embedded ? "ميعاد مذاكرة محدد" : "ضيف للمذاكرة"}</Button>
       </div>
       {embedded && <form className="flex flex-wrap items-end gap-2" onSubmit={event => {

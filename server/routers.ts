@@ -184,6 +184,9 @@ export const appRouter = router({
       .mutation(({ ctx, input }) => db.fillStudyDay(ctx.user.id, input.day, input.subjectId)),
     overrideSlot: protectedProcedure.input(z.object({ id: z.string().uuid(), day: z.string().date(), active: z.boolean() }))
       .mutation(({ ctx, input }) => db.overridePlannerSlot(ctx.user.id, input.id, input.day, input.active)),
+    previewReplan: protectedProcedure.query(({ ctx }) => db.previewStudyReplan(ctx.user.id)),
+    applyReplan: protectedProcedure.input(z.array(z.object({ id: z.string().uuid(), day: z.string().date(), start: plannerTime, end: plannerTime })).min(1).max(20))
+      .mutation(({ ctx, input }) => db.applyStudyReplan(ctx.user.id, input)),
     saveStudy: protectedProcedure.input(z.object({
       id: z.string().uuid(), day: z.string().date(), title: z.string().trim().min(1).max(200),
       start: plannerTime, end: plannerTime, kind: z.enum(["homework", "review", "backlog", "study"]), lessonId: z.number().int().optional(),
@@ -243,6 +246,8 @@ export const appRouter = router({
       if (ctx.user.id !== input.ownerId) throw new TRPCError({ code: "FORBIDDEN", message: "افتح الحساب اللي سجّل الجلسة." });
       return db.syncOfflineFocus(ctx.user.id, input);
     }),
+    correctMinutes: protectedProcedure.input(z.object({ eventId: id, minutes: z.number().int().min(1).max(720) }))
+      .mutation(({ ctx, input }) => db.correctFocusMinutes(ctx.user.id, input.eventId, input.minutes)),
     assignments: protectedProcedure.query(({ ctx }) => db.listFocusAssignments(ctx.user.id)),
     assignSubject: protectedProcedure.input(z.object({ eventIds: z.array(id).min(1).max(400), subjectId: id.nullable() }))
       .mutation(({ ctx, input }) => db.assignFocusSubject(ctx.user.id, input.eventIds, input.subjectId)),
@@ -262,6 +267,10 @@ export const appRouter = router({
     delete: protectedProcedure.input(z.object({ cardId: id })).mutation(({ ctx, input }) => db.deleteFlashcard(ctx.user.id, input.cardId)),
   }),
   video: router({
+    correctExternalMinutes: protectedProcedure.input(z.object({ sessionId: id, minutes: z.number().int().min(0).max(720) }))
+      .mutation(({ ctx, input }) => db.correctExternalVideoMinutes(ctx.user.id, input.sessionId, input.minutes)),
+    scheduleReview: protectedProcedure.input(z.object({ sessionId: id, note: z.string().trim().min(1).max(2000), seconds: z.number().int().min(0).max(172800) }))
+      .mutation(({ ctx, input }) => db.scheduleVideoReview(ctx.user.id, input.sessionId, input.note, input.seconds)),
     open: protectedProcedure.query(({ ctx }) => db.openVideoSessions(ctx.user.id)),
     startLocal: protectedProcedure.input(z.object({
       lessonTitle: z.string().trim().min(1).max(220),

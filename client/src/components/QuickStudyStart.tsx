@@ -120,6 +120,7 @@ export function QuickStudyStart({ day }: { day: string }) {
           <Input type="number" min={1} max={retroMax} step={1} required value={elapsed} onChange={event => setElapsed(Number(event.target.value))} />
         </label>
         <p className="text-sm text-muted-foreground">{external ? "سجّل الدقائق لحد نهاية دورة الفيديو الحالية." : "الدقائق اللي فاتت هتتسجّل على مؤقت التركيز."}</p>
+        <p className="rounded-lg border p-2 text-sm"><strong>هيتسجل على {item.subject}:</strong> {Number.isFinite(elapsed) ? elapsed : 0} دقيقة قبل البداية.</p>
         <Button disabled={busy} type="submit">سجّل الوقت وكمّل</Button>
       </form>
     </ActionDialog>}

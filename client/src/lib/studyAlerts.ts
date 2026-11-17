@@ -1,8 +1,11 @@
+import { recordStudyMessage } from "@/components/StudyInbox";
 import { toast } from "sonner";
 
 const preferenceKey = "seif-study-alert-sound";
 type AlertKind = "timer" | "completed";
 let audio: AudioContext | undefined;
+let messageOwner: number | undefined;
+export function setStudyMessageOwner(owner?: number) { messageOwner = owner; }
 let lastSound = 0;
 const alerted = new Set<string>();
 const alertHistoryKey = "seif-study-recent-alerts";
@@ -53,7 +56,7 @@ export async function playStudySound(kind: AlertKind) {
   } catch { return false; }
 }
 
-export function notifyStudy(message: string, kind: AlertKind, key?: string) {
+export function notifyStudy(message: string, kind: AlertKind, key?: string, path?: string) {
   if (key) {
     if (alerted.has(key)) return;
     try {
@@ -65,6 +68,7 @@ export function notifyStudy(message: string, kind: AlertKind, key?: string) {
     if (alerted.size >= 128) alerted.delete(alerted.values().next().value ?? "");
     alerted.add(key);
   }
+  if (messageOwner !== undefined) recordStudyMessage(messageOwner, message, path ?? (kind === "timer" ? "/study-video" : "/today"));
   toast.success(message);
   void playStudySound(kind);
   if (document.hidden) void sendStudyDeviceMessage(message, key);

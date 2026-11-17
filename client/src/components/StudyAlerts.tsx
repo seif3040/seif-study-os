@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
-import { notifyStudy, prepareStudySound } from "@/lib/studyAlerts";
+import { notifyStudy, prepareStudySound, setStudyMessageOwner } from "@/lib/studyAlerts";
 import { cairoPlannerTime } from "@shared/examSchedule";
 import { plannerToday } from "@shared/studyPlanner";
 
@@ -22,6 +22,11 @@ export default function StudyAlerts({ ownerId }: { ownerId: number }) {
     },
   });
   const tick = advance.mutate;
+
+  useEffect(() => {
+    setStudyMessageOwner(ownerId);
+    return () => setStudyMessageOwner(undefined);
+  }, [ownerId]);
 
   useEffect(() => {
     document.addEventListener("pointerdown", prepareStudySound, true);

@@ -55,14 +55,17 @@ queryClient.getMutationCache().subscribe(event => {
     const action = Array.isArray(path) ? path.join(".") : "";
     const message = completionMessages[action];
     const result = event.mutation.state.data as { alreadyCompleted?: boolean; completedNow?: boolean; missingHomework?: unknown[] } | undefined;
-    const input = event.mutation.state.variables as { status?: string; progress?: string; done?: boolean } | undefined;
+    const input = event.mutation.state.variables as { status?: string; progress?: string; done?: boolean; taskId?: number } | undefined;
     if (message && !result?.alreadyCompleted && !result?.missingHomework?.length
       && (action !== "goals.updateProgress" || result?.completedNow)
       && (action !== "planner.assessmentStatus" || input?.status === "completed")
       && (action !== "video.setProgress" || input?.progress === "finished" || input?.progress === "reviewed")
       && (action !== "prayers.setNafl" || input?.done)) {
       void trpcClient.dashboard.dayBrief.query().then(brief => {
-        notifyStudy(message + " · " + remainingStudyMessage(brief), "completed");
+        const path = action.startsWith("video.") || action.startsWith("pomodoro.") ? "/study-video"
+          : action === "tasks.complete" && input?.taskId
+            ? "/calendar?view=all&task=" + input.taskId : action.startsWith("studyPlan.") ? "/study-plan" : "/today";
+        notifyStudy(message + " · " + remainingStudyMessage(brief), "completed", undefined, path);
       }).catch(() => notifyStudy(message, "completed"));
     }
   }

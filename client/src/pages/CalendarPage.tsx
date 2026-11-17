@@ -1,6 +1,6 @@
 import { formatClock } from "@shared/clockFormat";
 import { slotOccurs } from "@shared/studyPlanner";
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useMemo, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -55,6 +55,15 @@ export default function CalendarPage() {
   }), [dates]);
   const planner = trpc.planner.list.useQuery();
   const taskQuery = trpc.tasks.list.useQuery();
+  const linkedTaskId = Number(new URLSearchParams(search).get("task"));
+  const openedTask = useRef<number>();
+  useEffect(() => {
+    if (!linkedTaskId || openedTask.current === linkedTaskId) return;
+    const task = taskQuery.data?.find(item => item.id === linkedTaskId);
+    if (!task) return;
+    openedTask.current = linkedTaskId;
+    setDialog({ task });
+  }, [linkedTaskId, taskQuery.data]);
   const calendar = trpc.calendar.list.useQuery(range);
   const reviews = trpc.studyPlan.reviews.useQuery();
 

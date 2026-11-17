@@ -21,7 +21,7 @@ import {
   rewardPurchases, rewards, studyCycles, studyEvents, studyVideoSessions, videoNotes, subjects, tasks, lessonSources,
   userAchievements, users, type InsertUser,
 } from "../drizzle/schema.js";
-import { hybridHomeworkSources, seifLessonSourceDefaults, type LessonSourceDraft } from "../shared/lessonSources.js";
+import { hybridHomeworkSources, seifLessonSourceDefaults, videoSubject, type LessonSourceDraft } from "../shared/lessonSources.js";
 import { achievementCatalog, rewardCatalog, type AchievementMetric } from "../shared/catalog.js";
 import { invokeLLM } from "./_core/llm.js";
 import { storageGetSignedUrl, storagePut } from "./storage.js";
@@ -238,7 +238,7 @@ async function metricSnapshot(db: any, userId: number) {
   const values = {
     lessonsCompleted: Number(events?.lessonsCompleted ?? 0), reviews: Number(events?.reviews ?? 0), studyMinutes: Number(events?.studyMinutes ?? 0),
     pomodoros: Number(events?.pomodoros ?? 0), tasksCompleted: Number(events?.tasksCompleted ?? 0), urgentTasks: Number(urgent?.value ?? 0),
-    goalsCompleted: Number(events?.goalsCompleted ?? 0), habitDays: Number(events?.habitDays ?? 0), videoMinutes: Number(events?.videoMinutes ?? 0) + manualVideoMinutes, manualVideoMinutes,
+    goalsCompleted: Number(events?.goalsCompleted ?? 0), habitDays: Number(events?.habitDays ?? 0), videoMinutes: Math.max(0, Number(events?.videoMinutes ?? 0) + manualVideoMinutes + (planner.correctedVideoMinutes ?? 0)), manualVideoMinutes,
     videoBlocks: Number(events?.videoBlocks ?? 0), examsCompleted: Number(events?.examsCompleted ?? 0), bestExamScore: Number(examSummary?.best ?? 0),
     averageExamScore: Number(examSummary?.average ?? 0), coinsEarned: coins.earned, activeDays: Number(events?.activeDays ?? 0), currentStreak: streak,
   };
@@ -716,6 +716,47 @@ export async function startVideoSession(userId: number, input: { videoUrl: strin
     return session!;
   });
 }
+export function correctExternalVideoMinutes(userId: number, sessionId: number, minutes: number) {
+  return changePlanner(userId, async (state, tx) => {
+    const owned = and(eq(studyVideoSessions.userId, userId), eq(studyVideoSessions.id, sessionId),
+      eq(studyVideoSessions.sourceMode, "external"), eq(studyVideoSessions.phase, "completed"));
+    const [session] = await tx.select({ activeSeconds: studyVideoSessions.activeSeconds }).from(studyVideoSessions).where(owned).for("update");
+    if (!session) throw new Error("اختار درس خارجي خلصت جلسته.");
+    const corrections = state.correctedVideoSessions ??= {};
+    if (session.activeSeconds === minutes * 60) return;
+    const [original] = corrections[sessionId] ? [] : await tx.select({ minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)` })
+      .from(studyEvents).where(and(eq(studyEvents.userId, userId), eq(studyEvents.eventType, "video_block"),
+        like(studyEvents.referenceId, "video:" + sessionId + ":block:%")));
+    const previous = corrections[sessionId] ? Math.floor(session.activeSeconds / 60) : Number(original?.minutes ?? 0);
+    state.correctedVideoMinutes = (state.correctedVideoMinutes ?? 0) + minutes - previous;
+    corrections[sessionId] = true;
+    await tx.update(studyVideoSessions).set({ activeSeconds: minutes * 60 }).where(owned);
+  });
+}
+
+export async function scheduleVideoReview(userId: number, sessionId: number, note: string, seconds: number) {
+  const cycle = await getActiveCycle(userId);
+  return changePlanner(userId, async (state, tx) => {
+    const [session] = await tx.select().from(studyVideoSessions)
+      .where(and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId))).limit(1);
+    if (!session) throw new Error("جلسة الفيديو غير موجودة.");
+    const existing = state.videoReviewTasks?.[sessionId];
+    if (existing) return existing;
+    const today = plannerToday();
+    const subjectRows = await tx.select({ id: subjects.id, title: subjects.title }).from(subjects).where(eq(subjects.userId, userId));
+    const subject = subjectRows.find(row => videoSubject(row.title) === session.subject);
+    const exams = subject ? examOccurrences(await scheduledExamRows(tx, userId), today, shiftPlannerDay(today, 90), state.slots) : [];
+    const next = exams.find(exam => exam.subjectId === subject?.id && exam.scheduledAt > new Date());
+    const day = next ? [today, shiftPlannerDay(plannerToday(next.scheduledAt), -1)].sort().at(-1)! : shiftPlannerDay(today, 1);
+    await tx.insert(videoNotes).values({ userId, sessionId, title: "مراجعة بعد الدرس", content: note, timestampSeconds: seconds });
+    const [task] = await tx.insert(tasks).values({ userId, cycleId: cycle.id, title: ("راجع · " + (session.lessonTitle ?? "فيديو المذاكرة")).slice(0, 200),
+      description: note + "\nموضع الفيديو بالثواني: " + seconds, scheduledFor: day, deadline: next?.scheduledAt,
+      priority: "medium", category: "مراجعة" });
+    (state.videoReviewTasks ??= {})[sessionId] = task.insertId;
+    return task.insertId;
+  });
+}
+
 export async function endVideoSession(userId: number, sessionId: number) {
   const result = await updateExternalVideo(userId, sessionId, "end");
   return { ended: true, activeSeconds: result.session.activeSeconds };
@@ -1684,6 +1725,20 @@ export async function removeUnassignedFocus(userId: number, eventIds: number[]) 
   });
 }
 
+export async function correctFocusMinutes(userId: number, eventId: number, minutes: number) {
+  const db = await database();
+  return db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const owned = and(eq(studyEvents.userId, userId), eq(studyEvents.id, eventId), eq(studyEvents.eventType, "pomodoro_complete"));
+    const [event] = await tx.select({ reference: studyEvents.referenceId }).from(studyEvents).where(owned).for("update");
+    if (!event) throw new Error("الجلسة مش موجودة.");
+    const sessionIds = focusSessionId(event.reference);
+    if (sessionIds.length) await tx.update(pomodoroSessions).set({ completedMinutes: minutes }).where(and(
+      eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "completed"), inArray(pomodoroSessions.id, sessionIds)));
+    await tx.update(studyEvents).set({ durationMinutes: minutes }).where(owned);
+  });
+}
+
 export async function assignFocusSubject(userId: number, eventIds: number[], subjectId: number | null) {
   const db = await database();
   const uniqueIds = [...new Set(eventIds)];
@@ -2250,6 +2305,55 @@ export async function reopenLesson(userId: number, lessonId: number) {
   });
 }
 
+type RescheduledStudy = { id: string; day: string; start: string; end: string };
+
+async function suggestReplan(tx: Pick<StudyTransaction, "select">, userId: number, state: PlannerState) {
+  const day = plannerToday();
+  const now = new Date();
+  const delayed = (state.studySessions ?? []).filter(item => item.day === day && !item.done && cairoPlannerTime(day, item.end) <= now)
+    .sort((a, b) => a.start.localeCompare(b.start)).slice(0, 20);
+  if (!delayed.length) return { changes: [], left: [] };
+  const tomorrow = shiftPlannerDay(day, plannerWeekday(shiftPlannerDay(day, 1)) === 5 ? 2 : 1);
+  const ids = new Set(delayed.map(item => item.id));
+  const fixed = { ...state, studySessions: state.studySessions?.filter(item => !ids.has(item.id)) };
+  const [todayFree, tomorrowFree] = await Promise.all([
+    studyAvailability(tx, userId, fixed, day), studyAvailability(tx, userId, fixed, tomorrow),
+  ]);
+  const changes: (RescheduledStudy & { title: string })[] = [];
+  const left: string[] = [];
+  const clock = (minutes: number) => [Math.floor(minutes / 60), minutes % 60].map(part => String(part).padStart(2, "0")).join(":");
+  for (const item of delayed) {
+    const duration = plannerMinutes(item.end) - plannerMinutes(item.start);
+    const today = todayFree.free.find(gap => gap.end - gap.start >= duration);
+    const gap = today ?? tomorrowFree.free.find(gap => gap.end - gap.start >= duration);
+    if (!gap) { left.push(item.title); continue; }
+    changes.push({ id: item.id, title: item.title, day: today ? day : tomorrow, start: clock(gap.start), end: clock(gap.start + duration) });
+    gap.start += duration;
+  }
+  return { changes, left };
+}
+
+export async function previewStudyReplan(userId: number) {
+  const db = await database();
+  return suggestReplan(db, userId, await getPlanner(userId));
+}
+
+export function applyStudyReplan(userId: number, changes: RescheduledStudy[]) {
+  return changePlanner(userId, async (state, tx) => {
+    const preview = await suggestReplan(tx, userId, state);
+    const match = (a: RescheduledStudy, b: RescheduledStudy) =>
+      a.id === b.id && a.day === b.day && a.start === b.start && a.end === b.end;
+    if (changes.some(change => !preview.changes.some(item => match(change, item)))) {
+      throw new Error("الجدول اتغيّر. افتح الاقتراح من جديد.");
+    }
+    const moves = new Map(changes.map(item => [item.id, item]));
+    state.studySessions = state.studySessions?.map(item => {
+      const move = moves.get(item.id);
+      return move ? { ...item, ...move, postponeReason: "not_enough_time" as const } : item;
+    });
+  });
+}
+
 export function savePlannedStudy(userId: number, input: PlannedStudy) {
   return changePlanner(userId, async (state, tx) => {
     if (input.start >= input.end) throw new Error("النهاية لازم تبقى بعد البداية.");
@@ -2675,6 +2779,19 @@ export async function saveStudyResource(userId: number, change: StudyResourceCha
         if (!book || book.subjectId !== lesson.subjectId) throw new Error("اختار كتاب من نفس مادة الدرس.");
       } else if (!safeStudyUrl(change.item.url)) {
         throw new Error("رابط الواجب غير صالح.");
+      }
+      if (change.item.kind === "online" && change.item.sourceId !== undefined) {
+        const item = change.item;
+        const [source] = await tx.select({ id: lessonSources.id }).from(lessonSources)
+          .where(and(eq(lessonSources.userId, userId), eq(lessonSources.id, item.sourceId!)));
+        if (!source) throw new Error("مصدر المدرس مش موجود.");
+        if (item.rememberSite) {
+          const url = safeStudyUrl(item.siteUrl ?? item.url);
+          if (!url) throw new Error("اكتب رابط الموقع الأساسي.");
+          const saved = state.savedHomeworkSites ?? [];
+          state.savedHomeworkSites = [...saved.filter(site => site.sourceId !== source.id || site.name !== item.platform),
+            { sourceId: source.id, name: item.platform, url }].slice(-100);
+        }
       }
       if (resources.homework.length >= 500 && !resources.homework.some(row => row.id === item.id)) throw new Error("وصلت للحد الأقصى للواجبات.");
       resources.homework = [...resources.homework.filter(row => row.id !== item.id), change.item];

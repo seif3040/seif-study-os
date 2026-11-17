@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { recordStudyMessage } from "@/components/StudyInbox";
 import { morningStudyMessage } from "@/lib/studyBrief";
 import { plannerToday } from "@shared/studyPlanner";
 import { playStudySound, sendStudyDeviceMessage, prepareStudySound, setStudySounds, studySoundsEnabled } from "@/lib/studyAlerts";
@@ -34,6 +35,7 @@ export function StudyReminders({ ownerId }: { ownerId: number }) {
         } catch { /* Keep the current tab deduplicated. */ }
         sent = day;
         const message = morningStudyMessage(brief, brief.friday);
+        recordStudyMessage(ownerId, message);
         toast(message, { duration: 12_000 });
         void sendStudyDeviceMessage(message, "morning-" + day);
       } catch { /* Retry on the next check or when the connection returns. */ }
