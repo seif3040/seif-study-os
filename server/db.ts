@@ -1371,6 +1371,7 @@ export async function analytics(userId: number) {
   const subjectName = sql<string>`coalesce(${subjects.title}, 'بدون مادة')`;
   const [daily, bySubject, completion, comprehension, purchases, planner] = await Promise.all([
     db.select({ day: eventDay, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)`, events: count(),
+      videoMinutes: sql<number>`coalesce(sum(case when ${studyEvents.eventType} = 'video_block' then ${studyEvents.durationMinutes} else 0 end), 0)`,
       lessons: sql<number>`sum(case when ${studyEvents.eventType} = 'lesson_complete' then 1 else 0 end)`,
       tasks: sql<number>`sum(case when ${studyEvents.eventType} = 'task_complete' then 1 else 0 end)`,
       exams: sql<number>`sum(case when ${studyEvents.eventType} = 'exam_complete' then 1 else 0 end)`,
