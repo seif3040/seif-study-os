@@ -1,3 +1,4 @@
+import { addBreakTime } from "../shared/studyBreak.js";
 import { externalVideoDeadline, externalVideoElapsed, videoBlockSeconds } from "../shared/videoTimer.js";
 import { studyEfforts, type StudyEffort, type StudyItem, type WeeklyStudy } from "../shared/weeklyStudy.js";
 import { sleepDuration, sleepTargetMinutes, type SleepLog } from "../shared/sleep.js";
@@ -648,6 +649,7 @@ export async function startPomodoro(userId: number, input: { plannedMinutes: num
         .where(and(eq(subjects.userId, userId), eq(subjects.id, subjectId)));
       if (!subject) throw new Error("المادة مش موجودة.");
     }
+    await changeStudyBreak(tx, userId, new Date());
     const [result] = await tx.insert(pomodoroSessions).values({ userId, cycleId: cycle.id, plannedMinutes: input.plannedMinutes, subjectId,
       ...(input.elapsedMinutes ? { startedAt: new Date(Date.now() - input.elapsedMinutes * 60_000) } : {}) });
     const [created] = await tx.select().from(pomodoroSessions)
@@ -655,7 +657,7 @@ export async function startPomodoro(userId: number, input: { plannedMinutes: num
     return created;
   });
 }
-export async function completePomodoro(userId: number, sessionId: number, finishEarly = false) {
+export async function completePomodoro(userId: number, sessionId: number, finishEarly = false, breakMinutes?: number) {
   const db = await database();
   const result = await db.transaction(async tx => {
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
@@ -680,6 +682,7 @@ export async function completePomodoro(userId: number, sessionId: number, finish
     await tx.update(pomodoroSessions).set({
       state: "completed", completedMinutes: minutes, completedAt: now, pausedAt: null,
     }).where(eq(pomodoroSessions.id, sessionId));
+    if (breakMinutes) await changeStudyBreak(tx, userId, now, breakMinutes);
     const reference = `pomodoro:${sessionId}:complete`;
     const key: CoinRateKey = isFocusPreset(session.plannedMinutes) ? `pomodoro_${session.plannedMinutes}` : "pomodoro_60";
     const [rate] = await tx.select({ amount: coinRateSettings.amount }).from(coinRateSettings).where(eq(coinRateSettings.rateKey, key));
@@ -699,7 +702,25 @@ export async function completePomodoro(userId: number, sessionId: number, finish
   return { ...completion, unlocks: result.alreadyCompleted ? [] : await evaluateAchievements(userId, cycleId).catch(() => []) };
 }
 
-export async function pausePomodoro(userId: number, sessionId: number, paused: boolean) { const db = await database(); const rows = await db.select().from(pomodoroSessions).where(and(eq(pomodoroSessions.id, sessionId), eq(pomodoroSessions.userId, userId))).limit(1); const session = rows[0]; if (!session || !["running", "paused"].includes(session.state)) throw new Error("لا يمكن تعديل هذه الجلسة."); if (paused && session.state === "running") return db.update(pomodoroSessions).set({ state: "paused", pausedAt: new Date() }).where(eq(pomodoroSessions.id, sessionId)); if (!paused && session.state === "paused") { const pauseSeconds = session.pausedAt ? Math.max(0, Math.floor((Date.now() - session.pausedAt.getTime()) / 1000)) : 0; return db.update(pomodoroSessions).set({ state: "running", pausedAt: null, pausedSeconds: session.pausedSeconds + pauseSeconds }).where(eq(pomodoroSessions.id, sessionId)); } return { rowsAffected: 0 }; }
+export async function pausePomodoro(userId: number, sessionId: number, paused: boolean) {
+  const db = await database();
+  return db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const owned = and(eq(pomodoroSessions.id, sessionId), eq(pomodoroSessions.userId, userId));
+    const [session] = await tx.select().from(pomodoroSessions).where(owned).for("update");
+    if (!session || !["running", "paused"].includes(session.state)) throw new Error("لا يمكن تعديل هذه الجلسة.");
+    const now = new Date();
+    if (paused && session.state === "running") {
+      return tx.update(pomodoroSessions).set({ state: "paused", pausedAt: now }).where(owned);
+    }
+    if (!paused && session.state === "paused") {
+      await changeStudyBreak(tx, userId, now);
+      const pausedSeconds = session.pausedAt ? Math.max(0, Math.floor((+now - +session.pausedAt) / 1000)) : 0;
+      return tx.update(pomodoroSessions).set({ state: "running", pausedAt: null, pausedSeconds: session.pausedSeconds + pausedSeconds }).where(owned);
+    }
+    return { rowsAffected: 0 };
+  });
+}
 
 export async function startVideoSession(userId: number, input: { videoUrl: string; lessonTitle?: string; subject: "arabic" | "history" | "english" | "programming_ai" | "german" | "other"; requestedMode: "auto" | "embedded" | "external"; local?: boolean }) { const db = await database(); const cycle = await getActiveCycle(userId); const detected = input.local ? "embedded" : classifyStudySource(input.videoUrl); if (detected === "invalid") throw new Error("رابط الدرس غير صالح."); const sourceMode = input.requestedMode === "external" || detected === "external" ? "external" : "embedded"; return db.transaction(async tx => {
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
@@ -789,6 +810,7 @@ export async function trackVideoPlayback(userId: number, sessionId: number, inpu
       return { session: item, addedSeconds: 0, blockCompleted: false, phase: item.phase };
     }
     const now = new Date();
+    if (input.active && !item.lastPlaybackAt) await changeStudyBreak(tx, userId, now);
     const position = Math.max(0, Math.floor(input.playbackPosition ?? item.lastPlaybackPosition ?? 0));
     const activeSeconds = Math.max(item.activeSeconds, position);
     const completedBlocks = Math.floor(activeSeconds / 2700);
@@ -802,12 +824,27 @@ export async function trackVideoPlayback(userId: number, sessionId: number, inpu
     };
     await tx.update(studyVideoSessions).set(changes).where(owned);
     await awardVideoBlocks(tx, item, completedBlocks);
+    if (blockCompleted) await changeStudyBreak(tx, userId, now, 15);
     return { session: { ...item, ...changes }, addedSeconds: activeSeconds - item.activeSeconds, blockCompleted, phase };
   });
   if (result.blockCompleted) await evaluateAchievements(userId, result.session.cycleId).catch(() => []);
   return result;
 }
-export async function resumeVideoSession(userId: number, sessionId: number, skipBreak = false) { const db = await database(); const item = await db.select().from(studyVideoSessions).where(and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId))).limit(1); if (!item[0]) throw new Error("جلسة الفيديو غير موجودة."); if (item[0].phase !== "break") return { resumed: false }; if (!skipBreak && item[0].breakEndsAt && item[0].breakEndsAt.getTime() > Date.now()) throw new Error("فترة الاستراحة لم تنتهِ بعد."); await db.update(studyVideoSessions).set({ phase: "watching", breakEndsAt: null, lastPlaybackAt: null }).where(and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId), eq(studyVideoSessions.phase, "break"))); return { resumed: true }; }
+export async function resumeVideoSession(userId: number, sessionId: number, skipBreak = false) {
+  const db = await database();
+  return db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const owned = and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId));
+    const [item] = await tx.select().from(studyVideoSessions).where(owned).for("update");
+    if (!item) throw new Error("جلسة الفيديو غير موجودة.");
+    if (item.phase !== "break") return { resumed: false };
+    const now = new Date();
+    if (!skipBreak && item.breakEndsAt && item.breakEndsAt > now) throw new Error("فترة الاستراحة لم تنتهِ بعد.");
+    await changeStudyBreak(tx, userId, now);
+    await tx.update(studyVideoSessions).set({ phase: "watching", breakEndsAt: null, lastPlaybackAt: null }).where(owned);
+    return { resumed: true };
+  });
+}
 export async function setVideoManualProgress(userId: number, sessionId: number, progress: "started" | "middle" | "finished" | "reviewed") { const db = await database(); const result = await db.update(studyVideoSessions).set({ manualProgress: progress }).where(and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId))); if (!result[0]?.affectedRows) throw new Error("جلسة الفيديو غير موجودة."); return { progress }; }
 async function awardVideoBlocks(tx: StudyTransaction, item: typeof studyVideoSessions.$inferSelect, completedBlocks: number) {
   const { userId, id: sessionId } = item;
@@ -839,6 +876,7 @@ async function updateExternalVideo(userId: number, sessionId: number, action: "s
     const now = new Date();
     if (item.sourceMode !== "external") {
       if (action !== "end") throw new Error("هذا المؤقت مخصص للدروس الخارجية فقط.");
+      if (item.phase === "break") await changeStudyBreak(tx, userId, now);
       const changes = { phase: "completed" as const, lastPlaybackAt: null, timerRunning: false, breakEndsAt: null };
       await tx.update(studyVideoSessions).set(changes).where(owned);
       return { session: { ...item, ...changes }, blockCompleted: false };
@@ -855,6 +893,7 @@ async function updateExternalVideo(userId: number, sessionId: number, action: "s
       if (item.phase === "break" && item.breakEndsAt && item.breakEndsAt > now) throw new Error("فترة الاستراحة لم تنتهِ بعد.");
       const changes = { phase: "watching" as const, timerRunning: true, breakEndsAt: null,
         lastPlaybackAt: new Date(+now - elapsedMinutes * 60_000) };
+      await changeStudyBreak(tx, userId, now);
       await tx.update(studyVideoSessions).set(changes).where(owned);
       return { session: { ...item, ...changes }, blockCompleted: false };
     }
@@ -868,6 +907,8 @@ async function updateExternalVideo(userId: number, sessionId: number, action: "s
       breakEndsAt: phase === "break" ? new Date(+now + 15 * 60_000) : null };
     await awardVideoBlocks(tx, item, completedBlocks);
     await tx.update(studyVideoSessions).set(changes).where(owned);
+    if (phase === "break") await changeStudyBreak(tx, userId, now, 15);
+    if (item.phase === "break" && action === "end") await changeStudyBreak(tx, userId, now);
     return { session: { ...item, ...changes }, blockCompleted };
   });
   if (result.blockCompleted) await evaluateAchievements(userId, result.session.cycleId).catch(() => []);
@@ -1342,7 +1383,7 @@ export async function analytics(userId: number) {
     db.select({ value: count() }).from(rewardPurchases).where(eq(rewardPurchases.userId, userId)),
     getPlanner(userId),
   ]);
-  return { cycle, metrics, coins, daily, sleepLogs: planner.sleepLogs ?? {}, bySubject, completion: completion[0] ?? { open: 0, completed: 0 }, comprehension: comprehension.map(attempt => ({ date: examPerformanceDay(attempt), score: attempt.score, comprehension: attempt.comprehension })), rewardsPurchased: Number(purchases[0]?.value ?? 0) };
+  return { cycle, metrics, coins, daily, sleepLogs: planner.sleepLogs ?? {}, breakMilliseconds: planner.breakMilliseconds ?? {}, bySubject, completion: completion[0] ?? { open: 0, completed: 0 }, comprehension: comprehension.map(attempt => ({ date: examPerformanceDay(attempt), score: attempt.score, comprehension: attempt.comprehension })), rewardsPurchased: Number(purchases[0]?.value ?? 0) };
 }
 
 export async function listFlashcardDecks(userId: number) {
@@ -2017,14 +2058,61 @@ export async function getPlanner(userId: number) {
   return row?.state ?? emptyPlanner;
 }
 
+async function lockedPlanner(tx: StudyTransaction, userId: number) {
+  await tx.insert(studyPlanner).values({ id: userId, state: emptyPlanner })
+    .onDuplicateKeyUpdate({ set: { id: userId } });
+  const [row] = await tx.select().from(studyPlanner).where(eq(studyPlanner.id, userId)).for("update");
+  return row.state;
+}
+
+async function changeStudyBreak(tx: StudyTransaction, userId: number, now: Date, minutes?: number) {
+  const planner = await lockedPlanner(tx, userId);
+  const active = planner.activeBreak;
+  if (minutes !== undefined) {
+    if (active) return;
+    await tx.update(pomodoroSessions).set({ state: "paused", pausedAt: now })
+      .where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "running")));
+    const videos = await tx.select().from(studyVideoSessions)
+      .where(and(eq(studyVideoSessions.userId, userId), eq(studyVideoSessions.phase, "watching"))).for("update");
+    for (const item of videos) {
+      const activeSeconds = item.sourceMode === "external" ? externalVideoElapsed(item, +now) : item.activeSeconds;
+      const completedBlocks = Math.max(item.completedBlocks, Math.floor(activeSeconds / videoBlockSeconds));
+      await awardVideoBlocks(tx, item, completedBlocks);
+      await tx.update(studyVideoSessions).set({
+        activeSeconds, completedBlocks, phase: "break", timerRunning: false, lastPlaybackAt: null,
+        breakEndsAt: new Date(+now + minutes * 60_000),
+      }).where(eq(studyVideoSessions.id, item.id));
+    }
+    planner.activeBreak = { startedAt: +now, targetAt: +now + minutes * 60_000 };
+  } else {
+    if (!active) return;
+    addBreakTime(planner.breakMilliseconds ??= {}, active.startedAt, +now);
+    delete planner.activeBreak;
+    await tx.update(studyVideoSessions).set({ phase: "watching", breakEndsAt: null, lastPlaybackAt: null })
+      .where(and(eq(studyVideoSessions.userId, userId), eq(studyVideoSessions.phase, "break")));
+  }
+  await tx.update(studyPlanner).set({ state: planner }).where(eq(studyPlanner.id, userId));
+}
+
+export async function studyBreak(userId: number) {
+  return (await getPlanner(userId)).activeBreak ?? null;
+}
+
+export async function setStudyBreak(userId: number, minutes?: number) {
+  const db = await database();
+  await db.transaction(async tx => {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
+    const now = new Date();
+    await changeStudyBreak(tx, userId, now, minutes);
+  });
+}
+
 async function changePlanner<T>(userId: number, change: (state: PlannerState, tx: Parameters<Parameters<Awaited<ReturnType<typeof database>>["transaction"]>[0]>[0]) => Promise<T>) {
   const db = await database();
   return db.transaction(async tx => {
-    await tx.insert(studyPlanner).values({ id: userId, state: emptyPlanner })
-      .onDuplicateKeyUpdate({ set: { id: userId } });
-    const [row] = await tx.select().from(studyPlanner).where(eq(studyPlanner.id, userId)).for("update");
-    const result = await change(row.state, tx);
-    await tx.update(studyPlanner).set({ state: row.state }).where(eq(studyPlanner.id, userId));
+    const state = await lockedPlanner(tx, userId);
+    const result = await change(state, tx);
+    await tx.update(studyPlanner).set({ state }).where(eq(studyPlanner.id, userId));
     return result;
   });
 }

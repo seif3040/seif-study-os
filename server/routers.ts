@@ -161,6 +161,9 @@ export const appRouter = router({
     complete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.completeTask(ctx.user.id, input.taskId)),
   }),
   planner: router({
+    studyBreak: protectedProcedure.query(({ ctx }) => db.studyBreak(ctx.user.id)),
+    setStudyBreak: protectedProcedure.input(z.object({ minutes: z.number().int().min(1).max(120).optional() }))
+      .mutation(({ ctx, input }) => db.setStudyBreak(ctx.user.id, input.minutes)),
     logSleep: protectedProcedure.input(z.object({ day: z.string().date(), bed: plannerTime, wake: plannerTime }))
       .mutation(({ ctx, input }) => db.logSleep(ctx.user.id, input)),
     hybridHomeworkReview: protectedProcedure.query(({ ctx }) => db.pendingHybridHomeworkReview(ctx.user.id)),
@@ -256,7 +259,7 @@ export const appRouter = router({
     list: protectedProcedure.query(({ ctx }) => db.listPomodoros(ctx.user.id)),
     start: protectedProcedure.input(z.object({ plannedMinutes: z.number().int().min(5).max(720), subjectId: id.optional(), elapsedMinutes: z.number().int().min(0).max(120).optional() }).refine(input => (input.elapsedMinutes ?? 0) < input.plannedMinutes)).mutation(({ ctx, input }) => db.startPomodoro(ctx.user.id, input)),
     setPaused: protectedProcedure.input(z.object({ sessionId: id, paused: z.boolean() })).mutation(({ ctx, input }) => db.pausePomodoro(ctx.user.id, input.sessionId, input.paused)),
-    complete: protectedProcedure.input(z.object({ sessionId: id, finishEarly: z.boolean().optional() })).mutation(({ ctx, input }) => db.completePomodoro(ctx.user.id, input.sessionId, input.finishEarly)),
+    complete: protectedProcedure.input(z.object({ sessionId: id, finishEarly: z.boolean().optional(), breakMinutes: z.number().int().min(1).max(120).optional() })).mutation(({ ctx, input }) => db.completePomodoro(ctx.user.id, input.sessionId, input.finishEarly, input.breakMinutes)),
   }),
   studySearch: router({ query: protectedProcedure.input(z.object({ query: z.string().trim().min(1).max(120) })).query(({ ctx, input }) => db.searchStudyWorkspace(ctx.user.id, input.query)) }),
   flashcards: router({

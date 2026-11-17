@@ -102,7 +102,7 @@ function Overview() {
       </article>)}
     </div>
     <AchievementTrend daily={data.daily} attempts={data.comprehension} />
-    <SleepReport logs={data.sleepLogs ?? {}} daily={data.daily} />
+    <SleepReport logs={data.sleepLogs ?? {}} daily={data.daily} breakMilliseconds={data.breakMilliseconds ?? {}} />
     <div className="surface space-y-3 p-4 sm:p-6">
       <h2 className="font-bold">إنجازات يوم بيوم</h2>
       {!daily.length && <p>أول يوم مذاكرة هيتسجل هنا.</p>}
