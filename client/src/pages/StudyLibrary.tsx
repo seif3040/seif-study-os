@@ -41,6 +41,8 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
   const [bookFormOpen, setBookFormOpen] = useState(false);
   const [subjectFilter, setSubjectFilter] = useState(0);
   const [subject, setSubject] = useState(0);
+  const [homeworkSubject, setHomeworkSubject] = useState(0);
+  const [homeworkChapter, setHomeworkChapter] = useState(0);
   const [homeworkKind, setHomeworkKind] = useState<"book" | "online">("book");
   const [bookId, setBookId] = useState("");
   const [editHomework, setEditHomework] = useState("");
@@ -84,8 +86,15 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
   const visibleLessons = new Set(items.map(row => row.lesson?.id));
   const questions = resources?.mistakes ?? [];
   const due = questions.find(item => item.due <= plannerToday());
-  const homeworkRows = homeworkKind === "online" && tab === "الواجبات"
-    ? rows.filter(row => row.lesson && (!attendanceLessons || attendanceLessons.includes(row.lesson.id))) : items;
+  const attendanceRows = attendanceLessons ? rows.filter(row => row.lesson && attendanceLessons.includes(row.lesson.id)) : [];
+  const homeworkSubjectId = homeworkKind === "book" ? homeworkBook?.subjectId
+    : attendanceRows[0]?.subject.id ?? homeworkSubject;
+  const subjectLessons = rows.filter(row => row.lesson && row.subject.id === homeworkSubjectId
+    && (!attendanceLessons || attendanceLessons.includes(row.lesson.id)));
+  const homeworkChapters = Array.from(new Map(subjectLessons.flatMap(row =>
+    row.chapter ? [[row.chapter.id, row.chapter.title] as const] : [])));
+  const chapterId = homeworkChapter || (homeworkChapters.length === 1 ? homeworkChapters[0][0] : 0);
+  const homeworkRows = subjectLessons.filter(row => row.chapter?.id === chapterId);
   const lessonOptions = homeworkRows.map(row => <option value={row.lesson!.id} key={row.lesson!.id}>{row.chapter?.title} · {row.lesson!.title}</option>);
   const openBook = (item?: (typeof books)[number]) => {
     const chapterId = rows.find(row => row.lesson?.id === item?.through)?.chapter?.id;
@@ -97,7 +106,7 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
     setManualBacklog(item?.backlog ?? []);
     setBookFormOpen(true);
   };
-  function closeHomework() { setHomeworkFormOpen(false); setEditHomework(""); setBookId(""); setHomeworkKind("book"); }
+  function closeHomework() { setHomeworkFormOpen(false); setEditHomework(""); setBookId(""); setHomeworkKind("book"); setHomeworkSubject(0); setHomeworkChapter(0); }
   const homeworkForm = (
       <form key={editHomework} className="space-y-3" onSubmit={event => {
         event.preventDefault();
@@ -107,19 +116,33 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
           ? { ...details, kind: "online", platform: str(form, "platform"), url: str(form, "url") }
           : { ...details, bookId, pages: str(form, "pages") } });
       }}>
-        <label>نوع الواجب<select aria-label="نوع الواجب" value={homeworkKind} className={select} onChange={event => setHomeworkKind(event.target.value === "online" ? "online" : "book")}>
+        <label>نوع الواجب<select aria-label="نوع الواجب" value={homeworkKind} className={select} onChange={event => { setHomeworkKind(event.target.value === "online" ? "online" : "book"); setHomeworkChapter(0); }}>
           <option value="book">كتاب</option><option value="online">موقع أونلاين</option>
         </select></label>
-        {homeworkKind === "book" ? <label>الكتاب<select required className={select} value={bookId} onChange={event => setBookId(event.target.value)}>
+        {homeworkKind === "book" ? <label>الكتاب<select required className={select} value={bookId} onChange={event => { setBookId(event.target.value); setHomeworkChapter(0); }}>
           <option value="">اختار الكتاب</option>{books.filter(item => !attendanceLessons || rows.some(row => row.subject.id === item.subjectId && row.lesson && attendanceLessons.includes(row.lesson.id))).map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
         </select></label> : <div className="grid gap-2 sm:grid-cols-2">
           <label>اسم المنصة<Input name="platform" defaultValue={assignment?.kind === "online" ? assignment.platform : ""} required maxLength={180} /></label>
           <label>لينك الواجب<Input name="url" type="url" dir="ltr" defaultValue={assignment?.kind === "online" ? assignment.url : ""} required maxLength={2000} /></label>
         </div>}
-        <label>الدرس<select key={homeworkKind + bookId} name="lesson" defaultValue={assignment?.lessonId ?? ""} required className={select}><option value="">اختار الدرس</option>{lessonOptions}</select></label>
+        {homeworkKind === "online" && (attendanceRows.length
+          ? <p className="text-sm text-muted-foreground">المادة · {attendanceRows[0].subject.title}</p>
+          : <label>المادة<select value={homeworkSubject || ""} required className={select}
+              onChange={event => { setHomeworkSubject(Number(event.target.value)); setHomeworkChapter(0); }}>
+              <option value="">اختار المادة</option>
+              {subjects.map(([id, title]) => <option key={id} value={id}>{title}</option>)}
+            </select></label>)}
+        <label>الفصل أو الفرع<select value={chapterId || ""} required disabled={!homeworkSubjectId} className={select}
+          onChange={event => setHomeworkChapter(Number(event.target.value))}>
+          <option value="">اختار الفصل أو الفرع</option>
+          {homeworkChapters.map(([id, title]) => <option key={id} value={id}>{title}</option>)}
+        </select></label>
+        <label>الدرس<select key={[homeworkKind, homeworkSubjectId, chapterId].join(":")} name="lesson"
+          defaultValue={homeworkRows.some(row => row.lesson?.id === assignment?.lessonId) ? assignment?.lessonId : homeworkRows.length === 1 ? homeworkRows[0].lesson?.id : ""}
+          required disabled={!chapterId} className={select}><option value="">اختار الدرس</option>{lessonOptions}</select></label>
         {homeworkKind === "book" && <label>الصفحات<Input name="pages" defaultValue={assignment?.kind === "online" ? "" : assignment?.pages} placeholder="مثال ٣٥–٣٩" required maxLength={120} /></label>}
         <label>المطلوب بالضبط<Textarea name="prompt" defaultValue={assignment?.prompt} maxLength={900} /></label>
-        <Button disabled={(homeworkKind === "book" && !bookId) || change.isPending}>احفظ واجب الدرس</Button>
+        <Button disabled={!chapterId || !homeworkRows.length || change.isPending}>احفظ واجب الدرس</Button>
       </form>
   );
   return <div className="space-y-4">
@@ -246,7 +269,7 @@ export default function StudyLibrary({ attendanceLessons, section = "الكتب"
         <strong>{rows.find(row => row.lesson?.id === item.lessonId)?.lesson?.title} · {item.kind === "online" ? item.platform : books.find(row => row.id === item.bookId)?.title}</strong>
         <p>{item.kind === "online" ? item.prompt : "ص " + item.pages + (item.prompt ? " · " + item.prompt : "")}</p>
         {item.kind === "online" && safeStudyUrl(item.url) && <a href={safeStudyUrl(item.url) ?? undefined} target="_blank" rel="noreferrer" className="text-primary underline">افتح الواجب</a>}
-        <Button size="sm" variant="ghost" onClick={() => { setEditHomework(item.id); setHomeworkKind(item.kind === "online" ? "online" : "book"); setBookId(item.kind === "online" ? "" : item.bookId); setHomeworkFormOpen(true); }}>تعديل الواجب</Button>
+        <Button size="sm" variant="ghost" onClick={() => { const row = rows.find(row => row.lesson?.id === item.lessonId); setHomeworkSubject(row?.subject.id ?? 0); setHomeworkChapter(row?.chapter?.id ?? 0); setEditHomework(item.id); setHomeworkKind(item.kind === "online" ? "online" : "book"); setBookId(item.kind === "online" ? "" : item.bookId); setHomeworkFormOpen(true); }}>تعديل الواجب</Button>
       </article>)}
       </section></div>
     </div>}
