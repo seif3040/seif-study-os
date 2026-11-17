@@ -56,7 +56,7 @@ export default function CalendarPage() {
   const planner = trpc.planner.list.useQuery();
   const taskQuery = trpc.tasks.list.useQuery();
   const linkedTaskId = Number(new URLSearchParams(search).get("task"));
-  const openedTask = useRef<number>();
+  const openedTask = useRef<number | null>(null);
   useEffect(() => {
     if (!linkedTaskId || openedTask.current === linkedTaskId) return;
     const task = taskQuery.data?.find(item => item.id === linkedTaskId);

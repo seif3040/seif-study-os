@@ -202,7 +202,7 @@ function SubjectVideoSession({ subject, files, onSubject, autoPlay }: { subject:
           await Promise.all([utils.tasks.list.invalidate(), utils.calendar.list.invalidate()]);
           toast.success("اتضافت المراجعة للجدول واتحفظ التوقيت.");
         }
-        if (outcome === "understood" && session.manualProgress !== "reviewed") {
+        if (outcome === "understood" && session.manualProgress !== "reviewed" && session.manualProgress !== "finished") {
           await utils.client.video.setProgress.mutate({ sessionId: session.id, progress: "finished" });
         }
         await end.mutateAsync({ sessionId: session.id });
