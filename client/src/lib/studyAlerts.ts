@@ -67,13 +67,17 @@ export function notifyStudy(message: string, kind: AlertKind, key?: string) {
   }
   toast.success(message);
   void playStudySound(kind);
-  if (!document.hidden || typeof Notification === "undefined" || Notification.permission !== "granted") return;
-  const options = { body: message, icon: "/study-icon-192.png", tag: key ? "study-" + key : "study-completed", silent: true };
-  void (async () => {
-    try {
+  if (document.hidden) void sendStudyDeviceMessage(message, key);
+}
+
+export async function sendStudyDeviceMessage(message: string, key?: string) {
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  try { if (localStorage.getItem("seif-study-reminders") !== "on") return; }
+  catch { return; }
+  const options = { body: message, icon: "/study-icon-192.png", tag: key ? "study-" + key : "study-completed", silent: true, data: { path: "/today" } };
+  try {
       const registration = await navigator.serviceWorker?.getRegistration();
       if (registration?.active) await registration.showNotification("Seif Study OS", options);
       else new Notification("Seif Study OS", options);
-    } catch { /* An in-app alert has already been displayed. */ }
-  })();
+  } catch { /* An in-app alert has already been displayed. */ }
 }

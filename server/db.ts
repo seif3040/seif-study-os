@@ -273,6 +273,43 @@ async function ownedLesson(db: any, userId: number, lessonId: number) {
   return rows[0];
 }
 
+export async function dailyStudyBrief(userId: number) {
+  const now = new Date();
+  const day = plannerToday(now);
+  const db = await database();
+  const end = cairoPlannerTime(shiftPlannerDay(day, 1), "00:00");
+  const [planner, pending, examRows, reviews] = await Promise.all([
+    getPlanner(userId),
+    db.select({ title: tasks.title, category: tasks.category, deadline: tasks.deadline })
+      .from(tasks).where(and(eq(tasks.userId, userId), isNull(tasks.deletedAt), eq(tasks.status, "open"),
+        or(eq(tasks.scheduledFor, day), and(eq(tasks.category, "واجب"), lt(tasks.deadline, end)))))
+      .orderBy(tasks.deadline, tasks.id),
+    scheduledExamRows(db, userId),
+    upcomingExamReviews(userId),
+  ]);
+  const attended = new Set(planner.attendance.filter(item => item.day === day).map(item => item.slotId));
+  const classes = planner.slots.filter(slot => slot.subjectId && slotOccurs(slot, day)
+    && !attended.has(slot.id) && cairoPlannerTime(day, slot.end) > now)
+    .sort((a, b) => a.start.localeCompare(b.start)).map(slot => slot.title);
+  const plans = (planner.studySessions ?? []).filter(item => item.day === day && !item.done)
+    .sort((a, b) => a.start.localeCompare(b.start)).map(item => item.title);
+  const upcoming = examOccurrences(examRows, day, shiftPlannerDay(day, 1), planner.slots);
+  const exams = upcoming.filter(exam => plannerToday(exam.scheduledAt) === day && exam.endAt > now).map(exam => exam.title);
+  const nextExams = upcoming.filter(exam => plannerToday(exam.scheduledAt) !== day
+    && +exam.scheduledAt - +now <= DAY_MS).map(exam => exam.title);
+  return {
+    day, friday: plannerWeekday(day) === 5, nextExams,
+    groups: [
+      { label: "حصص", titles: classes },
+      { label: "امتحانات", titles: exams },
+      { label: "واجبات", titles: pending.filter(task => task.category === "واجب").map(task => task.title) },
+      { label: "مهام", titles: pending.filter(task => task.category !== "واجب").map(task => task.title) },
+      { label: "مذاكرة", titles: plans },
+      { label: "مراجعات", titles: reviews.map(review => review.title) },
+    ],
+  };
+}
+
 export async function dashboard(userId: number) {
   const db = await database();
   const cycle = await getActiveCycle(userId);

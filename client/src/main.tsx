@@ -1,3 +1,4 @@
+import { remainingStudyMessage } from "@/lib/studyBrief";
 import { notifyStudy } from "@/lib/studyAlerts";
 import { trpc } from "@/lib/trpc";
 import { COOKIE_NAME, UNAUTHED_ERR_MSG } from '@shared/const';
@@ -54,14 +55,15 @@ queryClient.getMutationCache().subscribe(event => {
     const action = Array.isArray(path) ? path.join(".") : "";
     const message = completionMessages[action];
     const result = event.mutation.state.data as { alreadyCompleted?: boolean; completedNow?: boolean; missingHomework?: unknown[] } | undefined;
-    const input = event.mutation.state.variables as { status?: string; progress?: string; done?: boolean; finishEarly?: boolean } | undefined;
+    const input = event.mutation.state.variables as { status?: string; progress?: string; done?: boolean } | undefined;
     if (message && !result?.alreadyCompleted && !result?.missingHomework?.length
       && (action !== "goals.updateProgress" || result?.completedNow)
       && (action !== "planner.assessmentStatus" || input?.status === "completed")
       && (action !== "video.setProgress" || input?.progress === "finished" || input?.progress === "reviewed")
-      && (action !== "prayers.setNafl" || input?.done)
-      && (action !== "pomodoro.complete" || input?.finishEarly)) {
-      notifyStudy(message, "completed");
+      && (action !== "prayers.setNafl" || input?.done)) {
+      void trpcClient.dashboard.dayBrief.query().then(brief => {
+        notifyStudy(message + " · " + remainingStudyMessage(brief), "completed");
+      }).catch(() => notifyStudy(message, "completed"));
     }
   }
   if (event.type === "updated" && event.action.type === "error") {

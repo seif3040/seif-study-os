@@ -24,6 +24,17 @@ self.addEventListener("sync", event => {
   if (event.tag === StudyOffline.SYNC_TAG) event.waitUntil(StudyOffline.sync());
 });
 
+self.addEventListener("notificationclick", event => {
+  if (event.notification.data?.path !== "/today") return;
+  event.notification.close();
+  event.waitUntil((async () => {
+    const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const today = clients.find(client => new URL(client.url).pathname === "/today");
+    if (today) await today.focus();
+    else await self.clients.openWindow("/today");
+  })());
+});
+
 self.addEventListener("fetch", event => {
   const { request } = event;
   const url = new URL(request.url);

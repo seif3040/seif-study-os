@@ -95,6 +95,7 @@ export const appRouter = router({
       .mutation(({ ctx, input }) => restoreStudyBackup(ctx.user.id, input.raw, input.preview)),
   }),
   dashboard: router({
+    dayBrief: protectedProcedure.query(({ ctx }) => db.dailyStudyBrief(ctx.user.id)),
     weeklyStudy: protectedProcedure.input(z.object({ day: z.string().date() }))
       .query(({ ctx, input }) => db.weeklyStudyOverview(ctx.user.id, input.day)),
     saveWeeklyStudy: protectedProcedure.input(z.object({
