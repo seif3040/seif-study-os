@@ -1,3 +1,4 @@
+import { QuickStudyStart } from "@/components/QuickStudyStart";
 import ActionDialog from "@/components/ActionDialog";
 import { slotOccurs } from "@shared/studyPlanner";
 import { useState } from "react";
@@ -61,6 +62,7 @@ export default function DayStudy({ day, showSchedule = false, embedded = false }
   const commitments = slots.filter(slot => !slot.subjectId);
 
   return <div className="space-y-4">
+    {embedded && <QuickStudyStart day={day} />}
     {showSchedule && <section className="surface space-y-3 p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 font-bold"><GraduationCap className="size-5" /> عندي حصة</h2>

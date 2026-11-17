@@ -249,7 +249,7 @@ export const appRouter = router({
     removeUnassigned: protectedProcedure.input(z.object({ eventIds: z.array(id).min(1).max(400) }))
       .mutation(({ ctx, input }) => db.removeUnassignedFocus(ctx.user.id, input.eventIds)),
     list: protectedProcedure.query(({ ctx }) => db.listPomodoros(ctx.user.id)),
-    start: protectedProcedure.input(z.object({ plannedMinutes: z.number().int().min(5).max(720), subjectId: id.optional() })).mutation(({ ctx, input }) => db.startPomodoro(ctx.user.id, input)),
+    start: protectedProcedure.input(z.object({ plannedMinutes: z.number().int().min(5).max(720), subjectId: id.optional(), elapsedMinutes: z.number().int().min(0).max(120).optional() }).refine(input => (input.elapsedMinutes ?? 0) < input.plannedMinutes)).mutation(({ ctx, input }) => db.startPomodoro(ctx.user.id, input)),
     setPaused: protectedProcedure.input(z.object({ sessionId: id, paused: z.boolean() })).mutation(({ ctx, input }) => db.pausePomodoro(ctx.user.id, input.sessionId, input.paused)),
     complete: protectedProcedure.input(z.object({ sessionId: id, finishEarly: z.boolean().optional() })).mutation(({ ctx, input }) => db.completePomodoro(ctx.user.id, input.sessionId, input.finishEarly)),
   }),
@@ -279,7 +279,7 @@ export const appRouter = router({
     end: protectedProcedure.input(z.object({ sessionId: id })).mutation(({ ctx, input }) => db.endVideoSession(ctx.user.id, input.sessionId)),
     heartbeat: protectedProcedure.input(z.object({ sessionId: id, active: z.boolean(), playbackPosition: z.number().min(0).max(172800).optional(), playbackRate: z.number().min(0.25).max(4).optional(), reset: z.boolean().optional() })).mutation(({ ctx, input }) => db.trackVideoPlayback(ctx.user.id, input.sessionId, input)),
     resume: protectedProcedure.input(z.object({ sessionId: id, skipBreak: z.boolean().optional() })).mutation(({ ctx, input }) => db.resumeVideoSession(ctx.user.id, input.sessionId, input.skipBreak)),
-    setExternalTimer: protectedProcedure.input(z.object({ sessionId: id, running: z.boolean().optional() })).mutation(({ ctx, input }) => db.setExternalVideoTimer(ctx.user.id, input.sessionId, input.running)),
+    setExternalTimer: protectedProcedure.input(z.object({ sessionId: id, running: z.boolean().optional(), elapsedMinutes: z.number().int().min(0).max(45).optional() })).mutation(({ ctx, input }) => db.setExternalVideoTimer(ctx.user.id, input.sessionId, input.running, input.elapsedMinutes)),
     setProgress: protectedProcedure.input(z.object({ sessionId: id, progress: z.enum(["started", "middle", "finished", "reviewed"]) })).mutation(({ ctx, input }) => db.setVideoManualProgress(ctx.user.id, input.sessionId, input.progress)),
   }),
   exams: router({

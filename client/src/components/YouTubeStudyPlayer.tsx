@@ -36,9 +36,10 @@ function loadYouTube() {
   return apiPromise;
 }
 
-export function YouTubeStudyPlayer({ embed, startAt = 0, onPlaying, onStopped, onPosition, onEnded }: {
+export function YouTubeStudyPlayer({ embed, startAt = 0, autoPlay = false, onPlaying, onStopped, onPosition, onEnded }: {
   embed: string;
   startAt?: number;
+  autoPlay?: boolean;
   onPlaying(readPosition: () => number, readRate: () => number): void;
   onStopped(position?: number): void;
   onPosition(position: number): void;
@@ -72,6 +73,7 @@ export function YouTubeStudyPlayer({ embed, startAt = 0, onPlaying, onStopped, o
     url.searchParams.set("enablejsapi", "1");
     url.searchParams.set("origin", window.location.origin);
     url.searchParams.set("playsinline", "1");
+    if (autoPlay) url.searchParams.set("autoplay", "1");
     if (initialPosition.current > 0) url.searchParams.set("start", String(initialPosition.current));
     const frame = document.createElement("iframe");
     frame.title = "فيديو المذاكرة على يوتيوب";
@@ -120,7 +122,7 @@ export function YouTubeStudyPlayer({ embed, startAt = 0, onPlaying, onStopped, o
       player?.destroy();
       frame.remove();
     };
-  }, [embed]);
+  }, [embed, autoPlay]);
   return <>
     <div className="aspect-video bg-black" ref={host} />
     {error && <p className="p-3 text-sm text-muted-foreground" role="status">تعذّر ربط عدّاد يوتيوب. جرّب تحديث الصفحة.</p>}

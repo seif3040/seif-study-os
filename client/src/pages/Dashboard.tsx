@@ -1,3 +1,4 @@
+import { QuickStudyStart } from "@/components/QuickStudyStart";
 import { TodaySections } from "@/components/TodayLayout";
 import TodayNotices, { DailyQuran } from "@/components/TodayNotices";
 import { YearReviewSchedule } from "@/pages/StudyLibrary";
@@ -78,6 +79,7 @@ export default function Dashboard() {
       </div>
       <Button asChild variant="secondary" className="mt-3"><Link href="/study-library"><BookOpen />كتبي</Link></Button>
     </section>,
+    quickStart: <QuickStudyStart day={today} />,
     countdown: <section aria-label="العد التنازلي لنهاية البكالوريا"
       className="surface flex flex-wrap items-center justify-between gap-4 rounded-3xl border-primary/30 bg-primary/10 p-5 sm:px-7">
       <div className="flex items-center gap-3">

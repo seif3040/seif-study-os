@@ -630,7 +630,7 @@ export async function updateGoal(userId: number, goalId: number, input: { title:
 export async function deleteGoal(userId: number, goalId: number) { const db = await database(); return db.delete(goals).where(and(eq(goals.id, goalId), eq(goals.userId, userId))); }
 
 export async function listPomodoros(userId: number) { const db = await database(); return db.select().from(pomodoroSessions).where(eq(pomodoroSessions.userId, userId)).orderBy(desc(pomodoroSessions.createdAt)); }
-export async function startPomodoro(userId: number, input: { plannedMinutes: number; subjectId?: number }) {
+export async function startPomodoro(userId: number, input: { plannedMinutes: number; subjectId?: number; elapsedMinutes?: number }) {
   const db = await database();
   const cycle = await getActiveCycle(userId);
   return db.transaction(async tx => {
@@ -638,14 +638,18 @@ export async function startPomodoro(userId: number, input: { plannedMinutes: num
     const [active] = await tx.select().from(pomodoroSessions)
       .where(and(eq(pomodoroSessions.userId, userId), inArray(pomodoroSessions.state, ["running", "paused"])))
       .orderBy(desc(pomodoroSessions.id)).limit(1);
-    if (active) return active;
+    if (active) {
+      if (input.elapsedMinutes) throw new Error("فيه بومودورو شغّال. انهيه الأول عشان تسجّل الوقت اللي فات.");
+      return active;
+    }
     const subjectId = input.subjectId ?? null;
     if (subjectId !== null) {
       const [subject] = await tx.select({ id: subjects.id }).from(subjects)
         .where(and(eq(subjects.userId, userId), eq(subjects.id, subjectId)));
       if (!subject) throw new Error("المادة مش موجودة.");
     }
-    const [result] = await tx.insert(pomodoroSessions).values({ userId, cycleId: cycle.id, plannedMinutes: input.plannedMinutes, subjectId });
+    const [result] = await tx.insert(pomodoroSessions).values({ userId, cycleId: cycle.id, plannedMinutes: input.plannedMinutes, subjectId,
+      ...(input.elapsedMinutes ? { startedAt: new Date(Date.now() - input.elapsedMinutes * 60_000) } : {}) });
     const [created] = await tx.select().from(pomodoroSessions)
       .where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.id, result.insertId)));
     return created;
@@ -783,7 +787,7 @@ async function awardVideoBlocks(tx: StudyTransaction, item: typeof studyVideoSes
   }
 }
 
-async function updateExternalVideo(userId: number, sessionId: number, action: "start" | "pause" | "tick" | "end") {
+async function updateExternalVideo(userId: number, sessionId: number, action: "start" | "pause" | "tick" | "end", elapsedMinutes = 0) {
   const db = await database();
   const result = await db.transaction(async tx => {
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
@@ -803,9 +807,13 @@ async function updateExternalVideo(userId: number, sessionId: number, action: "s
     const due = deadline !== null && +now >= deadline;
     if (action === "tick" && !due) return { session: item, blockCompleted: false };
     if (action === "start" && !due) {
-      if (item.timerRunning) return { session: item, blockCompleted: false };
+      if (item.timerRunning) {
+        if (elapsedMinutes) throw new Error("المؤقت شغّال بالفعل.");
+        return { session: item, blockCompleted: false };
+      }
       if (item.phase === "break" && item.breakEndsAt && item.breakEndsAt > now) throw new Error("فترة الاستراحة لم تنتهِ بعد.");
-      const changes = { phase: "watching" as const, timerRunning: true, breakEndsAt: null, lastPlaybackAt: now };
+      const changes = { phase: "watching" as const, timerRunning: true, breakEndsAt: null,
+        lastPlaybackAt: new Date(+now - elapsedMinutes * 60_000) };
       await tx.update(studyVideoSessions).set(changes).where(owned);
       return { session: { ...item, ...changes }, blockCompleted: false };
     }
@@ -825,8 +833,8 @@ async function updateExternalVideo(userId: number, sessionId: number, action: "s
   return result;
 }
 
-export function setExternalVideoTimer(userId: number, sessionId: number, running?: boolean) {
-  return updateExternalVideo(userId, sessionId, running === undefined ? "tick" : running ? "start" : "pause");
+export function setExternalVideoTimer(userId: number, sessionId: number, running?: boolean, elapsedMinutes?: number) {
+  return updateExternalVideo(userId, sessionId, running === undefined ? "tick" : running ? "start" : "pause", elapsedMinutes);
 }
 
 export function fallbackComprehension(score: number, difficulty: "easy" | "medium" | "hard", priorAverage: number) { return deriveFallbackComprehension(score, difficulty, priorAverage); }

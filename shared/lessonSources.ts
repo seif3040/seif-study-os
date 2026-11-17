@@ -18,6 +18,15 @@ export function subjectKey(value: string) {
     .replace(/^ال/, "").toLowerCase();
 }
 
+export const videoSubjectNames = { arabic: "عربي", history: "تاريخ", english: "إنجليزي", programming_ai: "برمجة وذكاء اصطناعي", german: "ألماني", other: "أخرى" } as const;
+export type VideoSubject = keyof typeof videoSubjectNames;
+
+export function videoSubject(value: string): VideoSubject {
+  const title = subjectKey(value);
+  return (Object.keys(videoSubjectNames) as VideoSubject[]).find(key => key !== "other" &&
+    title.includes(key === "programming_ai" ? "برمج" : subjectKey(videoSubjectNames[key]))) ?? "other";
+}
+
 export function hybridHomeworkSources<T extends { id: number; subject: string; delivery: LessonDelivery; active: boolean }>(
   sources: readonly T[], subject: string, sourceId?: number,
 ) {

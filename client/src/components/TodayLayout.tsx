@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } 
 
 const sections = {
   overview: "النهارده وإنجاز اليوم",
+  quickStart: "ابدأ المذاكرة",
   countdown: "عداد نهاية البكالوريا",
   homework: "الواجبات القادمة",
   verse: "آية اليوم",
