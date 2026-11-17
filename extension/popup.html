@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>متابعة الدروس</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <h1>متابعة الدروس</h1>
+  <p id="status" role="status">جارٍ قراءة الصفحة…</p>
+  <section id="controls" hidden>
+    <p><strong id="position">—</strong> <span>آخر مكان</span></p>
+    <p id="watched"></p>
+    <p id="ranges"></p>
+    <button id="enable">فعّل المتابعة على المنصة دي</button>
+    <button id="resume" disabled>كمّل من آخر مكان</button>
+    <button id="manual">ابدأ مؤقت يدوي</button>
+    <form id="bookmark"><label>مكانك بالدقايق والثواني <input id="time" placeholder="٣٥:٢٠" dir="ltr" required maxlength="12"></label><button>احفظ المكان</button></form>
+    <form id="note"><label>ملاحظة عند آخر توقيت <textarea id="text" maxlength="1000" required></textarea></label><button>احفظ الملاحظة</button></form>
+  </section>
+  <a href="https://seif-study-os.vercel.app/study-video" target="_blank" rel="noopener">افتح Seif Study OS</a>
+  <script type="module" src="popup.js"></script>
+</body></html>
