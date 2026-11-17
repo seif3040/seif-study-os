@@ -101,7 +101,7 @@ export default function WeekPlanner() {
           {watchSources.length > 0 && <p className="rounded-lg border p-3 text-sm">بعد تأكيد الحضور، هينزل واجب مشاهدة المحاضرة الأونلاين من {watchSources.map(source => source.teacherName).join("، ")}.</p>}
           <StudyLibrary attendanceLessons={attendanceDraft.lessonIds} />
           <div className="space-y-2 border-t pt-3">
-            <p className="text-sm text-muted-foreground">{homeworkReady ? "بعد ما تخلص إضافة كل الكتب والصفحات، أكّد الحضور." : "احفظ واجب لكل درس في الحصة عشان تقدر تأكد الحضور."}</p>
+            <p className="text-sm text-muted-foreground">{homeworkReady ? "بعد ما تخلص إضافة واجبات الكتب والمواقع، أكّد الحضور." : "احفظ واجب لكل درس في الحصة عشان تقدر تأكد الحضور."}</p>
             <div className="flex flex-wrap gap-2">
               <Button disabled={!homeworkReady || attend.isPending} onClick={() => attend.mutate(attendanceDraft)}>أكّد حضور الحصة</Button>
               <Button variant="outline" disabled={attend.isPending} onClick={() => setAttendanceDraft(undefined)}>هكمّل بعدين</Button>

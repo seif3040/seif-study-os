@@ -2055,7 +2055,7 @@ export async function attendPlannerClass(userId: number, input: { slotId: string
       state.attendance.push({ slotId: slot.id, day: input.day, subjectId: subject.id, lessonId: lesson.id, lessonTitle: lesson.title });
       attended.add(lesson.id);
       for (const item of state.resources?.homework.filter(item => item.lessonId === lesson.id) ?? []) {
-        await publishBookHomework(tx, state, userId, cycle.id, item, lesson.title, input.day, deadline);
+        await publishLessonHomework(tx, state, userId, cycle.id, item, lesson.title, input.day, deadline);
       }
       const unitComplete = subjectRows.every(item => item.chapter?.id !== row.chapter?.id
         || item.progress?.status === "completed" || attended.has(item.lesson!.id));
@@ -2660,18 +2660,23 @@ export async function saveStudyResource(userId: number, change: StudyResourceCha
     if (change.type === "homework") {
       const existing = resources.homework.find(row => row.id === change.item.id);
       if (existing && existing.lessonId !== change.item.lessonId) throw new Error("ضيف واجب جديد للدرس التاني.");
-      const book = resources.books.find(row => row.id === change.item.bookId);
       const lesson = await ownedLesson(tx, userId, change.item.lessonId);
-      if (!book || book.subjectId !== lesson.subjectId) throw new Error("اختار كتاب من نفس مادة الدرس.");
+      if (change.item.kind !== "online") {
+        const { bookId } = change.item;
+        const book = resources.books.find(row => row.id === bookId);
+        if (!book || book.subjectId !== lesson.subjectId) throw new Error("اختار كتاب من نفس مادة الدرس.");
+      } else if (!safeStudyUrl(change.item.url)) {
+        throw new Error("رابط الواجب غير صالح.");
+      }
       if (resources.homework.length >= 500 && !resources.homework.some(row => row.id === item.id)) throw new Error("وصلت للحد الأقصى للواجبات.");
       resources.homework = [...resources.homework.filter(row => row.id !== item.id), change.item];
       const attendance = [...state.attendance].reverse().find(row => row.lessonId === change.item.lessonId);
       if (attendance && cycle) {
         const nextDay = Array.from({ length: 14 }, (_, index) => shiftPlannerDay(attendance.day, index + 1))
-          .find(day => state.slots.some(slot => slot.subjectId === book.subjectId && slotOccurs(slot, day)));
-        const nextSlot = nextDay && state.slots.filter(slot => slot.subjectId === book.subjectId && slotOccurs(slot, nextDay))
+          .find(day => state.slots.some(slot => slot.subjectId === lesson.subjectId && slotOccurs(slot, day)));
+        const nextSlot = nextDay && state.slots.filter(slot => slot.subjectId === lesson.subjectId && slotOccurs(slot, nextDay))
           .sort((a, b) => a.start.localeCompare(b.start))[0];
-        await publishBookHomework(tx, state, userId, cycle.id, change.item, lesson.title, attendance.day,
+        await publishLessonHomework(tx, state, userId, cycle.id, change.item, lesson.title, attendance.day,
           nextDay && nextSlot ? cairoPlannerTime(nextDay, nextSlot.start) : null);
       }
       return;
@@ -2682,7 +2687,7 @@ export async function saveStudyResource(userId: number, change: StudyResourceCha
     if (change.type === "book") {
       const book = change.item;
       const old = resources.books.find(row => row.id === book.id);
-      if (old && old.subjectId !== book.subjectId && resources.homework.some(row => row.bookId === book.id)) {
+      if (old && old.subjectId !== book.subjectId && resources.homework.some(row => row.kind !== "online" && row.bookId === book.id)) {
         throw new Error("الكتاب مرتبط بواجبات. اختار كتاب جديد للمادة التانية.");
       }
       const branchThrough = Object.entries(book.branchThrough ?? {});
@@ -2712,15 +2717,18 @@ export async function saveStudyResource(userId: number, change: StudyResourceCha
   });
 }
 
-async function publishBookHomework(tx: StudyTransaction, state: PlannerState, userId: number, cycleId: number,
+async function publishLessonHomework(tx: StudyTransaction, state: PlannerState, userId: number, cycleId: number,
   item: NonNullable<PlannerState["resources"]>["homework"][number], lessonTitle: string, day: string, deadline: Date | null) {
   const resources = state.resources;
-  const book = resources?.books.find(row => row.id === item.bookId);
-  if (!resources || !book) return;
+  if (!resources) return;
+  const sourceTitle = item.kind === "online" ? item.platform : resources.books.find(row => row.id === item.bookId)?.title;
+  if (!sourceTitle) return;
   const key = day + ":" + item.id;
   const published = resources.published ??= {};
-  const title = ("واجب " + lessonTitle + " · " + book.title).slice(0, 200);
-  const description = "الصفحات: " + item.pages + (item.prompt ? "\n" + item.prompt : "");
+  const title = ("واجب " + lessonTitle + " · " + sourceTitle).slice(0, 200);
+  const description = item.kind === "online"
+    ? [item.prompt, "رابط الواجب: " + item.url].filter(Boolean).join("\n")
+    : "الصفحات: " + item.pages + (item.prompt ? "\n" + item.prompt : "");
   if (published[key]) {
     await tx.update(tasks).set({ title, description }).where(and(eq(tasks.id, published[key]), eq(tasks.userId, userId)));
     return;
