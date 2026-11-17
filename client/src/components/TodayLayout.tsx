@@ -31,7 +31,7 @@ function readLayout(key: string): Layout {
     if (!Array.isArray(saved?.order) || !Array.isArray(saved.hidden)) return defaultLayout;
     const isSection = (id: Section) => defaultOrder.includes(id);
     return {
-      order: [...new Set<Section>([...saved.order.filter(isSection), ...defaultOrder])],
+      order: Array.from(new Set<Section>([...saved.order.filter(isSection), ...defaultOrder])),
       hidden: saved.hidden.filter(isSection),
     };
   } catch {

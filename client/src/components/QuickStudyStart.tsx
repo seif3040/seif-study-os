@@ -61,13 +61,13 @@ export function QuickStudyStart({ day }: { day: string }) {
   const retroMax = external ? Math.max(1, Math.floor(((session?.completedBlocks ?? 0) + 1) * videoBlockSeconds / 60
     - (session?.activeSeconds ?? 0) / 60)) : 120;
 
-  async function launch(minutes = 0, focusOnly = false) {
+  async function launch(minutes = 0, focusOnly = false, withFocus = false) {
     if (busy || !item) return;
     const popup = external && !focusOnly && url ? window.open("about:blank", "_blank") : null;
     if (popup) popup.opener = null;
     setBusy(true);
     try {
-      if (focusOnly || (!session && !url) || (!external && minutes > 0)) {
+      if (focusOnly || withFocus || (!session && !url) || (!external && minutes > 0)) {
         const focus = await utils.client.pomodoro.start.mutate({ plannedMinutes: Math.max(25, minutes + 5),
           subjectId: item.subjectId, elapsedMinutes: minutes || undefined });
         if (focus?.subjectId !== item.subjectId) throw new Error("فيه مؤقت لمادة تانية شغّال. وقّفه الأول.");
@@ -110,6 +110,7 @@ export function QuickStudyStart({ day }: { day: string }) {
     </select>}
     <div className="flex flex-wrap gap-2">
       <Button disabled={busy} onClick={() => void launch()}><Play />{external ? "افتح المنصة وابدأ المؤقت" : "ابدأ " + item.subject}</Button>
+      {!external && (session || url) && <Button variant="outline" disabled={busy} onClick={() => void launch(0, false, true)}><Timer />فيديو + بومودورو</Button>}
       {(session || url) && <Button variant="outline" disabled={busy} onClick={() => void launch(0, true)}><Timer />تركيز بس</Button>}
       <Button variant="ghost" disabled={busy} onClick={() => { setElapsed(Math.min(10, retroMax)); setRetro(true); }}>بدأت من شوية</Button>
     </div>
