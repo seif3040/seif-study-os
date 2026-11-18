@@ -134,6 +134,7 @@ export type PlannedStudy = {
   title: string;
   kind: "homework" | "review" | "backlog" | "study";
   lessonId?: number;
+  taskId?: number;
   done?: boolean;
   postponeReason?: StudyPostponeReason;
 };

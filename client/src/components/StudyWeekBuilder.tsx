@@ -24,7 +24,7 @@ export default function StudyWeekBuilder() {
   return <div className="mb-3">
     <Button variant="outline" onClick={() => { setBudget(undefined); setOpen(true); }}>وزّع ساعات الأسبوع</Button>
     {open && <ActionDialog title="وزّع ساعات الأسبوع" pending={apply.isPending} onClose={() => setOpen(false)}>
-      <p className="text-sm text-muted-foreground">الخطة بتغطي السبع أيام الجاية وبتسيب الجمعة إجازة. الامتحان الأقرب له الأولوية، وبعده الجديد والمتراكم بالتبادل.</p>
+      <p className="text-sm text-muted-foreground">الخطة بتغطي السبع أيام الجاية وبتسيب الجمعة إجازة. الأولوية لمواعيد الامتحانات والواجبات، وبعدها الجديد والمتراكم بالتبادل. الواجب له ٢٥ دقيقة تقديريًا.</p>
       <form className="flex flex-wrap items-end gap-2" onSubmit={event => {
         event.preventDefault();
         const next = Math.round(hours * 60);
@@ -40,9 +40,9 @@ export default function StudyWeekBuilder() {
       {budget !== undefined && (preview.isFetching ? <p role="status">بنحسب الوقت المتاح…</p> : preview.isError ? <p role="alert">{errorText(preview.error)}</p> : preview.data && <>
         {preview.data.entries.length ? <ul className="max-h-64 space-y-2 overflow-auto">
           {[...preview.data.entries].sort((a, b) => a.day.localeCompare(b.day) || a.start.localeCompare(b.start)).map(item => <li key={item.day + item.start} className="rounded-lg border p-2 text-sm">
-            <strong>{item.title}</strong> · {item.kind === "review" ? "مراجعة" : item.kind === "backlog" ? "متراكم" : "مذاكرة"} · {item.day} · {formatClock(item.start)}–{formatClock(item.end)}
+            <strong>{item.title}</strong> · {item.kind === "homework" ? "واجب" : item.kind === "review" ? "مراجعة" : item.kind === "backlog" ? "متراكم" : "مذاكرة"} · {item.day} · {formatClock(item.start)}–{formatClock(item.end)}
           </li>)}
-        </ul> : <p>مفيش درس مناسب في المواعيد المتاحة.</p>}
+        </ul> : <p>مفيش درس أو واجب مناسب في المواعيد المتاحة.</p>}
         {preview.data.remaining > 0 && <p className="text-sm">فاضل {preview.data.remaining} دقيقة من الوقت اللي حددته.</p>}
         <Button disabled={!preview.data.entries.length || apply.isPending} onClick={() => apply.mutate({ budget, signature: JSON.stringify(preview.data.entries) })}>اعتمد الخطة</Button>
       </>)}

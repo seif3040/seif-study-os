@@ -2187,7 +2187,7 @@ async function changePlanner<T>(userId: number, change: (state: PlannerState, tx
 function sameStudyEntry(a: PlannedStudy | null, b: PlannedStudy | null) {
   if (!a || !b) return a === b;
   return a.id === b.id && a.day === b.day && a.start === b.start && a.end === b.end && a.title === b.title &&
-    a.kind === b.kind && a.lessonId === b.lessonId && a.done === b.done && a.postponeReason === b.postponeReason;
+    a.kind === b.kind && a.lessonId === b.lessonId && a.taskId === b.taskId && a.done === b.done && a.postponeReason === b.postponeReason;
 }
 
 export function undoLastStudyChange(userId: number, at: number) {
@@ -2539,7 +2539,11 @@ async function proposeStudyWeek(tx: Pick<StudyTransaction, "select">, userId: nu
   const today = plannerToday();
   const dates = Array.from({ length: 7 }, (_, index) => shiftPlannerDay(today, index))
     .filter(day => plannerWeekday(day) !== 5);
-  const [plan, examRows] = await Promise.all([listStudyPlan(userId), scheduledExamRows(tx, userId)]);
+  const [plan, examRows, homework] = await Promise.all([
+    listStudyPlan(userId), scheduledExamRows(tx, userId),
+    tx.select().from(tasks).where(and(eq(tasks.userId, userId), eq(tasks.category, "واجب"),
+      eq(tasks.status, "open"), isNull(tasks.deletedAt))),
+  ]);
   const now = Date.now();
   const visits = examOccurrences(examRows, today, shiftPlannerDay(today, 6), state.slots)
     .filter(exam => +exam.scheduledAt > now);
@@ -2562,26 +2566,35 @@ async function proposeStudyWeek(tx: Pick<StudyTransaction, "select">, userId: nu
     const complete = row.progress?.status === "completed";
     if (complete && (!Number.isFinite(deadline) || row.progress?.lastReviewedAt)) return [];
     const kind = complete ? "review" as const : marked.has(lesson.id) ? "backlog" as const : "study" as const;
-    return [{ lesson, kind, deadline }];
+    return [{ title: lesson.title, lessonId: lesson.id, kind, deadline,
+      duration: kind === "review" ? 15 : Math.max(5, lesson.estimatedMinutes) }];
   });
-  const urgent = candidates.filter(item => Number.isFinite(item.deadline)).sort((a, b) => a.deadline - b.deadline);
+  const plannedHomework = new Set((state.studySessions ?? []).filter(item => !item.done && item.day >= today).map(item => item.taskId));
+  const weekEnd = shiftPlannerDay(today, 6);
+  const homeworkCandidates = homework.filter(task => !plannedHomework.has(task.id) &&
+    (task.deadline ? plannerToday(task.deadline) <= weekEnd : !task.scheduledFor || task.scheduledFor <= weekEnd))
+    .map(task => ({ title: task.title, taskId: task.id, kind: "homework" as const, duration: 25,
+      deadline: task.deadline && +task.deadline > now ? +task.deadline : Infinity,
+      priority: task.priority === "urgent" ? 0 : 1 } as const));
+  const urgent = [...candidates, ...homeworkCandidates].filter(item => Number.isFinite(item.deadline)).sort((a, b) => a.deadline - b.deadline);
   const backlog = candidates.filter(item => !Number.isFinite(item.deadline) && item.kind === "backlog");
   const other = candidates.filter(item => !Number.isFinite(item.deadline) && item.kind !== "backlog");
-  const order = [...urgent, ...Array.from({ length: Math.max(backlog.length, other.length) }, (_, i) => [other[i], backlog[i]]).flat()
-    .filter((item): item is typeof candidates[number] => Boolean(item))];
+  const flexibleHomework = homeworkCandidates.filter(item => !Number.isFinite(item.deadline)).sort((a, b) => a.priority - b.priority);
+  const order = [...urgent, ...Array.from({ length: Math.max(backlog.length, other.length, flexibleHomework.length) },
+    (_, i) => [flexibleHomework[i], other[i], backlog[i]]).flat().filter(Boolean)];
   const slots = await Promise.all(dates.map(async day => ({ day, assigned: 0, ...(await studyAvailability(tx, userId, state, day)) })));
   const entries: Omit<PlannedStudy, "id">[] = [];
   let remaining = budget;
   for (const item of order) {
     if (remaining < 5 || entries.length >= 40) break;
-    const duration = Math.min(remaining, item.kind === "review" ? 15 : Math.max(5, item.lesson.estimatedMinutes));
+    const duration = Math.min(remaining, item.duration);
     const rankedDays = Number.isFinite(item.deadline) ? slots : [...slots].sort((a, b) => a.assigned - b.assigned);
     for (const slot of rankedDays) {
       const { day, free } = slot;
       const gap = free.find(period => period.end - period.start >= duration &&
         +cairoPlannerTime(day, examClock(period.start)) + duration * 60_000 <= item.deadline);
       if (!gap) continue;
-      entries.push({ day, start: examClock(gap.start), end: examClock(gap.start + duration), lessonId: item.lesson.id, title: item.lesson.title, kind: item.kind });
+      entries.push({ day, start: examClock(gap.start), end: examClock(gap.start + duration), ...("lessonId" in item ? { lessonId: item.lessonId } : { taskId: item.taskId }), title: item.title, kind: item.kind });
       gap.start += duration;
       remaining -= duration;
       slot.assigned += duration;
