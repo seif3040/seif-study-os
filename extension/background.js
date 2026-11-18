@@ -39,7 +39,7 @@ async function handle(message, sender) {
         if (!normalized) return [];
         const hostname = new URL(normalized).hostname.replace(/^www\./, "");
         if (hostname !== host && !hostname.endsWith("." + host)) return [];
-        return [{ url: normalized, title: value.title || new URL(normalized).pathname, position: value.position, lastPlayingAt: value.lastPlayingAt, manualSince: value.manualSince, updatedAt: value.updatedAt ?? value.lastAutoAt ?? value.manualSince ?? 0 }];
+        return [{ url: normalized, title: value.title || new URL(normalized).pathname, position: value.position, lastPlayingAt: value.lastPlayingAt, playing: value.playing, lastAutoAt: value.lastAutoAt, manualSince: value.manualSince, updatedAt: value.updatedAt ?? value.lastAutoAt ?? value.manualSince ?? 0 }];
       }).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 30);
   }
   if (studySite && message.type !== "read") return null;
@@ -55,6 +55,8 @@ async function handle(message, sender) {
       if (!Number.isFinite(message.position) || message.position < 0 || message.position > 604800) return null;
       data.position = message.position;
       data.lastAutoAt = now;
+      data.playing = message.playing === true;
+      if (data.playing) data.lastPlayingAt = now;
       if (Number.isFinite(message.from) && message.from >= 0 && message.position - message.from <= 30
           && Number.isFinite(message.seconds) && message.seconds > 0 && message.seconds <= 5 && !data.manualSince) {
         data.lastPlayingAt = now;

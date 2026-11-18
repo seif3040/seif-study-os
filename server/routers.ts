@@ -277,6 +277,8 @@ export const appRouter = router({
     delete: protectedProcedure.input(z.object({ cardId: id })).mutation(({ ctx, input }) => db.deleteFlashcard(ctx.user.id, input.cardId)),
   }),
   video: router({
+    extensionPlayback: protectedProcedure.input(z.object({ sessionId: id, active: z.boolean(), playbackPosition: z.number().min(0).max(172800) }))
+      .mutation(({ ctx, input }) => db.trackVideoPlayback(ctx.user.id, input.sessionId, { ...input, external: true })),
     saveExternalPosition: protectedProcedure.input(z.object({ sessionId: id, seconds: z.number().int().min(0).max(172800) }))
       .mutation(({ ctx, input }) => db.saveExternalVideoPosition(ctx.user.id, input.sessionId, input.seconds)),
     correctExternalMinutes: protectedProcedure.input(z.object({ sessionId: id, minutes: z.number().int().min(0).max(720) }))

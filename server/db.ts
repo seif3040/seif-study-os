@@ -818,14 +818,14 @@ export async function listVideoSessions(userId: number) { const db = await datab
 export async function createVideoNote(userId: number, input: { sessionId: number; title: string; content: string; timestampSeconds?: number }) { const db = await database(); const session = await db.select({ id: studyVideoSessions.id }).from(studyVideoSessions).where(and(eq(studyVideoSessions.id, input.sessionId), eq(studyVideoSessions.userId, userId))).limit(1); if (!session[0]) throw new Error("جلسة الفيديو غير موجودة."); await db.insert(videoNotes).values({ userId, sessionId: input.sessionId, title: input.title, content: input.content, timestampSeconds: input.timestampSeconds ?? null }); }
 export async function updateVideoNote(userId: number, noteId: number, input: { title: string; content: string; timestampSeconds?: number }) { const db = await database(); const result = await db.update(videoNotes).set({ title: input.title, content: input.content, timestampSeconds: input.timestampSeconds ?? null }).where(and(eq(videoNotes.id, noteId), eq(videoNotes.userId, userId))); if (!result) throw new Error("الملاحظة غير موجودة."); }
 export async function deleteVideoNote(userId: number, noteId: number) { const db = await database(); return db.delete(videoNotes).where(and(eq(videoNotes.id, noteId), eq(videoNotes.userId, userId))); }
-export async function trackVideoPlayback(userId: number, sessionId: number, input: { active: boolean; playbackPosition?: number }) {
+export async function trackVideoPlayback(userId: number, sessionId: number, input: { active: boolean; playbackPosition?: number; external?: boolean }) {
   const db = await database();
   const result = await db.transaction(async tx => {
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
     const owned = and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId));
     const [item] = await tx.select().from(studyVideoSessions).where(owned).for("update");
     if (!item) throw new Error("جلسة الفيديو غير موجودة.");
-    if (item.phase !== "watching" || item.sourceMode !== "embedded") {
+    if (item.phase !== "watching" || item.sourceMode !== (input.external ? "external" : "embedded")) {
       return { session: item, addedSeconds: 0, blockCompleted: false, phase: item.phase };
     }
     const now = new Date();
@@ -836,7 +836,7 @@ export async function trackVideoPlayback(userId: number, sessionId: number, inpu
     const blockCompleted = completedBlocks > item.completedBlocks;
     const phase = blockCompleted ? "break" as const : "watching" as const;
     const changes = {
-      activeSeconds, completedBlocks, phase,
+      activeSeconds, completedBlocks, phase, ...(input.external ? { timerRunning: false } : {}),
       breakEndsAt: blockCompleted ? new Date(+now + 15 * 60_000) : null,
       lastPlaybackAt: blockCompleted || !input.active ? null : now,
       lastPlaybackPosition: position,

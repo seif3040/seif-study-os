@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { videoSubject } from "@shared/lessonSources";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 
-type Activity = { url: string; title: string; lastPlayingAt?: number; manualSince?: number };
+type Activity = { url: string; title: string; position?: number; playing?: boolean; lastAutoAt?: number; lastPlayingAt?: number; manualSince?: number };
 
 export default function ExtensionStudySync() {
+  const [location, navigate] = useLocation();
   const sources = trpc.lessonSources.list.useQuery();
   const utils = trpc.useUtils();
   const pending = useRef(false);
@@ -29,7 +30,12 @@ export default function ExtensionStudySync() {
       const current = session ?? await utils.client.video.start.mutate({
         subject, videoUrl: activity.url, lessonTitle: activity.title.slice(0, 220), requestedMode: "external",
       });
-      if (current.phase !== "break" && !current.timerRunning) {
+      if (current.phase !== "break" && Number.isFinite(activity.position) && activity.lastAutoAt && Date.now() - activity.lastAutoAt < 30000) {
+        const result = await utils.client.video.extensionPlayback.mutate({ sessionId: current.id, active: activity.playing === true, playbackPosition: Math.min(172800, activity.position!) });
+        utils.video.current.setData({ subject }, result.session);
+        await utils.video.open.invalidate();
+        if (!session && location === "/study-video") navigate("/study-video?subject=" + subject);
+      } else if (current.phase !== "break" && activity.manualSince && !current.timerRunning) {
         await utils.client.video.setExternalTimer.mutate({ sessionId: current.id, running: true });
         await Promise.all([utils.video.invalidate(), utils.analytics.overview.invalidate()]);
         toast.success("بدأت جلسة " + subjectName + " من منصة المدرس.");
@@ -47,7 +53,7 @@ export default function ExtensionStudySync() {
       if (event.source !== window || event.origin !== location.origin || event.data?.id !== id ||
           event.data.type !== "seif-study-extension:progress" || !event.data.list || !Array.isArray(event.data.data)) return;
       const recent = (event.data.data as Activity[]).find(item =>
-        typeof item.url === "string" && (item.manualSince || Number.isFinite(item.lastPlayingAt) && Date.now() - item.lastPlayingAt! < 12000));
+        typeof item.url === "string" && (item.manualSince || Number.isFinite(item.lastAutoAt) && Date.now() - item.lastAutoAt! < 30000));
       if (!recent) return;
       let url: URL;
       try { url = new URL(recent.url); if (url.protocol !== "https:") return; } catch { return; }

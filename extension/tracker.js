@@ -23,8 +23,8 @@
       && advanced > 0 && advanced <= seconds * video.playbackRate + 0.35;
     // Initial metadata on reload must not replace an existing bookmark with zero.
     if ((position > 0 || (discontinuity && last?.url === url && last.position > 0))
-        && (!last || last.video !== video || last.url !== url || Math.abs(advanced) >= 0.1 || discontinuity)) {
-      chrome.runtime.sendMessage({ type: "sample", position, from: watched ? last.position : null,
+        && (!last || last.video !== video || last.url !== url || Math.abs(advanced) >= 0.1 || discontinuity || last.playing !== (!video.paused && !video.ended && !video.seeking && video.readyState >= 3))) {
+      chrome.runtime.sendMessage({ type: "sample", position, playing: !video.paused && !video.ended && !video.seeking && video.readyState >= 3, from: watched ? last.position : null,
         seconds: watched ? Math.min(seconds, advanced / video.playbackRate) : 0 }).catch(() => {});
     }
     last = { video, url, now, position, playing: !video.paused && !video.ended && !video.seeking && video.readyState >= 3 };

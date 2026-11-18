@@ -7,6 +7,7 @@ type PlaybackProgress = {
   manual: number;
   ranges: [number, number][];
   lastPlayingAt?: number;
+  lastAutoAt?: number;
   manualSince?: number;
   notes: { text: string; position: number | null; at: number }[];
 };
@@ -24,7 +25,7 @@ export default function ExternalPlaybackProgress({ url, sessionId, running, inBr
   });
   const observed = useRef(false);
   useEffect(() => {
-    if (!progress) return;
+    if (!progress || progress.lastAutoAt) return;
     const active = Boolean(progress.manualSince) || Boolean(progress.lastPlayingAt && Date.now() - progress.lastPlayingAt < 12000);
     if (active) observed.current = true;
     if (observed.current && !inBreak && active !== running && !timer.isPending && !timer.isError) {

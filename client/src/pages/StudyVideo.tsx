@@ -173,7 +173,7 @@ function SubjectVideoSession({ subject, files, onSubject, autoPlay, initialTitle
     setPlaying(false);
   }, [session?.phase]);
   const activeNow = session?.sourceMode === "embedded" ? Math.max(session.activeSeconds, videoPosition)
-    : session ? externalVideoElapsed(session, now) : 0;
+    : session ? session.lastPlaybackPosition != null && !session.timerRunning ? session.lastPlaybackPosition : externalVideoElapsed(session, now) : 0;
   const sourceOptions = (savedSources.data ?? []).filter(source => source.active && source.url && safeStudyUrl(source.url))
     .sort((a, b) => Number(sourceSubject(b.subject) === subject) - Number(sourceSubject(a.subject) === subject));
   const source = sourceOptions.find(item => String(item.id) === sourceId);
