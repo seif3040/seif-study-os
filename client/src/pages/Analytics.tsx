@@ -3,7 +3,9 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import { plannerToday, shiftPlannerDay } from "@shared/studyPlanner";
 import { useState } from "react";
 import { PageHeader, EmptyState } from "@/components/PageHeader";
-import { money, minutesLabel } from "@/lib/study";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { money, minutesLabel, errorText } from "@/lib/study";
 import { trpc } from "@/lib/trpc";
 import { Award, BarChart3, BookOpen, BrainCircuit, CheckSquare, CircleDollarSign, Timer } from "lucide-react";
 const scoreFormat = new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 1 });
@@ -111,11 +113,43 @@ function Overview() {
           <span className="font-bold text-primary">{minutesLabel(Number(day.minutes))}</span>
         </div>
         <progress className="h-2 w-full accent-primary" aria-label="وقت المذاكرة" value={Number(day.minutes)} max={max} />
+        <DailyStudySessions sessions={day.sessions ?? []} overlap={day.overlapMinutes ?? 0} total={Number(day.minutes)} />
         <p className="text-sm text-muted-foreground">{money.format(Number(day.lessons))} درس · {money.format(Number(day.tasks))} مهمة · {money.format(Number(day.events))} نشاط</p>
       </article>)}
       {daily.length > limit && <button className="text-primary underline" onClick={() => setLimit(daily.length)}>اعرض كل الأيام</button>}
     </div>
   </section>;
+}
+
+function DailyStudySessions({ sessions, overlap, total }: {
+  sessions: { id: number; at: Date; kind: string; minutes: number }[];
+  overlap: number;
+  total: number;
+}) {
+  const utils = trpc.useUtils();
+  const correction = trpc.pomodoro.correctMinutes.useMutation({
+    onSuccess: async () => { await utils.invalidate(); toast.success("مدة الجلسة اتعدّلت."); },
+    onError: error => toast.error(errorText(error)),
+  });
+  const clock = new Intl.DateTimeFormat("ar-EG", { hour: "numeric", minute: "2-digit", timeZone: "Africa/Cairo" });
+  if (!sessions.length) return null;
+  return <details className="text-sm">
+    <summary className="cursor-pointer font-semibold text-primary">تفاصيل ساعات المذاكرة</summary>
+    <div className="mt-3 space-y-2">
+      <p>الإجمالي {money.format(Math.round(total))} دقيقة · التداخل المخصوم {money.format(Math.round(overlap))} دقيقة</p>
+      {sessions.map(session => <div key={session.id} className="flex flex-wrap items-center justify-between gap-2 border-t pt-2">
+        <span>{session.kind === "video_block" ? "فيديو مذاكرة" : session.kind === "pomodoro_complete" ? "بومودورو" : "مذاكرة"} · {clock.format(new Date(session.at))} · {money.format(session.minutes)} دقيقة</span>
+        {session.kind === "pomodoro_complete" && <form key={session.minutes} className="flex items-center gap-2" onSubmit={event => {
+          event.preventDefault();
+          const minutes = Number(new FormData(event.currentTarget).get("minutes"));
+          correction.mutate({ eventId: session.id, minutes });
+        }}>
+          <input name="minutes" type="number" min={1} max={720} required defaultValue={session.minutes} aria-label="مدة جلسة البومودورو بالدقائق" className="w-20 rounded-md border bg-background p-1" />
+          <Button size="sm" variant="outline" disabled={correction.isPending}>عدّل</Button>
+        </form>}
+      </div>)}
+    </div>
+  </details>;
 }
 
 const trendMetrics = [

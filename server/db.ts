@@ -1430,8 +1430,17 @@ export async function analytics(userId: number) {
     db.select({ id: subjects.id, title: subjects.title }).from(subjects).where(eq(subjects.userId, userId)).orderBy(subjects.title),
     examSubjectMap(db, userId),
   ]);
+  const sessionsByDay = new Map<string, { id: number; at: Date; kind: string; minutes: number }[]>();
+  for (const { id, at, kind, minutes } of timeRows) {
+    const day = dateKey(at);
+    const sessions = sessionsByDay.get(day) ?? [];
+    sessions.push({ id, at, kind, minutes: Number(minutes) });
+    sessionsByDay.set(day, sessions);
+  }
   const daily = dailyRows.map(row => ({
     ...row,
+    overlapMinutes: overlap.get(String(row.day).slice(0, 10)) ?? 0,
+    sessions: (sessionsByDay.get(String(row.day).slice(0, 10)) ?? []).sort((a, b) => +a.at - +b.at),
     minutes: Math.max(0, Number(row.minutes) - (overlap.get(String(row.day).slice(0, 10)) ?? 0)),
   }));
   return { cycle, metrics, coins, daily, sleepLogs: planner.sleepLogs ?? {}, breakMilliseconds: planner.breakMilliseconds ?? {}, bySubject, completion: completion[0] ?? { open: 0, completed: 0 }, examSubjects, comprehension: comprehension.map(attempt => ({ date: examPerformanceDay(attempt), score: attempt.score, comprehension: attempt.comprehension,
