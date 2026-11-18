@@ -1,6 +1,6 @@
 const librarySections = ["/homework", "/mistakes", "/year-review"] as const;
 
-export const defaultDesktopTabs = ["/", "/today", "/lesson-sources", "/backlog", "/study-plan", "/study-library", "/notebooks", ...librarySections, "/assessments", "/exams", "/study-video", "/quran", "/music", "/analytics", "/calendar", "/rewards", "/coins", "/settings"] as const;
+export const defaultDesktopTabs = ["/", "/today", "/lesson-sources", "/backlog", "/study-plan", "/study-library", ...librarySections, "/assessments", "/exams", "/study-video", "/quran", "/music", "/analytics", "/calendar", "/rewards", "/coins", "/settings"] as const;
 export const defaultMobileTabs = ["/today", "/study-plan", "/calendar", "/study-video", "/settings"] as const;
 export type NavigationPrefs = { mobile: string[]; desktop: string[]; libraryTabSeen?: boolean; librarySectionsSeen?: boolean; quranTabSeen?: boolean; musicTabSeen?: boolean; welcomeTabSeen?: boolean; notebookTabSeen?: boolean };
 
@@ -17,11 +17,7 @@ export function desktopNavigation(prefs?: NavigationPrefs): readonly string[] {
   const musicAnchor = withQuran.includes("/quran") ? "/quran" : withQuran[0];
   const withMusic = prefs.musicTabSeen || withQuran.includes("/music") ? withQuran
     : withQuran.flatMap(path => path === musicAnchor ? [path, "/music"] : [path]);
-  const desktop = prefs.notebookTabSeen || withMusic.includes("/notebooks") ? withMusic : [...withMusic];
-  if (desktop !== withMusic) {
-    const index = desktop.indexOf("/study-library");
-    desktop.splice(index < 0 ? desktop.length : index + 1, 0, "/notebooks");
-  }
+  const desktop = withMusic.filter(path => path !== "/notebooks");
   if (prefs.librarySectionsSeen) return desktop;
   const missing = librarySections.filter(path => !prefs.desktop.includes(path));
   if (prefs.desktop.includes("/study-library")) {
