@@ -2491,6 +2491,78 @@ async function suggestReplan(tx: Pick<StudyTransaction, "select">, userId: numbe
   return { changes, left };
 }
 
+async function proposeStudyWeek(tx: Pick<StudyTransaction, "select">, userId: number, state: PlannerState, budget: number) {
+  const today = plannerToday();
+  const dates = Array.from({ length: 7 }, (_, index) => shiftPlannerDay(today, index))
+    .filter(day => plannerWeekday(day) !== 5);
+  const [plan, examRows] = await Promise.all([listStudyPlan(userId), scheduledExamRows(tx, userId)]);
+  const now = Date.now();
+  const visits = examOccurrences(examRows, today, shiftPlannerDay(today, 6), state.slots)
+    .filter(exam => +exam.scheduledAt > now);
+  const ids = Array.from(new Set(visits.map(exam => exam.id)));
+  const links = ids.length ? await tx.select({ examId: examLessons.examId, lessonId: examLessons.lessonId })
+    .from(examLessons).where(inArray(examLessons.examId, ids)) : [];
+  const queued = new Set((state.studySessions ?? []).filter(item => !item.done && item.day >= today).map(item => item.lessonId));
+  const marked = new Set(state.backlog ?? []);
+  const candidates = plan.rows.flatMap(row => {
+    if (!row.lesson || queued.has(row.lesson.id)) return [];
+    const lesson = row.lesson;
+    const deadline = visits.reduce((next, exam) => {
+      const scope = links.filter(link => link.examId === exam.id);
+      const covered = scope.length ? scope.some(link => link.lessonId === lesson.id)
+        : exam.lessonId ? exam.lessonId === lesson.id
+        : exam.chapterId ? exam.chapterId === row.chapter?.id
+        : exam.subjectId === row.subject.id;
+      return covered ? Math.min(next, +exam.scheduledAt) : next;
+    }, Infinity);
+    const complete = row.progress?.status === "completed";
+    if (complete && (!Number.isFinite(deadline) || row.progress?.lastReviewedAt)) return [];
+    const kind = complete ? "review" as const : marked.has(lesson.id) ? "backlog" as const : "study" as const;
+    return [{ lesson, kind, deadline }];
+  });
+  const urgent = candidates.filter(item => Number.isFinite(item.deadline)).sort((a, b) => a.deadline - b.deadline);
+  const backlog = candidates.filter(item => !Number.isFinite(item.deadline) && item.kind === "backlog");
+  const other = candidates.filter(item => !Number.isFinite(item.deadline) && item.kind !== "backlog");
+  const order = [...urgent, ...Array.from({ length: Math.max(backlog.length, other.length) }, (_, i) => [other[i], backlog[i]]).flat()
+    .filter((item): item is typeof candidates[number] => Boolean(item))];
+  const slots = await Promise.all(dates.map(async day => ({ day, assigned: 0, ...(await studyAvailability(tx, userId, state, day)) })));
+  const entries: Omit<PlannedStudy, "id">[] = [];
+  let remaining = budget;
+  for (const item of order) {
+    if (remaining < 5 || entries.length >= 40) break;
+    const duration = Math.min(remaining, item.kind === "review" ? 15 : Math.max(5, item.lesson.estimatedMinutes));
+    const rankedDays = Number.isFinite(item.deadline) ? slots : [...slots].sort((a, b) => a.assigned - b.assigned);
+    for (const slot of rankedDays) {
+      const { day, free } = slot;
+      const gap = free.find(period => period.end - period.start >= duration &&
+        +cairoPlannerTime(day, examClock(period.start)) + duration * 60_000 <= item.deadline);
+      if (!gap) continue;
+      entries.push({ day, start: examClock(gap.start), end: examClock(gap.start + duration), lessonId: item.lesson.id, title: item.lesson.title, kind: item.kind });
+      gap.start += duration;
+      remaining -= duration;
+      slot.assigned += duration;
+      break;
+    }
+  }
+  return { entries, remaining };
+}
+
+export async function previewStudyWeek(userId: number, budget: number) {
+  const db = await database();
+  return proposeStudyWeek(db, userId, await getPlanner(userId), budget);
+}
+
+export function applyStudyWeek(userId: number, budget: number, signature: string) {
+  return changePlanner(userId, async (state, tx) => {
+    const preview = await proposeStudyWeek(tx, userId, state, budget);
+    if (signature !== JSON.stringify(preview.entries) || !preview.entries.length) {
+      throw new Error("الوقت المتاح اتغيّر. اعمل معاينة تاني قبل الاعتماد.");
+    }
+    (state.studySessions ??= []).push(...preview.entries.map(entry => ({ ...entry, id: crypto.randomUUID() })));
+    return { added: preview.entries.length };
+  });
+}
+
 export async function previewStudyReplan(userId: number) {
   const db = await database();
   return suggestReplan(db, userId, await getPlanner(userId));

@@ -188,6 +188,10 @@ export const appRouter = router({
       .mutation(({ ctx, input }) => db.fillStudyDay(ctx.user.id, input.day, input.subjectId)),
     overrideSlot: protectedProcedure.input(z.object({ id: z.string().uuid(), day: z.string().date(), active: z.boolean() }))
       .mutation(({ ctx, input }) => db.overridePlannerSlot(ctx.user.id, input.id, input.day, input.active)),
+    previewWeek: protectedProcedure.input(z.object({ budget: z.number().int().min(30).max(2400) }))
+      .query(({ ctx, input }) => db.previewStudyWeek(ctx.user.id, input.budget)),
+    applyWeek: protectedProcedure.input(z.object({ budget: z.number().int().min(30).max(2400), signature: z.string().max(40_000) }))
+      .mutation(({ ctx, input }) => db.applyStudyWeek(ctx.user.id, input.budget, input.signature)),
     previewReplan: protectedProcedure.query(({ ctx }) => db.previewStudyReplan(ctx.user.id)),
     applyReplan: protectedProcedure.input(z.array(z.object({ id: z.string().uuid(), day: z.string().date(), start: plannerTime, end: plannerTime })).min(1).max(20))
       .mutation(({ ctx, input }) => db.applyStudyReplan(ctx.user.id, input)),

@@ -1,3 +1,4 @@
+import StudyWeekBuilder from "@/components/StudyWeekBuilder";
 import WeekPlanner from "@/components/WeekPlanner";
 import React, { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +42,7 @@ export default function LessonSources() {
     <PageHeader title="جدول الأسبوع" description="رتّب حصصك والتزاماتك واربط كل حصة بمصدرها." action={{ label: "مصدر جديد", onClick: () => document.getElementById("source-trigger")?.click() }} />
     <SourceDialog onDone={() => utils.lessonSources.list.invalidate()} />
 
+    <StudyWeekBuilder />
     <WeekPlanner />
     {!sources.length ? <EmptyState title="مصادرك لم تُضف بعد" description="أضف المنصة أو الحصة الحضورية، ثم حدد دورها داخل خطتك." /> : <>
       <h2 className="mb-3 text-lg font-bold">مصادر دروسي</h2>
