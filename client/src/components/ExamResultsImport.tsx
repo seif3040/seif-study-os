@@ -15,6 +15,8 @@ export default function ExamResultsImport() {
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<Entry[]>([]);
   const [busy, setBusy] = useState(false);
+  const [reading, setReading] = useState(false);
+  const readImage = trpc.exams.readResultsImage.useMutation();
   const [message, setMessage] = useState("");
   const auth = trpc.auth.me.useQuery();
   const subjects = trpc.studyPlan.list.useQuery();
@@ -54,6 +56,30 @@ export default function ExamResultsImport() {
     } catch (error) { setMessage(errorText(error)); }
   }
 
+  async function loadImage(file: File) {
+    setReading(true);
+    setMessage("");
+    setRows([]);
+    try {
+      if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 2_000_000) {
+        throw new Error("اختار صورة PNG أو JPG أو WebP بحجم ٢ ميجابايت أو أقل.");
+      }
+      const image = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("تعذّر فتح الصورة."));
+        reader.readAsDataURL(file);
+      });
+      const results = await readImage.mutateAsync({ image });
+      setRows(results.map(row => ({ ...row, key: crypto.randomUUID(), selected: false })));
+      setMessage(results.length ? "راجع كل خانة واختار النتائج اللي عايز تحفظها." : "مفيش نتائج واضحة اتقرت من الصورة.");
+    } catch (error) {
+      setMessage(errorText(error));
+    } finally {
+      setReading(false);
+    }
+  }
+
   async function save() {
     if (!auth.data || busy || !exams.data) return;
     setBusy(true);
@@ -84,14 +110,21 @@ export default function ExamResultsImport() {
   }
 
   return <div className="mb-4">
-    <Button variant="outline" onClick={() => setOpen(true)}>استيراد درجات CSV</Button>
-    {open && <ActionDialog title="استيراد درجات الامتحانات" pending={busy} onClose={() => setOpen(false)}>
+    <Button variant="outline" onClick={() => setOpen(true)}>استيراد درجات · CSV أو صورة</Button>
+    {open && <ActionDialog title="استيراد درجات الامتحانات" pending={busy || reading} onClose={() => setOpen(false)}>
       <p className="text-sm">استخدم الأعمدة دي. اكتب اسم المادة زي ما هو في خطة المنهج.</p>
       <code className="block text-sm" dir="ltr">title,subject,date,correct,total</code>
-      <input type="file" accept=".csv,text/csv" aria-label="ملف CSV" disabled={busy} onChange={event => {
+      <input type="file" accept=".csv,text/csv" aria-label="ملف CSV" disabled={busy || reading} onChange={event => {
         const file = event.target.files?.[0];
         if (file) void load(file);
       }} />
+      <label className="block space-y-1 text-sm">
+        <span className="block font-semibold">قراءة درجات من صورة</span>
+        <span className="block text-xs text-muted-foreground">اختيار صورة يرسلها لـ OpenRouter لقراءة الدرجات. اختار لقطة لجدول النتائج.</span>
+        <input type="file" accept="image/png,image/jpeg,image/webp" aria-label="صورة نتائج الامتحانات" disabled={busy || reading}
+          onChange={event => { const file = event.target.files?.[0]; if (file) void loadImage(file); }} />
+      </label>
+      {reading && <p role="status">بنقرأ الدرجات من الصورة…</p>}
       <div className="max-h-[45vh] space-y-2 overflow-auto">
         {rows.map(row => <div key={row.key} className="space-y-2 rounded-md border p-2">
           <label className="flex gap-2 text-sm"><input type="checkbox" checked={row.selected} disabled={busy} onChange={event => edit(row.key, { selected: event.target.checked })} />
@@ -108,7 +141,7 @@ export default function ExamResultsImport() {
       </div>
       {message && <p role="status">{message}</p>}
       {rows.length > 0 && <p className="text-xs text-muted-foreground">الحفظ بيستخدم نقاط الامتحانات المعتادة، والصعوبة بتتسجل «متوسط».</p>}
-      <Button disabled={busy || !auth.data || !exams.data || !rows.some(row => row.selected && valid(row) && !duplicate(row))}
+      <Button disabled={busy || reading || !auth.data || !exams.data || !rows.some(row => row.selected && valid(row) && !duplicate(row))}
         onClick={() => void save()}>احفظ النتائج المحددة</Button>
     </ActionDialog>}
   </div>;
