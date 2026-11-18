@@ -1,3 +1,4 @@
+import StudyHistory from "@/components/StudyHistory";
 import StudyWeekBuilder from "@/components/StudyWeekBuilder";
 import WeekPlanner from "@/components/WeekPlanner";
 import React, { useEffect, useState } from "react";
@@ -43,6 +44,7 @@ export default function LessonSources() {
     <SourceDialog onDone={() => utils.lessonSources.list.invalidate()} />
 
     <StudyWeekBuilder />
+    <StudyHistory />
     <WeekPlanner />
     {!sources.length ? <EmptyState title="مصادرك لم تُضف بعد" description="أضف المنصة أو الحصة الحضورية، ثم حدد دورها داخل خطتك." /> : <>
       <h2 className="mb-3 text-lg font-bold">مصادر دروسي</h2>

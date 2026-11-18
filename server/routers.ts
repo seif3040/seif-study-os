@@ -162,6 +162,8 @@ export const appRouter = router({
     complete: protectedProcedure.input(z.object({ taskId: id })).mutation(({ ctx, input }) => db.completeTask(ctx.user.id, input.taskId)),
   }),
   planner: router({
+    undoStudyChange: protectedProcedure.input(z.object({ at: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => db.undoLastStudyChange(ctx.user.id, input.at)),
     studyBreak: protectedProcedure.query(({ ctx }) => db.studyBreak(ctx.user.id)),
     setStudyBreak: protectedProcedure.input(z.object({ minutes: z.number().int().min(1).max(120).optional() }))
       .mutation(({ ctx, input }) => db.setStudyBreak(ctx.user.id, input.minutes)),
@@ -275,6 +277,8 @@ export const appRouter = router({
     delete: protectedProcedure.input(z.object({ cardId: id })).mutation(({ ctx, input }) => db.deleteFlashcard(ctx.user.id, input.cardId)),
   }),
   video: router({
+    saveExternalPosition: protectedProcedure.input(z.object({ sessionId: id, seconds: z.number().int().min(0).max(172800) }))
+      .mutation(({ ctx, input }) => db.saveExternalVideoPosition(ctx.user.id, input.sessionId, input.seconds)),
     correctExternalMinutes: protectedProcedure.input(z.object({ sessionId: id, minutes: z.number().int().min(0).max(720) }))
       .mutation(({ ctx, input }) => db.correctExternalVideoMinutes(ctx.user.id, input.sessionId, input.minutes)),
     scheduleReview: protectedProcedure.input(z.object({ sessionId: id, note: z.string().trim().min(1).max(2000), seconds: z.number().int().min(0).max(172800) }))

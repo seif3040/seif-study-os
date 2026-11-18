@@ -48,6 +48,7 @@ export type PlannerState = {
   backlogSubjects?: Record<string, number>;
   teacherNext?: Record<number, number>;
   studySessions?: PlannedStudy[];
+  studyHistory?: { at: number; changes: { id: string; before: PlannedStudy | null; after: PlannedStudy | null }[]; reverted?: boolean }[];
   completedYearReviews?: string[];
   studyTotalBaseline?: { minutes: number; throughEventId: number };
   activeBreak?: { startedAt: number; targetAt: number };

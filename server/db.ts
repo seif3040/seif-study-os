@@ -2165,10 +2165,54 @@ async function changePlanner<T>(userId: number, change: (state: PlannerState, tx
   const db = await database();
   return db.transaction(async tx => {
     const state = await lockedPlanner(tx, userId);
+    const before = structuredClone(state.studySessions ?? []);
+    const history = state.studyHistory;
     const result = await change(state, tx);
+    if (history === state.studyHistory) {
+      const previous = new Map(before.map(item => [item.id, item]));
+      const current = new Map((state.studySessions ?? []).map(item => [item.id, item]));
+      const ids = Array.from(new Set([...Array.from(previous.keys()), ...Array.from(current.keys())]));
+      const changes = ids.flatMap(id => {
+        const prior = previous.get(id) ?? null;
+        const next = current.get(id) ?? null;
+        return sameStudyEntry(prior, next) ? [] : [{ id, before: prior, after: next }];
+      });
+      if (changes.length) state.studyHistory = [{ at: Date.now(), changes }, ...(history ?? [])].slice(0, 25);
+    }
     await tx.update(studyPlanner).set({ state }).where(eq(studyPlanner.id, userId));
     return result;
   });
+}
+
+function sameStudyEntry(a: PlannedStudy | null, b: PlannedStudy | null) {
+  if (!a || !b) return a === b;
+  return a.id === b.id && a.day === b.day && a.start === b.start && a.end === b.end && a.title === b.title &&
+    a.kind === b.kind && a.lessonId === b.lessonId && a.done === b.done && a.postponeReason === b.postponeReason;
+}
+
+export function undoLastStudyChange(userId: number, at: number) {
+  return changePlanner(userId, async state => {
+    const history = state.studyHistory ?? [];
+    const latest = history[0];
+    if (!latest || latest.at !== at || latest.reverted) throw new Error("السجل اتغيّر. حدّث الصفحة وجرّب تاني.");
+    const sessions = new Map((state.studySessions ?? []).map(item => [item.id, item]));
+    // Completion can create rewards and other progress, so keep its history read-only.
+    if (latest.changes.some(change => !sameStudyEntry(sessions.get(change.id) ?? null, change.after) ||
+      Boolean(change.before?.done) !== Boolean(change.after?.done))) throw new Error("التعديل ده مش متاح للتراجع.");
+    for (const change of latest.changes) {
+      if (change.before) sessions.set(change.id, change.before);
+      else sessions.delete(change.id);
+    }
+    state.studySessions = Array.from(sessions.values());
+    state.studyHistory = [{ ...latest, reverted: true }, ...history.slice(1)];
+  });
+}
+
+export async function saveExternalVideoPosition(userId: number, sessionId: number, seconds: number) {
+  const db = await database();
+  await db.update(studyVideoSessions).set({ lastPlaybackPosition: seconds }).where(and(
+    eq(studyVideoSessions.userId, userId), eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.sourceMode, "external"),
+  ));
 }
 
 export function logSleep(userId: number, input: SleepLog & { day: string }) {
