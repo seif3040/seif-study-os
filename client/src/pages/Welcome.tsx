@@ -1,4 +1,4 @@
-import { QuickStudyStart } from "@/components/QuickStudyStart";
+
 import { ResumeStudy } from "@/components/ResumeStudy";
 import WeeklyStudyPanel from "@/components/WeeklyStudyPanel";
 import { useEffect, useState } from "react";
@@ -95,7 +95,7 @@ export default function Welcome() {
     </section>
 
     <ResumeStudy />
-    {!friday && <QuickStudyStart day={today} />}
+
     <WeeklyStudyPanel day={today} friday={friday} />
 
     {friday && recap.isSuccess && <section className="surface space-y-4 border-primary/25 bg-primary/5 p-4 sm:p-6">
