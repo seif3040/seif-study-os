@@ -29,14 +29,14 @@ async function handle(message, sender) {
   const key = lessonKey(extensionPage || studySite ? message.url : sender.tab?.url || sender.url);
   if (!key) return null;
   if (studySite && message.type === "list") {
-    const host = new URL(key).hostname;
+    const host = new URL(key).hostname.replace(/^www\./, "");
     const all = await chrome.storage.local.get(null);
     return Object.entries(all).filter(([id, value]) => id.startsWith(prefix)
       && (value.position !== undefined || value.watched > 0 || value.manual > 0 || value.manualSince || value.notes?.length))
       .flatMap(([id, value]) => {
         const url = id.slice(prefix.length);
         const normalized = lessonKey(url);
-        if (!normalized || new URL(normalized).hostname !== host) return [];
+        if (!normalized || new URL(normalized).hostname.replace(/^www\./, "") !== host) return [];
         return [{ url: normalized, title: value.title || new URL(normalized).pathname, position: value.position, lastPlayingAt: value.lastPlayingAt, manualSince: value.manualSince, updatedAt: value.updatedAt ?? value.lastAutoAt ?? value.manualSince ?? 0 }];
       }).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 30);
   }

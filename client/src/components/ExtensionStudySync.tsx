@@ -34,7 +34,7 @@ export default function ExtensionStudySync() {
         await Promise.all([utils.video.invalidate(), utils.analytics.overview.invalidate()]);
         toast.success("بدأت جلسة " + subjectName + " من منصة المدرس.");
       }
-    } catch { /* Retry on the next active playback sample. */ }
+    } catch { if (last !== activity.url) toast.error("تعذّر بدء جلسة المنصة. جرّب فتح فيديو المذاكرة."); setLast(activity.url); }
     finally { pending.current = false; }
   }
   const startRef = useRef(start);
@@ -52,7 +52,7 @@ export default function ExtensionStudySync() {
       let url: URL;
       try { url = new URL(recent.url); if (url.protocol !== "https:") return; } catch { return; }
       const matching = saved.filter(source => {
-        try { return new URL(source.url!).origin === url.origin; } catch { return false; }
+        try { return new URL(source.url!).hostname.replace(/^www\./, "") === url.hostname.replace(/^www\./, ""); } catch { return false; }
       });
       const unique = Array.from(new Map(matching.map(source => [source.subject, source])).values());
       if (unique.length === 1) void startRef.current(recent, unique[0].subject);
@@ -62,9 +62,10 @@ export default function ExtensionStudySync() {
       for (const source of saved) window.postMessage({ type: "seif-study-extension:request", id, url: source.url, list: true }, location.origin);
     }
     window.addEventListener("message", receive);
+    window.addEventListener("focus", refresh);
     refresh();
     const timer = window.setInterval(refresh, 6000);
-    return () => { window.removeEventListener("message", receive); window.clearInterval(timer); };
+    return () => { window.removeEventListener("message", receive); window.removeEventListener("focus", refresh); window.clearInterval(timer); };
   }, [sources.data]);
   return ambiguous ? <div className="surface fixed bottom-24 left-4 z-40 max-w-sm space-y-2 p-3" role="status">
     <p className="text-sm font-semibold">المنصة دي لأكتر من مادة. بتذاكر إيه؟</p>
