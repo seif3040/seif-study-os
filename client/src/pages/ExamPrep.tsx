@@ -23,6 +23,17 @@ export default function ExamPrep() {
     <PageHeader title="امتحاني قرب" description={item.exam.title} />
     <section className="surface space-y-4 p-5">
       <h2 className="font-bold">خريطة الجاهزية</h2>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {(["choice", "essay"] as const).map(kind => {
+          const checked = mistakes.filter(question => question.kind === kind && question.lastCorrect !== undefined &&
+            item.lessons.some(lesson => lesson.id === question.lessonId));
+          const correct = checked.filter(question => question.lastCorrect).length;
+          return <div key={kind} className="rounded-xl border p-3 text-sm">
+            <strong>{kind === "choice" ? "الاختياري" : "المقالي"}</strong>
+            <p className="mt-1 text-muted-foreground">{checked.length ? correct + " من " + checked.length + " صح في آخر محاولة لكل سؤال" : "لسه مفيش إجابات مسجّلة على دروس الامتحان"}</p>
+          </div>;
+        })}
+      </div>
       {item.lessons.length === 0 && <p className="text-sm text-muted-foreground">اربط دروس بالامتحان عشان يظهر تقدّمك هنا.</p>}
       {Array.from(new Set(item.lessons.map(lesson => lesson.chapterTitle))).map(chapter => {
         const lessons = item.lessons.filter(lesson => lesson.chapterTitle === chapter);

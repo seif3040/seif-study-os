@@ -98,6 +98,7 @@ export default function Backlog({ compact = false }: { compact?: boolean }) {
     {waiting.length > 0 && calendar.data && available === 0 && <p className="text-sm text-muted-foreground">
       {freeDay ? "مفيش وقت متاح باقي النهارده." : "عندك حصة أو موعد دراسي النهارده."}
     </p>}
+    {!compact && waiting.length > 0 && <BacklogBudget lessons={waiting} />}
     {!compact && <>
       {subjects.map(([id, title]) => <div key={id} className="space-y-2 rounded-xl border p-3">
         <h3 className="font-bold">{title}</h3>
@@ -118,4 +119,42 @@ export default function Backlog({ compact = false }: { compact?: boolean }) {
       </div>}
     </>}
   </section></div>;
+}
+
+function BacklogBudget({ lessons }: { lessons: NonNullable<ReturnType<typeof trpc.studyPlan.list.useQuery>["data"]>["rows"] }) {
+  const exams = trpc.exams.list.useQuery();
+  const [budget, setBudget] = useState(45);
+  const byLesson = new Map<number, { title: string; at: number }>();
+  for (const exam of exams.data ?? []) {
+    if (!exam.nextScheduledAt || exam.exam.archivedAt || +new Date(exam.nextScheduledAt) < Date.now()) continue;
+    const at = +new Date(exam.nextScheduledAt);
+    for (const lesson of exam.lessons) {
+      if (at < (byLesson.get(lesson.id)?.at ?? Infinity)) byLesson.set(lesson.id, { title: exam.exam.title, at });
+    }
+  }
+  const ranked = [...lessons].sort((a, b) =>
+    (byLesson.get(a.lesson!.id)?.at ?? Number.MAX_SAFE_INTEGER) - (byLesson.get(b.lesson!.id)?.at ?? Number.MAX_SAFE_INTEGER));
+  let remaining = budget;
+  const suggested = ranked.flatMap(row => {
+    if (remaining <= 0) return [];
+    const duration = Math.max(1, row.lesson!.estimatedMinutes);
+    const minutes = Math.min(remaining, duration);
+    remaining -= minutes;
+    return [{ row, minutes, partial: minutes < duration, exam: byLesson.get(row.lesson!.id) }];
+  });
+  return <section className="space-y-3 rounded-xl border p-4">
+    <label className="flex flex-wrap items-center gap-2 font-semibold">
+      معاك وقت قد إيه للمتراكم؟
+      <select className="rounded-md border bg-background p-2" value={budget} onChange={event => setBudget(Number(event.target.value))}>
+        {[15, 25, 45, 60, 90, 120, 180].map(minutes => <option key={minutes} value={minutes}>{minutes} دقيقة</option>)}
+      </select>
+    </label>
+    {exams.isError && <Button variant="outline" size="sm" onClick={() => void exams.refetch()}>أعد تحميل مواعيد الامتحانات</Button>}
+    {suggested.map(({ row, minutes, partial, exam }) => <div key={row.lesson!.id} className="flex flex-wrap justify-between gap-2 border-t pt-2 text-sm">
+      <div><b>{row.lesson!.title}</b> · {row.subject.title} · {minutes} دقيقة{partial ? " (جزء من الدرس)" : ""}
+        {exam && <p className="text-muted-foreground">{exam.title} · {new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "short", timeZone: "Africa/Cairo" }).format(exam.at)}</p>}
+      </div>
+      <Link className="font-semibold text-primary underline" href={"/study-plan/lesson/" + row.lesson!.id}>افتح الدرس</Link>
+    </div>)}
+  </section>;
 }
