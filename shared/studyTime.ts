@@ -39,7 +39,7 @@ export function studyOverlapByDay(events: TimedStudyEvent[], dayOf: (date: Date)
     rangesByDay.set(day, ranges);
   }
   const overlap = new Map<string, number>();
-  for (const [day, ranges] of rangesByDay) {
+  for (const [day, ranges] of Array.from(rangesByDay)) {
     let duration = 0;
     for (const range of ranges) {
       let low = 0;
