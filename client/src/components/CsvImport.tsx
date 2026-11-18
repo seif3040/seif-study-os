@@ -12,7 +12,7 @@ type Kind = "tasks" | "exams";
 type Row = { title: string; day?: string; priority: Priority };
 type Preview = Row & { duplicate: boolean };
 
-function parseCsv(source: string) {
+export function parseCsv(source: string) {
   const lines: string[][] = [];
   let fields: string[] = [];
   let field = "";

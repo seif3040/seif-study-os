@@ -1,3 +1,4 @@
+import ExamResultsImport from "@/components/ExamResultsImport";
 import { cairoPlannerTime, defaultExamSchedule, examLocalDate, type ExamScheduleOptions } from "@shared/examSchedule";
 import { plannerToday } from "@shared/studyPlanner";
 import { yearReviewDate } from "@shared/studyResources";
@@ -19,7 +20,7 @@ export default function Exams() {
   if (isLoading) return <div className="h-64 animate-pulse rounded-2xl bg-muted" />;
   const active = data?.filter(item => !item.exam.archivedAt) ?? [];
   const archived = data?.filter(item => item.exam.archivedAt) ?? [];
-  return <div><PageHeader title="الامتحانات" description="حدّد الدروس التي يغطيها كل امتحان ليحسب الموقع مدى جاهزيتك من الإكمال والمراجعة الفعليين." action={{ label: "امتحان جديد", onClick: () => document.getElementById("exam-trigger")?.click() }} /><CreateExam plan={plan} onDone={invalidate} />{!active.length ? <EmptyState title="لا توجد امتحانات مسجلة" description="أضف امتحانًا ثم اختر دروسه لتحصل على تقدير واضح لمدى الجاهزية." /> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{active.map(item => <ExamCard key={item.exam.id} item={item} plan={plan} onDone={invalidate} />)}</div>}{archived.length > 0 && <details className="surface mt-5 p-4"><summary className="cursor-pointer font-bold">الامتحانات المؤرشفة ({archived.length})</summary><div className="mt-4 grid gap-4 md:grid-cols-2">{archived.map(item => <ExamCard key={item.exam.id} item={item} plan={plan} onDone={invalidate} />)}</div></details>}</div>;
+  return <div><PageHeader title="الامتحانات" description="حدّد الدروس التي يغطيها كل امتحان ليحسب الموقع مدى جاهزيتك من الإكمال والمراجعة الفعليين." action={{ label: "امتحان جديد", onClick: () => document.getElementById("exam-trigger")?.click() }} /><CreateExam plan={plan} onDone={invalidate} /><ExamResultsImport />{!active.length ? <EmptyState title="لا توجد امتحانات مسجلة" description="أضف امتحانًا ثم اختر دروسه لتحصل على تقدير واضح لمدى الجاهزية." /> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{active.map(item => <ExamCard key={item.exam.id} item={item} plan={plan} onDone={invalidate} />)}</div>}{archived.length > 0 && <details className="surface mt-5 p-4"><summary className="cursor-pointer font-bold">الامتحانات المؤرشفة ({archived.length})</summary><div className="mt-4 grid gap-4 md:grid-cols-2">{archived.map(item => <ExamCard key={item.exam.id} item={item} plan={plan} onDone={invalidate} />)}</div></details>}</div>;
 }
 
 function ExamCard({ item, plan, onDone }: { item: any; plan: any; onDone: () => Promise<any> }) {
