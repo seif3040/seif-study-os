@@ -37,7 +37,7 @@ async function handle(message, sender) {
         const url = id.slice(prefix.length);
         const normalized = lessonKey(url);
         if (!normalized || new URL(normalized).hostname !== host) return [];
-        return [{ url: normalized, title: value.title || new URL(normalized).pathname, position: value.position, updatedAt: value.updatedAt ?? value.lastAutoAt ?? value.manualSince ?? 0 }];
+        return [{ url: normalized, title: value.title || new URL(normalized).pathname, position: value.position, lastPlayingAt: value.lastPlayingAt, manualSince: value.manualSince, updatedAt: value.updatedAt ?? value.lastAutoAt ?? value.manualSince ?? 0 }];
       }).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 30);
   }
   if (studySite && message.type !== "read") return null;
