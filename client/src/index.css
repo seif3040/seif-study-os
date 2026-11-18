@@ -280,3 +280,30 @@
 .study-analytics progress::-webkit-progress-bar { background: var(--muted); }
 .study-analytics progress::-webkit-progress-value { background: var(--chart-1); }
 .study-analytics progress::-moz-progress-bar { background: var(--chart-1); }
+
+/* Graphite glass surfaces */
+[data-study-theme="graphite"] .app-shell {
+  background-image: radial-gradient(ellipse at 18% 0%, #92bc7330, transparent 52%),
+    radial-gradient(ellipse at 88% 65%, #47877924, transparent 52%);
+  background-size: 135% 135%;
+}
+[data-study-theme="graphite"] :is(.surface, .study-topbar, .study-bottom-nav, [data-slot="sidebar-inner"]) {
+  background: linear-gradient(145deg, #e1ffda12, #243b3430 45%, #121e1d8c),
+    color-mix(in srgb, var(--card) 74%, transparent);
+  border-color: #d1f9c238;
+  box-shadow: inset 0 1px 0 #f4ffeb24, inset 0 -1px 0 #0005, 0 14px 32px #0004;
+  backdrop-filter: blur(18px) saturate(1.25);
+}
+[data-study-theme="graphite"] .surface:hover {
+  box-shadow: inset 0 1px 0 #f4ffeb44, 0 18px 38px #0005;
+}
+[data-study-theme="graphite"] .study-topbar {
+  background-image: linear-gradient(105deg, transparent 32%, #edffda1f 49%, transparent 65%);
+  background-size: 240% 100%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-study-theme="graphite"] .app-shell { animation: graphite-light 19s ease-in-out infinite alternate; }
+  [data-study-theme="graphite"] .study-topbar { animation: graphite-sheen 12s ease-in-out infinite; }
+}
+@keyframes graphite-light { from { background-position: 0 0; } to { background-position: 100% 60%; } }
+@keyframes graphite-sheen { 0%, 18% { background-position: 100% 0; } 65%, 100% { background-position: -40% 0; } }

@@ -1,3 +1,4 @@
+import { Link } from "wouter";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -169,7 +170,7 @@ function LessonRow({ lesson, marked, onDone, onEdit }: { lesson: Lesson; marked:
         {status === "completed" ? <CheckCircle2 className="size-5" /> : <BookOpen className="size-5" />}
       </span>
       <div className="min-w-0 flex-1">
-        <h2 className="break-words font-bold">{lesson.title}</h2>
+        <h2 className="break-words font-bold"><Link href={"/study-plan/lesson/" + lesson.id} className="hover:text-primary hover:underline">{lesson.title}</Link></h2>
         <p className="text-sm text-muted-foreground">{money.format(lesson.estimatedMinutes)} دقيقة</p>
       </div>
       <Badge variant={status === "completed" ? "default" : "secondary"}>
@@ -191,6 +192,7 @@ function LessonRow({ lesson, marked, onDone, onEdit }: { lesson: Lesson; marked:
       </Button>
       {status === "completed" && <Button size="sm" variant="outline" disabled={reopen.isPending}
         onClick={() => reopen.mutate({ lessonId: lesson.id })}>إلغاء الإكمال</Button>}
+      <Button asChild size="sm" variant="outline"><Link href={"/study-plan/lesson/" + lesson.id}><BookOpen />مسار الدرس</Link></Button>
       <ResourceButtons title={lesson.title} onEdit={onEdit} />
     </div>
   </article>;

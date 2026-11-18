@@ -61,15 +61,15 @@ export default function StudyVideo({ embedded = false }: { embedded?: boolean })
           </Button>)}
       </div>
     </section>
-    <SubjectVideoSession key={subject} subject={subject} files={files.current} onSubject={setSelected} autoPlay={!selected && requestedSubject === subject && params.get("play") === "1"} />
+    <SubjectVideoSession key={subject} subject={subject} files={files.current} onSubject={setSelected} initialTitle={params.get("lesson")?.slice(0, 220) ?? ""} autoPlay={!selected && requestedSubject === subject && params.get("play") === "1"} />
   </div>;
 }
 
-function SubjectVideoSession({ subject, files, onSubject, autoPlay }: { subject: SubjectKey; files: Map<number, File>; onSubject(subject: SubjectKey): void; autoPlay: boolean }) {
+function SubjectVideoSession({ subject, files, onSubject, autoPlay, initialTitle }: { subject: SubjectKey; files: Map<number, File>; onSubject(subject: SubjectKey): void; autoPlay: boolean; initialTitle: string }) {
   const [, navigate] = useLocation();
   const utils = trpc.useUtils();
   const reward = trpc.economy.rates.useQuery().data?.find(item => item.key === "video_block")?.amount; const { data: session, isLoading } = trpc.video.current.useQuery({ subject }); const { data: history = [] } = trpc.video.history.useQuery();
-  const [url, setUrl] = useState(""); const [lessonTitle, setLessonTitle] = useState(""); const [requestedMode, setRequestedMode] = useState<"auto" | "embedded" | "external">("auto"); const [now, setNow] = useState(Date.now()); const [noteRevision, setNoteRevision] = useState(0); const [noteTitle, setNoteTitle] = useState(""); const [noteContent, setNoteContent] = useState(""); const [editingNote, setEditingNote] = useState<VideoNote | null>(null); const video = useRef<HTMLVideoElement>(null); const interval = useRef<number | null>(null);
+  const [url, setUrl] = useState(""); const [lessonTitle, setLessonTitle] = useState(initialTitle); const [requestedMode, setRequestedMode] = useState<"auto" | "embedded" | "external">("auto"); const [now, setNow] = useState(Date.now()); const [noteRevision, setNoteRevision] = useState(0); const [noteTitle, setNoteTitle] = useState(""); const [noteContent, setNoteContent] = useState(""); const [editingNote, setEditingNote] = useState<VideoNote | null>(null); const video = useRef<HTMLVideoElement>(null); const interval = useRef<number | null>(null);
   const savedSources = trpc.lessonSources.list.useQuery(undefined, { enabled: !session });
   const [sourceId, setSourceId] = useState("");
   const [finishOpen, setFinishOpen] = useState(false);
