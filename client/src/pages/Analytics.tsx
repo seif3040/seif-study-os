@@ -100,7 +100,7 @@ function Overview() {
         </div>
       </article>)}
     </div>
-    <AchievementTrend daily={data.daily} attempts={data.comprehension} />
+    <AchievementTrend daily={data.daily} attempts={data.comprehension} examSubjects={data.examSubjects ?? []} />
     <SleepReport logs={data.sleepLogs ?? {}} daily={data.daily} breakMilliseconds={data.breakMilliseconds ?? {}} />
     <div className="surface space-y-3 p-4 sm:p-6">
       <h2 className="font-bold">إنجازات يوم بيوم</h2>
@@ -124,14 +124,19 @@ const trendMetrics = [
 type TrendMetric = typeof trendMetrics[number][0];
 type DailyTrend = { day: string; minutes: number; lessons: number; tasks: number; exams: number };
 
-function AchievementTrend({ daily, attempts }: { daily: DailyTrend[]; attempts: { date: string | null; score: number }[] }) {
+function AchievementTrend({ daily, attempts, examSubjects }: {
+  daily: DailyTrend[];
+  attempts: { date: string | null; score: number; subjectId?: number | null }[];
+  examSubjects: { id: number; title: string }[];
+}) {
+  const [examSubject, setExamSubject] = useState("all");
   const [metric, setMetric] = useState<TrendMetric>("minutes");
   const [range, setRange] = useState(14);
   const today = plannerToday();
   const days = new Map(daily.map(row => [String(row.day).slice(0, 10), row]));
   const examsByDay = new Map<string, number[]>();
   for (const attempt of attempts) {
-    if (!attempt.date) continue;
+    if (!attempt.date || (examSubject !== "all" && String(attempt.subjectId) !== examSubject)) continue;
     const scores = examsByDay.get(attempt.date) ?? [];
     scores.push(attempt.score);
     examsByDay.set(attempt.date, scores);
@@ -174,6 +179,13 @@ function AchievementTrend({ daily, attempts }: { daily: DailyTrend[]; attempts: 
         </button>;
       })}
     </div>
+    {metric === "exams" && <label className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+      عرض أداء الامتحانات
+      <select className="rounded-md border bg-background p-2" value={examSubject} onChange={event => setExamSubject(event.target.value)}>
+        <option value="all">كل المواد · الأداء المجمّع</option>
+        {examSubjects.map(subject => <option key={subject.id} value={subject.id}>{subject.title}</option>)}
+      </select>
+    </label>}
     {hasChartData ? <div dir="ltr" className="study-analytics-chart h-64 w-full min-w-0">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chart} margin={{ top: 12, right: 16, bottom: 6, left: 0 }}>

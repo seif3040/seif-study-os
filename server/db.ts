@@ -1388,6 +1388,24 @@ export async function welcomeAchievements(userId: number, day: string) {
   return totals;
 }
 
+async function examSubjectMap(db: StudyReader, userId: number) {
+  const links = await db.select({ examId: examLessons.examId, subjectId: subjects.id }).from(examLessons)
+    .innerJoin(exams, eq(examLessons.examId, exams.id)).innerJoin(lessons, eq(examLessons.lessonId, lessons.id))
+    .innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id))
+    .where(and(eq(exams.userId, userId), eq(subjects.userId, userId)));
+  const byExam = new Map<number, Set<number>>();
+  for (const { examId, subjectId } of links) {
+    const linked = byExam.get(examId) ?? new Set<number>();
+    linked.add(subjectId);
+    byExam.set(examId, linked);
+  }
+  return byExam;
+}
+
+function examAnalyticsSubject(linked: Set<number> | undefined, directSubject: number | null) {
+  return linked?.size === 1 ? Array.from(linked)[0] : linked?.size ? null : directSubject;
+}
+
 export async function analytics(userId: number) {
   const db = await database();
   const timeRows = await studyTimeRows(db, userId);
@@ -1395,7 +1413,7 @@ export async function analytics(userId: number) {
   const cycle = await getActiveCycle(userId); const metrics = await metricSnapshot(db, userId, timeRows); const coins = await getCoinSummary(db, userId);
   const eventDay = sql<string>`date(\`studyEvents\`.\`occurredAt\`)`;
   const subjectName = sql<string>`coalesce(${subjects.title}, 'بدون مادة')`;
-  const [dailyRows, bySubject, completion, comprehension, purchases, planner] = await Promise.all([
+  const [dailyRows, bySubject, completion, comprehension, purchases, planner, examSubjects, linkedSubjects] = await Promise.all([
     db.select({ day: eventDay, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)`, events: count(),
       videoMinutes: sql<number>`coalesce(sum(case when ${studyEvents.eventType} = 'video_block' then ${studyEvents.durationMinutes} else 0 end), 0)`,
       lessons: sql<number>`sum(case when ${studyEvents.eventType} = 'lesson_complete' then 1 else 0 end)`,
@@ -1404,17 +1422,20 @@ export async function analytics(userId: number) {
     }).from(studyEvents).where(eq(studyEvents.userId, userId)).groupBy(eventDay).orderBy(eventDay),
     db.select({ subject: subjectName, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)` }).from(studyEvents).leftJoin(subjects, eq(studyEvents.subjectId, subjects.id)).where(eq(studyEvents.userId, userId)).groupBy(studyEvents.subjectId, subjectName),
     db.select({ open: sql<number>`coalesce(sum(case when ${tasks.status} = 'open' then 1 else 0 end), 0)`, completed: sql<number>`coalesce(sum(case when ${tasks.status} = 'completed' then 1 else 0 end), 0)` }).from(tasks).where(eq(tasks.userId, userId)),
-    db.select({ takenOn: examAttempts.takenOn, recordedAt: examAttempts.createdAt, scheduledAt: exams.scheduledAt, score: examAttempts.score, comprehension: examAttempts.comprehensionScore })
+    db.select({ examId: examAttempts.examId, subjectId: exams.subjectId, takenOn: examAttempts.takenOn, recordedAt: examAttempts.createdAt, scheduledAt: exams.scheduledAt, score: examAttempts.score, comprehension: examAttempts.comprehensionScore })
       .from(examAttempts).innerJoin(exams, eq(examAttempts.examId, exams.id))
       .where(and(eq(examAttempts.userId, userId), eq(exams.userId, userId))),
     db.select({ value: count() }).from(rewardPurchases).where(eq(rewardPurchases.userId, userId)),
     getPlanner(userId),
+    db.select({ id: subjects.id, title: subjects.title }).from(subjects).where(eq(subjects.userId, userId)).orderBy(subjects.title),
+    examSubjectMap(db, userId),
   ]);
   const daily = dailyRows.map(row => ({
     ...row,
     minutes: Math.max(0, Number(row.minutes) - (overlap.get(String(row.day).slice(0, 10)) ?? 0)),
   }));
-  return { cycle, metrics, coins, daily, sleepLogs: planner.sleepLogs ?? {}, breakMilliseconds: planner.breakMilliseconds ?? {}, bySubject, completion: completion[0] ?? { open: 0, completed: 0 }, comprehension: comprehension.map(attempt => ({ date: examPerformanceDay(attempt), score: attempt.score, comprehension: attempt.comprehension })), rewardsPurchased: Number(purchases[0]?.value ?? 0) };
+  return { cycle, metrics, coins, daily, sleepLogs: planner.sleepLogs ?? {}, breakMilliseconds: planner.breakMilliseconds ?? {}, bySubject, completion: completion[0] ?? { open: 0, completed: 0 }, examSubjects, comprehension: comprehension.map(attempt => ({ date: examPerformanceDay(attempt), score: attempt.score, comprehension: attempt.comprehension,
+    subjectId: examAnalyticsSubject(linkedSubjects.get(attempt.examId), attempt.subjectId) })), rewardsPurchased: Number(purchases[0]?.value ?? 0) };
 }
 
 export async function listFlashcardDecks(userId: number) {
@@ -1559,7 +1580,7 @@ export async function chatWithAssistant(userId: number, messages: { role: "user"
 // Subject metrics use the same saved activity, curriculum, and exam results as the rest of the site.
 export async function subjectAnalytics(userId: number) {
   const db = await database();
-  const [plan, events, attempts, links] = await Promise.all([
+  const [plan, events, attempts, examSubjects] = await Promise.all([
     listStudyPlan(userId),
     db.select({
       subjectId: studyEvents.subjectId, kind: studyEvents.eventType, minutes: studyEvents.durationMinutes,
@@ -1571,10 +1592,7 @@ export async function subjectAnalytics(userId: number) {
       .from(examAttempts).innerJoin(exams, eq(examAttempts.examId, exams.id))
       .where(and(eq(examAttempts.userId, userId), eq(exams.userId, userId)))
       .orderBy(desc(examAttempts.createdAt), desc(examAttempts.id)),
-    db.select({ examId: examLessons.examId, subjectId: subjects.id }).from(examLessons)
-      .innerJoin(exams, eq(examLessons.examId, exams.id)).innerJoin(lessons, eq(examLessons.lessonId, lessons.id))
-      .innerJoin(chapters, eq(lessons.chapterId, chapters.id)).innerJoin(subjects, eq(chapters.subjectId, subjects.id))
-      .where(and(eq(exams.userId, userId), eq(subjects.userId, userId))),
+    examSubjectMap(db, userId),
   ]);
   function row(id: number | null, title: string) {
     return { id, title, chapters: 0, lessons: 0, completed: 0, trackedMinutes: 0, allocatedMinutes: 0, focusSessions: 0, reviews: 0, attempts: 0, scoreTotal: 0, comprehensionTotal: 0, bestScore: null as number | null, activeDays: new Set<string>(), chapterIds: new Set<number>(), lessonIds: new Set<number>(),
@@ -1602,17 +1620,10 @@ export async function subjectAnalytics(userId: number) {
     if (event.kind === "lesson_review") stats.reviews++;
     stats.activeDays.add(cairo.format(event.date));
   }
-  const examSubjects = new Map<number, Set<number>>();
-  for (const link of links) {
-    const set = examSubjects.get(link.examId) ?? new Set<number>();
-    set.add(link.subjectId);
-    examSubjects.set(link.examId, set);
-  }
   const orderedAttempts = attempts.map(attempt => ({ ...attempt, day: examPerformanceDay(attempt) }))
     .sort((a, b) => (b.day ?? "").localeCompare(a.day ?? "") || b.attemptId - a.attemptId);
   for (const attempt of orderedAttempts) {
-    const linked = examSubjects.get(attempt.examId);
-    const id = linked?.size === 1 ? Array.from(linked)[0] : linked?.size ? null : attempt.subjectId;
+    const id = examAnalyticsSubject(examSubjects.get(attempt.examId), attempt.subjectId);
     const stats = (id === null ? null : subjectsById.get(id)) ?? unassigned;
     stats.attempts++;
     if (stats.recentAttempts.length < 10) stats.recentAttempts.push({
