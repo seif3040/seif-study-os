@@ -13,6 +13,8 @@ export default function ExtensionStudySync() {
   const utils = trpc.useUtils();
   const pending = useRef(false);
   const [ambiguous, setAmbiguous] = useState<{ activity: Activity; choices: { subject: string; teacherName: string }[] }>();
+  const [connection, setConnection] = useState("في انتظار اتصال إضافة المتصفح");
+  const [detected, setDetected] = useState<{ activity: Activity; subject: string }>();
   const [last, setLast] = useState("");
   async function start(activity: Activity, subjectName: string) {
     if (pending.current) return;
@@ -54,6 +56,7 @@ export default function ExtensionStudySync() {
           event.data.type !== "seif-study-extension:progress" || !event.data.list || !Array.isArray(event.data.data)) return;
       const recent = (event.data.data as Activity[]).find(item =>
         typeof item.url === "string" && (item.manualSince || Number.isFinite(item.lastAutoAt) && Date.now() - item.lastAutoAt! < 30000));
+      setConnection("الإضافة متصلة · في انتظار فيديو نشط من المصادر");
       if (!recent) return;
       let url: URL;
       try { url = new URL(recent.url); if (url.protocol !== "https:") return; } catch { return; }
@@ -65,7 +68,11 @@ export default function ExtensionStudySync() {
         } catch { return false; }
       });
       const unique = Array.from(new Map(matching.map(source => [source.subject, source])).values());
-      if (unique.length === 1) void startRef.current(recent, unique[0].subject);
+      if (unique.length === 1) {
+        setConnection("تم اكتشاف فيديو " + unique[0].subject);
+        setDetected({ activity: recent, subject: unique[0].subject });
+        void startRef.current(recent, unique[0].subject);
+      }
       else if (unique.length > 1) setAmbiguous({ activity: recent, choices: unique });
     }
     function refresh() {
@@ -77,10 +84,13 @@ export default function ExtensionStudySync() {
     const timer = window.setInterval(refresh, 6000);
     return () => { window.removeEventListener("message", receive); window.removeEventListener("focus", refresh); window.clearInterval(timer); };
   }, [sources.data]);
-  return ambiguous ? <div className="surface fixed bottom-24 left-4 z-40 max-w-sm space-y-2 p-3" role="status">
+  return <><div className="surface fixed bottom-3 left-3 z-40 max-w-sm rounded-lg border p-2 text-xs" role="status">
+    <p>{connection}</p>
+    {detected && <Button size="sm" variant="outline" onClick={() => void start(detected.activity, detected.subject)}>اربط جلسة {detected.subject}</Button>}
+  </div>{ambiguous ? <div className="surface fixed bottom-24 left-4 z-40 max-w-sm space-y-2 p-3" role="status">
     <p className="text-sm font-semibold">المنصة دي لأكتر من مادة. بتذاكر إيه؟</p>
     <div className="flex flex-wrap gap-2">{ambiguous.choices.map(choice =>
       <Button key={choice.subject} size="sm" onClick={() => { void start(ambiguous.activity, choice.subject); setAmbiguous(undefined); }}>{choice.subject}</Button>)}</div>
     <Link href="/study-video" className="text-sm text-primary underline">افتح فيديو المذاكرة</Link>
-  </div> : null;
+  </div> : null}</>;
 }
