@@ -20,7 +20,7 @@ export function ReplanStudy({ day }: { day: string }) {
   return <>
     <Button size="sm" variant="outline" onClick={() => setOpen(true)}>ظبّط باقي اليوم</Button>
     {open && <ActionDialog title="ظبّط باقي اليوم" pending={apply.isPending} onClose={() => setOpen(false)}>
-      <p className="text-sm text-muted-foreground">لو وقت مذاكرة فات، هنقترح أقرب فراغ بنفس المدة النهارده أو في يوم الدراسة اللي بعده.</p>
+      <p className="text-sm text-muted-foreground">لو وقت مذاكرة فات، هنقترح أقرب فراغ النهارده أو يوم الدراسة اللي بعده، بأولوية للدروس اللي امتحانها أقرب.</p>
       {preview.isFetching ? <p>بحسب الوقت المتاح…</p> : preview.isError
         ? <Button variant="outline" onClick={() => void preview.refetch()}>جرّب تاني</Button>
         : <div className="space-y-3">

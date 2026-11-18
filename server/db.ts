@@ -2441,10 +2441,24 @@ async function suggestReplan(tx: Pick<StudyTransaction, "select">, userId: numbe
   const day = plannerToday();
   const now = new Date();
   const delayed = (state.studySessions ?? []).filter(item => item.day === day && !item.done && cairoPlannerTime(day, item.end) <= now)
-    .sort((a, b) => a.start.localeCompare(b.start)).slice(0, 20);
+    .sort((a, b) => a.start.localeCompare(b.start));
   if (!delayed.length) return { changes: [], left: [] };
   const tomorrow = shiftPlannerDay(day, plannerWeekday(shiftPlannerDay(day, 1)) === 5 ? 2 : 1);
-  const ids = new Set(delayed.map(item => item.id));
+  const upcoming = examOccurrences(await scheduledExamRows(tx, userId), day, shiftPlannerDay(day, 7), state.slots)
+    .filter(exam => exam.scheduledAt > now);
+  const dueByExam = new Map<number, number>();
+  for (const exam of upcoming) {
+    dueByExam.set(exam.id, Math.min(dueByExam.get(exam.id) ?? Infinity, +exam.scheduledAt));
+  }
+  const links = dueByExam.size ? await tx.select({ examId: examLessons.examId, lessonId: examLessons.lessonId })
+    .from(examLessons).where(inArray(examLessons.examId, Array.from(dueByExam.keys()))) : [];
+  const deadlineByLesson = new Map<number, number>();
+  for (const link of links) {
+    deadlineByLesson.set(link.lessonId, Math.min(deadlineByLesson.get(link.lessonId) ?? Infinity, dueByExam.get(link.examId)!));
+  }
+  const deadline = (item: typeof delayed[number]) => deadlineByLesson.get(item.lessonId ?? 0) ?? Number.MAX_SAFE_INTEGER;
+  const prioritized = delayed.sort((a, b) => deadline(a) - deadline(b)).slice(0, 20);
+  const ids = new Set(prioritized.map(item => item.id));
   const fixed = { ...state, studySessions: state.studySessions?.filter(item => !ids.has(item.id)) };
   const [todayFree, tomorrowFree] = await Promise.all([
     studyAvailability(tx, userId, fixed, day), studyAvailability(tx, userId, fixed, tomorrow),
@@ -2452,10 +2466,12 @@ async function suggestReplan(tx: Pick<StudyTransaction, "select">, userId: numbe
   const changes: (RescheduledStudy & { title: string })[] = [];
   const left: string[] = [];
   const clock = (minutes: number) => [Math.floor(minutes / 60), minutes % 60].map(part => String(part).padStart(2, "0")).join(":");
-  for (const item of delayed) {
+  for (const item of prioritized) {
     const duration = plannerMinutes(item.end) - plannerMinutes(item.start);
-    const today = todayFree.free.find(gap => gap.end - gap.start >= duration);
-    const gap = today ?? tomorrowFree.free.find(gap => gap.end - gap.start >= duration);
+    const fits = (date: string) => (gap: { start: number; end: number }) => gap.end - gap.start >= duration
+      && +cairoPlannerTime(date, clock(gap.start)) + duration * 60_000 <= deadline(item);
+    const today = todayFree.free.find(fits(day));
+    const gap = today ?? tomorrowFree.free.find(fits(tomorrow));
     if (!gap) { left.push(item.title); continue; }
     changes.push({ id: item.id, title: item.title, day: today ? day : tomorrow, start: clock(gap.start), end: clock(gap.start + duration) });
     gap.start += duration;
