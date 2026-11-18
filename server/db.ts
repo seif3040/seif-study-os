@@ -1271,6 +1271,9 @@ export async function weeklyStudyOverview(userId: number, day: string) {
     choices: { subjects: Array.from(bySubject.entries()).map(([id, rows]) => ({ id, title: rows[0].subject.title, count: rows.length })),
       homework: homework.map(task => ({ id: task.id, title: task.title })) },
     goal: goalProgress(prefs.goal, week, cutoff),
+    deferred: friday ? (state.studySessions ?? []).filter(item => item.postponeReason && !item.done)
+      .sort((a, b) => a.day.localeCompare(b.day) || a.start.localeCompare(b.start))
+      .map(({ id, title, day }) => ({ id, title, day })) : [],
     recapGoal: friday ? goalProgress(state.weeklyStudy?.[currentWeek]?.goal, currentWeek, week) : null,
     lessons: lessonDetails, tasks: completedTasks.map(task => ({ id: task.id, title: task.title })),
     improved,

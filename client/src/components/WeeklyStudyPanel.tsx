@@ -52,6 +52,13 @@ function AchievementDetails({ data }: { data: Weekly }) {
         <span>{exam.title}</span><span>من {money.format(exam.previous)}٪ إلى {money.format(exam.score)}٪</span>
       </li>)}</ul>
     </details>}
+    {Boolean(data.deferred?.length) && <details className="rounded-xl border p-3">
+      <summary className="cursor-pointer font-semibold">مذاكرة اتأجلت ولسه مفتوحة · {money.format(data.deferred.length)}</summary>
+      <ul className="mt-2 max-h-52 divide-y overflow-y-auto">{data.deferred.map(item => <li key={item.id} className="flex flex-wrap justify-between gap-2 py-2 text-sm">
+        <span>{item.title}</span><time dateTime={item.day}>{new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(item.day))}</time>
+      </li>)}</ul>
+      <Link href="/lesson-sources" className="mt-2 inline-block text-sm text-primary underline">افتح جدول الأسبوع</Link>
+    </details>}
     {data.recapGoal && <div className="rounded-xl border p-3"><h3 className="mb-2 font-bold">هدف الأسبوع اللي خلص</h3><GoalProgress goal={data.recapGoal} /></div>}
   </section>;
 }
