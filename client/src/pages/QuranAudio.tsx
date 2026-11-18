@@ -1,35 +1,23 @@
-import { useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Headphones, Play, Search } from "lucide-react";
+import { useState } from "react";
+import { ChevronLeft, ChevronRight, ExternalLink, Headphones, Pause, Play, Search, Shuffle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/PageHeader";
 import catalog from "@/lib/quranAudioCatalog.json";
 import { money } from "@/lib/study";
+import { useQuranPlayer } from "@/components/QuranPlayer";
 
 const surahs = catalog.surahs;
 const reciters = catalog.reciters;
 const number = (id: number) => money.format(id);
 const normalize = (value: string) => value.trim().replace(/[أإآٱ]/g, "ا").replace(/[\u064B-\u065F]/g, "");
 
-export default function QuranAudio() {
-  const audio = useRef<HTMLAudioElement>(null);
+export default function QuranAudio({ standalone = false }: { standalone?: boolean } = {}) {
+  const player = useQuranPlayer();
+  const { active, error, play } = player;
   const [query, setQuery] = useState("");
-  const [reader, setReader] = useState(reciters[0].base);
-  const [active, setActive] = useState<number>();
-  const [error, setError] = useState(false);
   const surah = active ? surahs[active - 1] : undefined;
   const matches = surahs.filter(item => normalize(item.name).includes(normalize(query)) || String(item.id) === query.trim() || number(item.id) === query.trim());
-
-  function play(id: number, base = reader) {
-    const element = audio.current;
-    if (!element) return;
-    setError(false);
-    setActive(id);
-    element.src = new URL(String(id).padStart(3, "0") + ".mp3", base).href;
-    void element.play().catch(() => {
-      if (element.error) setError(true);
-    });
-  }
 
   return <div className="space-y-4" dir="rtl">
     <PageHeader title="القرآن الكريم" description="اختار السورة والقارئ واسمع التلاوة." />
@@ -37,19 +25,19 @@ export default function QuranAudio() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 text-lg font-bold"><Headphones className="size-5 text-primary" />{surah ? "سورة " + surah.name : "اختار سورة للتشغيل"}</h2>
         <label className="flex items-center gap-2 text-sm">القارئ
-          <select className="h-9 rounded-lg border bg-background px-2" value={reader} onChange={event => {
-            setReader(event.target.value);
-            if (active) play(active, event.target.value);
-          }}>{reciters.map(item => <option key={item.base} value={item.base}>{item.name}</option>)}</select>
+          <select className="h-9 rounded-lg border bg-background px-2" value={player.reader} onChange={event => player.selectReader(Number(event.target.value))}>{reciters.map((item, index) => <option key={item.base} value={index}>{item.name}</option>)}</select>
         </label>
       </div>
-      <audio ref={audio} aria-label="مشغّل تلاوة القرآن" className="w-full" controls preload="none"
-        onError={() => setError(true)} onEnded={() => { if (active && active < surahs.length) play(active + 1); }} />
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" disabled={!active || active === 1} onClick={() => active && play(active - 1)}><ChevronRight />السورة السابقة</Button>
-        <Button size="sm" variant="outline" disabled={!active || active === surahs.length} onClick={() => active && play(active + 1)}>السورة التالية<ChevronLeft /></Button>
+        <Button size="sm" variant="outline" disabled={!active || active === 1} onClick={player.previous}><ChevronRight />السورة السابقة</Button>
+        <Button size="sm" variant="outline" disabled={!active || (!player.shuffle && active === surahs.length)} onClick={player.next}>السورة التالية<ChevronLeft /></Button>
+        {active && <Button size="sm" onClick={player.togglePlayback}>{player.playing ? <><Pause />إيقاف مؤقت</> : <><Play />تشغيل</>}</Button>}
+        <Button size="sm" variant={player.shuffle ? "default" : "outline"} aria-pressed={player.shuffle} onClick={player.toggleShuffle}>
+          <Shuffle />{player.shuffle ? "إيقاف العشوائي" : "شغّل سورة عشوائية"}
+        </Button>
+        {!standalone && <Button size="sm" variant="outline" onClick={player.openWindow}><ExternalLink />افتح المشغّل في نافذة مستقلة</Button>}
       </div>
-      {error && <p role="alert" className="text-sm">تعذّر تشغيل التلاوة. تأكد من الاتصال بالنت وجرّب تاني.</p>}
+      {error && <p role="status" className="text-sm">{error}</p>}
     </section>
     <section className="surface space-y-4 p-4 md:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
