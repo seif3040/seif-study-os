@@ -204,6 +204,8 @@ export const appRouter = router({
     })).mutation(({ ctx, input }) => db.savePlannedStudy(ctx.user.id, input)),
     finishYearReview: protectedProcedure.input(z.object({ subjectId: id, day: z.string().date() }))
       .mutation(({ ctx, input }) => db.finishYearReview(ctx.user.id, input)),
+    reopenStudy: protectedProcedure.input(z.object({ id: z.string().uuid() }))
+      .mutation(({ ctx, input }) => db.reopenPlannedStudy(ctx.user.id, input.id)),
     finishStudy: protectedProcedure.input(z.object({ id: z.string().uuid() }))
       .mutation(({ ctx, input }) => db.finishPlannedStudy(ctx.user.id, input.id)),
     removeStudy: protectedProcedure.input(z.object({ id: z.string().uuid() }))

@@ -56,6 +56,7 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
   const [mistakeSubject, setMistakeSubject] = useState("");
   const [mistakeFormOpen, setMistakeFormOpen] = useState(false);
   const assignedTasks = trpc.tasks.list.useQuery(undefined, { enabled: tab === "الواجبات" });
+  const reopenHomework = trpc.tasks.reopen.useMutation({ onSuccess: () => utils.invalidate(), onError: error => toast.error(errorText(error)) });
   const completeHomework = trpc.tasks.complete.useMutation({
     onSuccess: async () => { await utils.invalidate(); },
     onError: error => toast.error(errorText(error)),
@@ -280,6 +281,7 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
             {link && <a href={link} target="_blank" rel="noreferrer" className="text-primary underline">افتح الواجب</a>}
             {task.status === "open" && <Button size="sm" variant="outline" disabled={completeHomework.isPending}
               onClick={() => completeHomework.mutate({ taskId: task.id })}>خلصت</Button>}
+            {task.status === "completed" && <Button size="sm" variant="outline" disabled={reopenHomework.isPending} onClick={() => reopenHomework.mutate({ taskId: task.id })}>إلغاء الإكمال</Button>}
           </div>;
         })}
         <a className="text-sm text-primary underline" href="/calendar?view=all">افتح المهام ومواعيد التسليم</a>

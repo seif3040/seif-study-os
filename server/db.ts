@@ -2676,6 +2676,14 @@ export function savePlannedStudy(userId: number, input: PlannedStudy) {
   });
 }
 
+export function reopenPlannedStudy(userId: number, id: string) {
+  return changePlanner(userId, async state => {
+    const session = state.studySessions?.find(item => item.id === id);
+    if (!session) throw new Error("الجلسة مش موجودة.");
+    session.done = false;
+  });
+}
+
 export async function finishPlannedStudy(userId: number, id: string) {
   const cycle = await getActiveCycle(userId);
   const lessonCycle = await changePlanner(userId, async (state, tx) => {

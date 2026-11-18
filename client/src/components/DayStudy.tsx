@@ -43,6 +43,7 @@ export default function DayStudy({ day, showSchedule = false, embedded = false }
       if (session.postponeReason) toast.success("الجلسة اتأجلت للميعاد الجديد.");
     }, onError,
   });
+  const reopen = trpc.planner.reopenStudy.useMutation({ onSuccess: () => utils.invalidate(), onError });
   const done = trpc.planner.finishStudy.useMutation({ onSuccess: () => utils.invalidate(), onError });
   const remove = trpc.planner.removeStudy.useMutation({ onSuccess: () => utils.planner.list.invalidate(), onError });
   const fill = trpc.planner.fillStudyDay.useMutation({
@@ -112,7 +113,7 @@ export default function DayStudy({ day, showSchedule = false, embedded = false }
           <p className="text-sm">{kinds[item.kind]} · {formatClock(item.start)} – {formatClock(item.end)}</p>
           {item.postponeReason && <p className="text-sm text-muted-foreground">اتأجلت · {postponeLabels[item.postponeReason]}</p>}
         </div>
-        {item.done ? <span className="text-sm">خلصت</span> : <>
+        {item.done ? <Button size="sm" variant="outline" disabled={reopen.isPending} onClick={() => reopen.mutate({ id: item.id })}>إلغاء الإكمال</Button> : <>
           <Button size="sm" disabled={done.isPending} onClick={() => done.mutate({ id: item.id })}>خلصت المذاكرة</Button>
           <Button size="sm" variant="outline" onClick={() => openEditor(item)}>نقل أو تعديل</Button>
           <Button size="sm" variant="outline" onClick={() => openEditor(item, true)}>تأجيل</Button>
