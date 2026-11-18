@@ -36,7 +36,9 @@ async function handle(message, sender) {
       .flatMap(([id, value]) => {
         const url = id.slice(prefix.length);
         const normalized = lessonKey(url);
-        if (!normalized || new URL(normalized).hostname.replace(/^www\./, "") !== host) return [];
+        if (!normalized) return [];
+        const hostname = new URL(normalized).hostname.replace(/^www\./, "");
+        if (hostname !== host && !hostname.endsWith("." + host)) return [];
         return [{ url: normalized, title: value.title || new URL(normalized).pathname, position: value.position, lastPlayingAt: value.lastPlayingAt, manualSince: value.manualSince, updatedAt: value.updatedAt ?? value.lastAutoAt ?? value.manualSince ?? 0 }];
       }).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 30);
   }

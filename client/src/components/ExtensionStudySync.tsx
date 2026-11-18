@@ -52,7 +52,11 @@ export default function ExtensionStudySync() {
       let url: URL;
       try { url = new URL(recent.url); if (url.protocol !== "https:") return; } catch { return; }
       const matching = saved.filter(source => {
-        try { return new URL(source.url!).hostname.replace(/^www\./, "") === url.hostname.replace(/^www\./, ""); } catch { return false; }
+        try {
+          const host = new URL(source.url!).hostname.replace(/^www\./, "");
+          const current = url.hostname.replace(/^www\./, "");
+          return current === host || current.endsWith("." + host);
+        } catch { return false; }
       });
       const unique = Array.from(new Map(matching.map(source => [source.subject, source])).values());
       if (unique.length === 1) void startRef.current(recent, unique[0].subject);
