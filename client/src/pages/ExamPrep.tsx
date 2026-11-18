@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "wouter";
 import { PageHeader, EmptyState } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -55,6 +55,7 @@ export default function ExamPrep() {
       })}
       <ReplanStudy day={plannerToday()} />
     </section>
+    <TimedMock key={"mock-" + id} examId={item.exam.id} lessons={item.lessons} />
     <Practice key={id} examId={item.exam.id} subjectNames={subjects} lessonIds={item.lessons.map(lesson => lesson.id)} />
   </div>;
 }
@@ -100,5 +101,112 @@ function Practice({ examId, subjectNames, lessonIds }: { examId: number; subject
     </> : <p className="text-sm text-muted-foreground">{seen.length ? "خلصت أسئلة التدريب المتاحة." : "لسه مفيش أسئلة محفوظة لمواد الامتحان."}</p>}
     <Link href="/mistakes" className="block text-sm text-primary underline">كشكول الأخطاء</Link>
     <Link href={"/exams#exam-" + examId} className="block text-sm text-primary underline">سجّل نتيجتك من صفحة الامتحان</Link>
+  </section>;
+}
+
+function TimedMock({ examId, lessons }: { examId: number; lessons: { id: number; chapterTitle: string }[] }) {
+  const planner = trpc.planner.list.useQuery();
+  const utils = trpc.useUtils();
+  const save = trpc.planner.saveStudyResource.useMutation();
+  const chapters = Array.from(new Set(lessons.map(lesson => lesson.chapterTitle)));
+  const [chapter, setChapter] = useState("");
+  const [minutes, setMinutes] = useState(15);
+  const bank = (planner.data?.resources?.mistakes ?? []).filter(question =>
+    lessons.some(lesson => lesson.id === question.lessonId && (!chapter || lesson.chapterTitle === chapter)));
+  const [attempt, setAttempt] = useState<{ questions: typeof bank; deadline: number }>();
+  const [now, setNow] = useState(Date.now);
+  const [submitted, setSubmitted] = useState(false);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [essayGrades, setEssayGrades] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    if (!attempt || submitted) return;
+    const clock = () => {
+      const time = Date.now();
+      setNow(time);
+      if (time >= attempt.deadline) setSubmitted(true);
+    };
+    clock();
+    const id = window.setInterval(clock, 250);
+    return () => window.clearInterval(id);
+  }, [attempt, submitted]);
+
+  function start() {
+    const time = Date.now();
+    setNow(time);
+    setAttempt({ questions: bank.slice(0, 20), deadline: time + minutes * 60_000 });
+    setAnswers({});
+    setEssayGrades({});
+    setSaved(false);
+    setSubmitted(false);
+  }
+
+  function grade(question: typeof bank[number]) {
+    if (!answers[question.id]?.trim()) return false;
+    return question.kind === "choice" ? answers[question.id] === question.answer : essayGrades[question.id];
+  }
+
+  async function saveResults() {
+    if (!attempt || busy || saved) return;
+    setBusy(true);
+    try {
+      for (const question of attempt.questions) {
+        await save.mutateAsync({ type: "check", examId, id: question.id, correct: grade(question) === true });
+      }
+      await utils.planner.list.invalidate();
+      setSaved(true);
+    } catch {
+      toast.error("تعذّر حفظ بعض النتائج. جرّب الحفظ تاني.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const remaining = Math.max(0, Math.ceil(((attempt?.deadline ?? now) - now) / 1000));
+  const ready = attempt?.questions.every(question => grade(question) !== undefined);
+  return <section className="surface space-y-4 p-5">
+    <h2 className="font-bold">امتحان تجريبي بوقت</h2>
+    {!attempt ? <>
+      <div className="flex flex-wrap gap-3 text-sm">
+        <label>الوحدة <select className="rounded-md border bg-background p-2" value={chapter} onChange={event => setChapter(event.target.value)}>
+          <option value="">كل وحدات الامتحان</option>
+          {chapters.map(title => <option key={title}>{title}</option>)}
+        </select></label>
+        <label>المدة <select className="rounded-md border bg-background p-2" value={minutes} onChange={event => setMinutes(Number(event.target.value))}>
+          {[5, 10, 15, 25, 45, 60].map(value => <option key={value} value={value}>{value} دقيقة</option>)}
+        </select></label>
+      </div>
+      <p className="text-sm text-muted-foreground">{bank.length ? Math.min(bank.length, 20) + " سؤال من كشكول الأخطاء" : "اربط أسئلة بدروس الوحدة من كشكول الأخطاء عشان تبدأ."}</p>
+      <Button disabled={!bank.length} onClick={start}>ابدأ الامتحان التجريبي</Button>
+    </> : <>
+      {!submitted && <p className="sticky top-16 z-10 rounded-lg bg-background p-2 font-bold">الوقت المتبقي <span dir="ltr">{Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")}</span></p>}
+      {attempt.questions.map((question, index) => <article key={question.id} className="space-y-2 rounded-xl border p-3">
+        <p className="whitespace-pre-wrap font-semibold">{index + 1}. {question.question}</p>
+        {submitted ? <>
+          <p className="whitespace-pre-wrap text-sm">إجابتك · {answers[question.id] || "سؤال من غير إجابة"}</p>
+          <p className="whitespace-pre-wrap text-sm">الإجابة النموذجية · {question.answer}</p>
+          {question.kind === "essay" && answers[question.id]?.trim() && <div className="flex gap-2">
+            <Button size="sm" disabled={busy || saved} aria-pressed={essayGrades[question.id] === true} variant={essayGrades[question.id] === true ? "default" : "outline"} onClick={() => setEssayGrades(previous => ({ ...previous, [question.id]: true }))}>إجابتي صح</Button>
+            <Button size="sm" disabled={busy || saved} aria-pressed={essayGrades[question.id] === false} variant={essayGrades[question.id] === false ? "default" : "outline"} onClick={() => setEssayGrades(previous => ({ ...previous, [question.id]: false }))}>محتاج أراجع</Button>
+          </div>}
+        </> : question.kind === "choice" ? <div className="flex flex-wrap gap-2">
+          {question.options.map(option => <Button key={option} size="sm" aria-pressed={answers[question.id] === option}
+            variant={answers[question.id] === option ? "default" : "outline"} onClick={() => setAnswers(previous => ({ ...previous, [question.id]: option }))}>{option}</Button>)}
+        </div> : <textarea aria-label={"إجابة سؤال " + (index + 1)} className="w-full rounded-md border bg-background p-2"
+          value={answers[question.id] ?? ""} onChange={event => setAnswers(previous => ({ ...previous, [question.id]: event.target.value }))} />}
+      </article>)}
+      {submitted ? <>
+        {ready ? <>
+          <p className="font-bold">النتيجة · {attempt.questions.filter(question => grade(question)).length}/{attempt.questions.length}</p>
+          {chapters.map(title => {
+            const questions = attempt.questions.filter(question => lessons.some(lesson => lesson.id === question.lessonId && lesson.chapterTitle === title));
+            return questions.length > 0 && <p key={title} className="text-sm">{title} · {questions.filter(question => grade(question)).length}/{questions.length}</p>;
+          })}
+          <Button disabled={busy || saved} onClick={() => void saveResults()}>{saved ? "نتائج التدريب اتحفظت" : "احفظ النتيجة وحدّث المراجعات"}</Button>
+        </> : <p className="text-sm">صحّح إجابات المقالي عشان تظهر النتيجة.</p>}
+        <Button className="ms-2" variant="outline" disabled={busy} onClick={() => setAttempt(undefined)}>اختبار جديد</Button>
+      </> : <Button onClick={() => setSubmitted(true)}>سلّم الامتحان</Button>}
+    </>}
   </section>;
 }
