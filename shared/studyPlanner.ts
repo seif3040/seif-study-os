@@ -49,6 +49,7 @@ export type PlannerState = {
   teacherNext?: Record<number, number>;
   studySessions?: PlannedStudy[];
   completedYearReviews?: string[];
+  studyTotalBaseline?: { minutes: number; throughEventId: number };
   activeBreak?: { startedAt: number; targetAt: number };
   breakMilliseconds?: Record<string, number>;
   sleepLogs?: Record<string, import("./sleep.js").SleepLog>;

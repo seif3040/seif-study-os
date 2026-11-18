@@ -1,3 +1,4 @@
+import { studyOverlapByDay, totalStudyMinutes } from "../shared/studyTime.js";
 import { addBreakTime } from "../shared/studyBreak.js";
 import { externalVideoDeadline, externalVideoElapsed, videoBlockSeconds } from "../shared/videoTimer.js";
 import { studyEfforts, type StudyEffort, type StudyItem, type WeeklyStudy } from "../shared/weeklyStudy.js";
@@ -202,11 +203,30 @@ async function recordStudyEvent(params: { userId: number; cycleId: number; subje
   return true;
 }
 
-async function metricSnapshot(db: any, userId: number) {
+type StudyReader = Pick<Awaited<ReturnType<typeof database>>, "select">;
+
+function studyTimeRows(db: StudyReader, userId: number) {
+  return db.select({ id: studyEvents.id, at: studyEvents.occurredAt, reference: studyEvents.referenceId,
+    kind: studyEvents.eventType, minutes: studyEvents.durationMinutes }).from(studyEvents)
+    .where(and(eq(studyEvents.userId, userId), sql`${studyEvents.durationMinutes} > 0`));
+}
+
+export function setStudyTotalBaseline(userId: number, minutes: number) {
+  return changePlanner(userId, async (planner, tx) => {
+    if (planner.studyTotalBaseline) return planner.studyTotalBaseline;
+    const [last] = await tx.select({ id: studyEvents.id }).from(studyEvents)
+      .where(eq(studyEvents.userId, userId)).orderBy(desc(studyEvents.id)).limit(1);
+    planner.studyTotalBaseline = { minutes, throughEventId: last?.id ?? 0 };
+    return planner.studyTotalBaseline;
+  });
+}
+
+async function metricSnapshot(db: StudyReader, userId: number, timeRows?: Awaited<ReturnType<typeof studyTimeRows>>) {
+  const [planner, timed] = await Promise.all([getPlanner(userId), timeRows ?? studyTimeRows(db, userId)]);
+  const studyMinutes = totalStudyMinutes(timed, dateKey, planner.studyTotalBaseline);
   const [events] = await db.select({
     lessonsCompleted: sql<number>`coalesce(sum(case when ${studyEvents.eventType} = 'lesson_complete' then 1 else 0 end), 0)`,
     reviews: sql<number>`coalesce(sum(case when ${studyEvents.eventType} = 'lesson_review' then 1 else 0 end), 0)`,
-    studyMinutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)`,
     pomodoros: sql<number>`coalesce(sum(case when ${studyEvents.eventType} = 'pomodoro_complete' then 1 else 0 end), 0)`,
     tasksCompleted: sql<number>`coalesce(sum(case when ${studyEvents.eventType} = 'task_complete' then 1 else 0 end), 0)`,
     urgentTasks: sql<number>`0`,
@@ -234,10 +254,9 @@ async function metricSnapshot(db: any, userId: number) {
     else if (streak === 0 && day === cursor - DAY_MS) { streak += 1; cursor = day - DAY_MS; }
     else break;
   }
-  const planner = await getPlanner(userId);
   const manualVideoMinutes = planner.manualVideoMinutes ?? 0;
   const values = {
-    lessonsCompleted: Number(events?.lessonsCompleted ?? 0), reviews: Number(events?.reviews ?? 0), studyMinutes: Number(events?.studyMinutes ?? 0),
+    lessonsCompleted: Number(events?.lessonsCompleted ?? 0), reviews: Number(events?.reviews ?? 0), studyMinutes,
     pomodoros: Number(events?.pomodoros ?? 0), tasksCompleted: Number(events?.tasksCompleted ?? 0), urgentTasks: Number(urgent?.value ?? 0),
     goalsCompleted: Number(events?.goalsCompleted ?? 0), habitDays: Number(events?.habitDays ?? 0), videoMinutes: Math.max(0, Number(events?.videoMinutes ?? 0) + manualVideoMinutes + (planner.correctedVideoMinutes ?? 0)), manualVideoMinutes,
     videoBlocks: Number(events?.videoBlocks ?? 0), examsCompleted: Number(events?.examsCompleted ?? 0), bestExamScore: Number(examSummary?.best ?? 0),
@@ -1362,14 +1381,21 @@ export async function welcomeAchievements(userId: number, day: string) {
     if (row.kind === "task_complete") current.tasks++;
     if (row.kind === "pomodoro_complete") current.sessions++;
   }
+  const overlap = studyOverlapByDay(await studyTimeRows(db, userId), plannerToday);
+  for (const [day, total] of Object.entries(totals)) {
+    total.minutes = Math.max(0, total.minutes - (overlap.get(day) ?? 0));
+  }
   return totals;
 }
 
 export async function analytics(userId: number) {
-  const db = await database(); const cycle = await getActiveCycle(userId); const metrics = await metricSnapshot(db, userId); const coins = await getCoinSummary(db, userId);
+  const db = await database();
+  const timeRows = await studyTimeRows(db, userId);
+  const overlap = studyOverlapByDay(timeRows, dateKey);
+  const cycle = await getActiveCycle(userId); const metrics = await metricSnapshot(db, userId, timeRows); const coins = await getCoinSummary(db, userId);
   const eventDay = sql<string>`date(\`studyEvents\`.\`occurredAt\`)`;
   const subjectName = sql<string>`coalesce(${subjects.title}, 'بدون مادة')`;
-  const [daily, bySubject, completion, comprehension, purchases, planner] = await Promise.all([
+  const [dailyRows, bySubject, completion, comprehension, purchases, planner] = await Promise.all([
     db.select({ day: eventDay, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)`, events: count(),
       videoMinutes: sql<number>`coalesce(sum(case when ${studyEvents.eventType} = 'video_block' then ${studyEvents.durationMinutes} else 0 end), 0)`,
       lessons: sql<number>`sum(case when ${studyEvents.eventType} = 'lesson_complete' then 1 else 0 end)`,
@@ -1384,6 +1410,10 @@ export async function analytics(userId: number) {
     db.select({ value: count() }).from(rewardPurchases).where(eq(rewardPurchases.userId, userId)),
     getPlanner(userId),
   ]);
+  const daily = dailyRows.map(row => ({
+    ...row,
+    minutes: Math.max(0, Number(row.minutes) - (overlap.get(String(row.day).slice(0, 10)) ?? 0)),
+  }));
   return { cycle, metrics, coins, daily, sleepLogs: planner.sleepLogs ?? {}, breakMilliseconds: planner.breakMilliseconds ?? {}, bySubject, completion: completion[0] ?? { open: 0, completed: 0 }, comprehension: comprehension.map(attempt => ({ date: examPerformanceDay(attempt), score: attempt.score, comprehension: attempt.comprehension })), rewardsPurchased: Number(purchases[0]?.value ?? 0) };
 }
 

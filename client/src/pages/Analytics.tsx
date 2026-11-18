@@ -5,10 +5,10 @@ import { useState } from "react";
 import { PageHeader, EmptyState } from "@/components/PageHeader";
 import { money, minutesLabel } from "@/lib/study";
 import { trpc } from "@/lib/trpc";
-import { Award, BarChart3, BookOpen, BrainCircuit, CheckSquare, CircleDollarSign, Timer, Video } from "lucide-react";
+import { Award, BarChart3, BookOpen, BrainCircuit, CheckSquare, CircleDollarSign, Timer } from "lucide-react";
 const scoreFormat = new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 1 });
 const percent = (value: number | null) => value === null ? "—" : scoreFormat.format(value) + "٪";
-const cards = [{ key: "lessonsCompleted", label: "الدروس المكتملة", icon: BookOpen }, { key: "studyMinutes", label: "ساعات الدراسة", icon: Timer }, { key: "pomodoros", label: "Pomodoros", icon: Timer }, { key: "videoMinutes", label: "وقت الفيديو", icon: Video }, { key: "averageExamScore", label: "متوسط درجات الامتحانات", icon: BrainCircuit }, { key: "tasksCompleted", label: "مهام مكتملة", icon: CheckSquare }, { key: "goalsCompleted", label: "أهداف مكتملة", icon: Award }, { key: "currentStreak", label: "السلسلة الحالية", icon: BarChart3 }] as const;
+const cards = [{ key: "lessonsCompleted", label: "الدروس المكتملة", icon: BookOpen }, { key: "studyMinutes", label: "ساعات الدراسة", icon: Timer }, { key: "pomodoros", label: "Pomodoros", icon: Timer }, { key: "averageExamScore", label: "متوسط درجات الامتحانات", icon: BrainCircuit }, { key: "tasksCompleted", label: "مهام مكتملة", icon: CheckSquare }, { key: "goalsCompleted", label: "أهداف مكتملة", icon: Award }, { key: "currentStreak", label: "السلسلة الحالية", icon: BarChart3 }] as const;
 export default function Analytics() {
   return <div className="study-analytics space-y-8"><Overview /><SubjectReport /></div>;
 }
@@ -93,11 +93,10 @@ function Overview() {
       {cards.map(({ key, label, icon: Icon }) => <article key={key} className="surface flex items-center gap-3 p-4">
         <Icon className="size-5 shrink-0 text-primary" /><div>
           <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="text-lg font-bold">{key === "studyMinutes" || key === "videoMinutes"
+          <p className="text-lg font-bold">{key === "studyMinutes"
             ? minutesLabel(Number(data.metrics[key] ?? 0)) : key === "averageExamScore"
               ? data.comprehension.length ? percent(Number(data.metrics.averageExamScore)) : "—"
               : money.format(Number(data.metrics[key] ?? 0))}</p>
-          {key === "videoMinutes" && data.metrics.manualVideoMinutes > 0 && <p className="text-xs text-muted-foreground">يشمل وقت فيديو مسجّل يدويًا</p>}
         </div>
       </article>)}
     </div>

@@ -367,7 +367,7 @@ export const appRouter = router({
   }),
   achievements: router({ list: protectedProcedure.query(({ ctx }) => db.listAchievements(ctx.user.id)) }),
   coins: router({ ledger: protectedProcedure.query(({ ctx }) => db.coinLedger(ctx.user.id)) }),
-  analytics: router({ overview: protectedProcedure.query(({ ctx }) => db.analytics(ctx.user.id)), subjects: protectedProcedure.query(({ ctx }) => db.subjectAnalytics(ctx.user.id)) }),
+  analytics: router({ setStudyTotalBaseline: protectedProcedure.input(z.object({ minutes: z.number().int().nonnegative().max(1_000_000) })).mutation(({ ctx, input }) => db.setStudyTotalBaseline(ctx.user.id, input.minutes)), overview: protectedProcedure.query(({ ctx }) => db.analytics(ctx.user.id)), subjects: protectedProcedure.query(({ ctx }) => db.subjectAnalytics(ctx.user.id)) }),
 });
 
 export type AppRouter = typeof appRouter;
