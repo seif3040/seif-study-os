@@ -55,6 +55,7 @@ async function handle(message, sender) {
       data.lastAutoAt = now;
       if (Number.isFinite(message.from) && message.from >= 0 && message.position - message.from <= 30
           && Number.isFinite(message.seconds) && message.seconds > 0 && message.seconds <= 5 && !data.manualSince) {
+        data.lastPlayingAt = now;
         data.ranges = addWatchedRange(data.ranges, message.from, message.position);
         if (!data.lastCountAt || now - data.lastCountAt >= message.seconds * 700) {
           data.watched += message.seconds;

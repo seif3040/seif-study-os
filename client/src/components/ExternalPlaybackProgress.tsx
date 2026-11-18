@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { trpc } from "@/lib/trpc";
+import { useEffect, useRef, useState } from "react";
 
 type PlaybackProgress = {
   position?: number;
   watched: number;
   manual: number;
   ranges: [number, number][];
+  lastPlayingAt?: number;
+  manualSince?: number;
   notes: { text: string; position: number | null; at: number }[];
 };
 
@@ -14,7 +17,20 @@ function clock(value: number) {
     .map(part => String(part).padStart(2, "0")).join(":");
 }
 
-export default function ExternalPlaybackProgress({ url }: { url: string }) {
+export default function ExternalPlaybackProgress({ url, sessionId, running, inBreak }: { url: string; sessionId: number; running: boolean; inBreak: boolean }) {
+  const utils = trpc.useUtils();
+  const timer = trpc.video.setExternalTimer.useMutation({
+    onSuccess: () => Promise.all([utils.video.current.invalidate(), utils.analytics.overview.invalidate(), utils.coins.ledger.invalidate()]),
+  });
+  const observed = useRef(false);
+  useEffect(() => {
+    if (!progress) return;
+    const active = Boolean(progress.manualSince) || Boolean(progress.lastPlayingAt && Date.now() - progress.lastPlayingAt < 12000);
+    if (active) observed.current = true;
+    if (observed.current && !inBreak && active !== running && !timer.isPending && !timer.isError) {
+      timer.mutate({ sessionId, running: active });
+    }
+  });
   const key = "study-extension-lesson:" + url;
   const [linkedUrl, setLinkedUrl] = useState(() => localStorage.getItem(key) ?? "");
   const [lessons, setLessons] = useState<{ url: string; title: string; position?: number }[]>([]);
