@@ -3,7 +3,7 @@ import { addBreakTime } from "../shared/studyBreak.js";
 import { externalVideoDeadline, externalVideoElapsed, videoBlockSeconds } from "../shared/videoTimer.js";
 import { studyEfforts, type StudyEffort, type StudyItem, type WeeklyStudy } from "../shared/weeklyStudy.js";
 import { sleepDuration, sleepTargetMinutes, type SleepLog } from "../shared/sleep.js";
-import { cairoPlannerTime, examLocalDate, examOccurrences, type ExamScheduleOptions } from "../shared/examSchedule.js";
+import { cairoPlannerTime, examClock, examLocalDate, examOccurrences, type ExamScheduleOptions } from "../shared/examSchedule.js";
 import { buildYearReviews, emptyResources, yearReviewDate, type StudyResourceChange } from "../shared/studyResources.js";
 import { nawafil, prayerLoggingEnd } from "../shared/nawafil.js";
 import { defaultDesktopTabs, type NavigationPrefs } from "../shared/navigation.js";
@@ -2889,6 +2889,26 @@ async function settlePrayerPoints(tx: StudyTransaction, state: PlannerState, use
   return { amount: remaining.length * amount };
 }
 
+async function placeExamMistakeReview(tx: StudyTransaction, userId: number, state: PlannerState,
+  exam: typeof exams.$inferSelect, lessonId: number, today: string) {
+  if (exam.archivedAt || !exam.scheduledAt) return;
+  const deadline = examOccurrences([exam], today, shiftPlannerDay(today, 7), state.slots)
+    .find(item => item.scheduledAt > new Date());
+  if (!deadline || state.studySessions?.some(item => item.lessonId === lessonId && item.kind === "review" &&
+      !item.done && item.day >= today && cairoPlannerTime(item.day, item.end) <= deadline.scheduledAt)) return;
+  const lesson = await ownedLesson(tx, userId, lessonId);
+  const duration = 15;
+  for (let day = today; day <= deadline.day; day = shiftPlannerDay(day, 1)) {
+    const { free } = await studyAvailability(tx, userId, state, day);
+    const gap = free.find(item => item.end - item.start >= duration &&
+      +cairoPlannerTime(day, examClock(item.start)) + duration * 60_000 <= +deadline.scheduledAt);
+    if (!gap) continue;
+    (state.studySessions ??= []).push({ id: crypto.randomUUID(), day, start: examClock(gap.start), end: examClock(gap.start + duration),
+      title: "مراجعة قبل الامتحان: " + lesson.title.slice(0, 170), kind: "review", lessonId });
+    return;
+  }
+}
+
 export async function saveStudyResource(userId: number, change: StudyResourceChange) {
   const cycle = ["homework", "check", "solveBookLesson"].includes(change.type) ? await getActiveCycle(userId) : undefined;
   return changePlanner(userId, async (state, tx) => {
@@ -2897,8 +2917,19 @@ export async function saveStudyResource(userId: number, change: StudyResourceCha
       const item = resources.mistakes.find(row => row.id === change.id);
       if (!item) throw new Error("السؤال مش موجود.");
       const day = plannerToday();
-      if (item.due > day) return;
+      if (item.lastChecked === day || (!change.examId && item.due > day)) return;
+      if (change.examId) {
+        const [exam] = await tx.select().from(exams).where(and(eq(exams.id, change.examId), eq(exams.userId, userId)));
+        if (!exam) throw new Error("الامتحان مش موجود.");
+        if (item.lessonId && !change.correct) {
+          const [link] = await tx.select({ lessonId: examLessons.lessonId }).from(examLessons)
+            .where(and(eq(examLessons.examId, exam.id), eq(examLessons.lessonId, item.lessonId)));
+          if (link || exam.lessonId === item.lessonId) await placeExamMistakeReview(tx, userId, state, exam, item.lessonId, day);
+        }
+      }
+      item.lastChecked = day;
       if (cycle) await awardPlannerCoins(tx, userId, cycle.id, "mistake_review", `mistake:${item.id}:${day}`, "مراجعة سؤال من كشكول الأخطاء");
+      item.lastCorrect = change.correct;
       item.streak = change.correct ? item.streak + 1 : 0;
       item.due = shiftPlannerDay(day, [1, 3, 7, 14, 30][Math.min(item.streak, 4)]);
       return;
@@ -2951,6 +2982,9 @@ export async function saveStudyResource(userId: number, change: StudyResourceCha
           nextDay && nextSlot ? cairoPlannerTime(nextDay, nextSlot.start) : null);
       }
       return;
+    }
+    if (change.item.lessonId && (await ownedLesson(tx, userId, change.item.lessonId)).subjectId !== change.item.subjectId) {
+      throw new Error("اختار درس من نفس مادة السؤال.");
     }
     const [subject] = await tx.select({ id: subjects.id }).from(subjects)
       .where(and(eq(subjects.id, change.item.subjectId), eq(subjects.userId, userId)));

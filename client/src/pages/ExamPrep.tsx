@@ -15,6 +15,7 @@ export default function ExamPrep() {
   if (exams.isError || planner.isError) return <Button onClick={() => void Promise.all([exams.refetch(), planner.refetch()])}>جرّب التحميل تاني</Button>;
   const item = exams.data.find(entry => entry.exam.id === Number(id));
   if (!item) return <EmptyState title="الامتحان غير موجود" description="ارجع للامتحانات واختار اختبار." />;
+  const mistakes = planner.data.resources?.mistakes ?? [];
   const subjects = new Set(item.lessons.map(lesson => lesson.subjectTitle));
   if (item.subject) subjects.add(item.subject);
   return <div className="space-y-5">
@@ -30,11 +31,12 @@ export default function ExamPrep() {
           <h3 className="font-semibold">{chapter}</h3>
           {ordered.map(lesson => {
             const ready = lesson.status === "completed" && Boolean(lesson.lastReviewedAt);
+            const needsPractice = mistakes.some(question => question.lessonId === lesson.id && question.lastCorrect === false);
             const completed = lesson.status === "completed";
             return <div key={lesson.id} className="flex flex-wrap justify-between gap-2 text-sm">
               <Link href={"/study-plan/lesson/" + lesson.id} className="hover:underline">{lesson.title}</Link>
-              <span className={ready ? "rounded-md bg-emerald-500/15 px-2" : completed ? "rounded-md bg-amber-500/20 px-2" : "rounded-md bg-red-500/20 px-2"}>
-                {ready ? "مكتمل ومراجع" : completed ? "محتاج مراجعة" : "لسه ناقص"}
+              <span className={ready && !needsPractice ? "rounded-md bg-emerald-500/15 px-2" : completed ? "rounded-md bg-amber-500/20 px-2" : "rounded-md bg-red-500/20 px-2"}>
+                {needsPractice ? "محتاج تدريب" : ready ? "مكتمل ومراجع" : completed ? "محتاج مراجعة" : "لسه ناقص"}
               </span>
             </div>;
           })}
@@ -42,11 +44,11 @@ export default function ExamPrep() {
       })}
       <ReplanStudy day={plannerToday()} />
     </section>
-    <Practice key={id} examId={item.exam.id} subjectNames={subjects} />
+    <Practice key={id} examId={item.exam.id} subjectNames={subjects} lessonIds={item.lessons.map(lesson => lesson.id)} />
   </div>;
 }
 
-function Practice({ examId, subjectNames }: { examId: number; subjectNames: Set<string> }) {
+function Practice({ examId, subjectNames, lessonIds }: { examId: number; subjectNames: Set<string>; lessonIds: number[] }) {
   const plan = trpc.studyPlan.list.useQuery();
   const planner = trpc.planner.list.useQuery();
   const utils = trpc.useUtils();
@@ -55,7 +57,7 @@ function Practice({ examId, subjectNames }: { examId: number; subjectNames: Set<
   const [answer, setAnswer] = useState("");
   const subjectIds = new Set(plan.data?.rows.filter(row => subjectNames.has(row.subject.title)).map(row => row.subject.id));
   const questions = [...(planner.data?.resources?.mistakes ?? [])]
-    .filter(question => subjectIds.has(question.subjectId))
+    .filter(question => question.lessonId ? lessonIds.includes(question.lessonId) : subjectIds.has(question.subjectId))
     .sort((a, b) => a.due.localeCompare(b.due));
   const current = questions.find(question => !seen.includes(question.id));
   const save = trpc.planner.saveStudyResource.useMutation({
@@ -78,10 +80,10 @@ function Practice({ examId, subjectNames }: { examId: number; subjectNames: Set<
       </div> : <textarea value={answer} disabled={revealed} onChange={event => setAnswer(event.target.value)} className="w-full rounded-lg border bg-background p-2" aria-label="إجابتك" />}
       {!revealed ? <Button disabled={!answer.trim()} onClick={() => setRevealed(true)}>شوف الإجابة</Button> : <>
         <p className="whitespace-pre-wrap text-sm">الإجابة الصحيحة · {current.answer}</p>
-        {current.kind === "choice" ? <Button disabled={save.isPending} onClick={() => save.mutate({ type: "check", id: current.id, correct: answer === current.answer })}>احفظ وكمل</Button> :
+        {current.kind === "choice" ? <Button disabled={save.isPending} onClick={() => save.mutate({ type: "check", id: current.id, examId, correct: answer === current.answer })}>احفظ وكمل</Button> :
           <div className="flex flex-wrap gap-2">
-            <Button disabled={save.isPending} onClick={() => save.mutate({ type: "check", id: current.id, correct: true })}>إجابتي صح</Button>
-            <Button variant="outline" disabled={save.isPending} onClick={() => save.mutate({ type: "check", id: current.id, correct: false })}>محتاج أتدرّب عليها</Button>
+            <Button disabled={save.isPending} onClick={() => save.mutate({ type: "check", id: current.id, examId, correct: true })}>إجابتي صح</Button>
+            <Button variant="outline" disabled={save.isPending} onClick={() => save.mutate({ type: "check", id: current.id, examId, correct: false })}>محتاج أتدرّب عليها</Button>
           </div>}
       </>}
     </> : <p className="text-sm text-muted-foreground">{seen.length ? "خلصت أسئلة التدريب المتاحة." : "لسه مفيش أسئلة محفوظة لمواد الامتحان."}</p>}

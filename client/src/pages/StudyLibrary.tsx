@@ -53,6 +53,7 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
   const [bookId, setBookId] = useState("");
   const [editHomework, setEditHomework] = useState("");
   const [homeworkFormOpen, setHomeworkFormOpen] = useState(false);
+  const [mistakeSubject, setMistakeSubject] = useState("");
   const [mistakeFormOpen, setMistakeFormOpen] = useState(false);
   const assignedTasks = trpc.tasks.list.useQuery(undefined, { enabled: tab === "الواجبات" });
   const completeHomework = trpc.tasks.complete.useMutation({
@@ -311,11 +312,15 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
       <form className="space-y-3" onSubmit={event => {
         event.preventDefault();
         const form = fields(event.currentTarget);
-        change.mutate({ type: "mistake", item: { id: crypto.randomUUID(), subjectId: Number(str(form, "subject")),
+        change.mutate({ type: "mistake", item: { id: crypto.randomUUID(), subjectId: Number(str(form, "subject")), lessonId: Number(str(form, "lesson")) || undefined,
           question: str(form, "question"), kind, options: kind === "choice" ? str(form, "options").split("\n").map(x => x.trim()).filter(Boolean) : [],
           answer: str(form, "answer") } });
       }}>
-        <select name="subject" required aria-label="المادة" className={select}><option value="">اختار المادة</option>{subjects.map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select>
+        <select name="subject" required aria-label="المادة" className={select} value={mistakeSubject} onChange={event => setMistakeSubject(event.target.value)}><option value="">اختار المادة</option>{subjects.map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select>
+        <select key={mistakeSubject} name="lesson" aria-label="درس السؤال" className={select}>
+          <option value="">درس السؤال (اختياري)</option>
+          {rows.filter(row => String(row.subject.id) === mistakeSubject && row.lesson).map(row => <option key={row.lesson!.id} value={row.lesson!.id}>{row.chapter?.title} · {row.lesson!.title}</option>)}
+        </select>
         <select value={kind} aria-label="نوع السؤال" className={select} onChange={e => setKind(e.target.value === "choice" ? "choice" : "essay")}><option value="essay">مقالي</option><option value="choice">اختياري</option></select>
         <Textarea name="question" required maxLength={1500} placeholder="نص السؤال" />
         {kind === "choice" && <Textarea name="options" required placeholder="كل اختيار في سطر" />}

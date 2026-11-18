@@ -19,7 +19,7 @@ export const homeworkSchema = z.union([
   homeworkDetails.extend({ kind: z.literal("book").optional(), bookId: id, pages: z.string().trim().min(1).max(120) }),
 ]);
 export const mistakeSchema = z.object({
-  id, subjectId: lesson, question: z.string().trim().min(1).max(1500),
+  id, subjectId: lesson, lessonId: lesson.optional(), question: z.string().trim().min(1).max(1500),
   kind: z.enum(["essay", "choice"]), options: z.array(z.string().trim().min(1).max(250)).max(6),
   answer: z.string().trim().min(1).max(1200),
 }).superRefine((item, ctx) => {
@@ -31,14 +31,14 @@ export const studyResourceChange = z.discriminatedUnion("type", [
   z.object({ type: z.literal("book"), item: bookSchema }),
   z.object({ type: z.literal("homework"), item: homeworkSchema }),
   z.object({ type: z.literal("mistake"), item: mistakeSchema }),
-  z.object({ type: z.literal("check"), id, correct: z.boolean() }),
+  z.object({ type: z.literal("check"), id, correct: z.boolean(), examId: lesson.optional() }),
   z.object({ type: z.literal("solveBookLesson"), id, lessonId: lesson }),
 ]);
 export type StudyResources = {
   published?: Record<string, number>;
   books: (z.infer<typeof bookSchema> & { solvedLessonIds?: number[] })[];
   homework: z.infer<typeof homeworkSchema>[];
-  mistakes: (z.infer<typeof mistakeSchema> & { due: string; streak: number })[];
+  mistakes: (z.infer<typeof mistakeSchema> & { due: string; streak: number; lastCorrect?: boolean; lastChecked?: string })[];
 };
 export type StudyResourceChange = z.infer<typeof studyResourceChange>;
 export const emptyResources: StudyResources = { books: [], homework: [], mistakes: [] };
