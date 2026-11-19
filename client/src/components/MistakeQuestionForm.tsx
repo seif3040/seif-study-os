@@ -39,7 +39,7 @@ export default function MistakeQuestionForm({ lessons, subjects, existing, savin
 
   const chosen = lessons.find(lesson => lesson.id === lessonId);
   const query = normalize(lookup.trim());
-  const matches = lessons.filter(lesson => lesson.id !== lessonId && (!query ||
+  const matches = lessons.filter(lesson => lesson.id !== lessonId && lesson.subjectId === subjectId && (!query ||
     normalize([lesson.title, lesson.chapter, lesson.subject].filter(Boolean).join(" ")).includes(query))).slice(0, 40);
   const visible = chosen ? [chosen, ...matches] : matches;
   const busy = saving || reading;
@@ -117,6 +117,7 @@ export default function MistakeQuestionForm({ lessons, subjects, existing, savin
         <p className="text-xs text-muted-foreground">قراءة الصورة بتتم على جهازك. راجع النص قبل الحفظ.</p>
       </div>
       <fieldset disabled={busy} className="space-y-3">
+        {!withoutLesson && <label className="grid gap-1 text-sm">المادة<select className={select} required value={subjectId} onChange={event => { setSubjectId(Number(event.target.value)); setLessonId(0); setLookup(""); }}><option value={0}>اختار المادة</option>{subjects.map(([id, title]) => <option key={id} value={id}>{title}</option>)}</select></label>}
         {withoutLesson ? <label className="grid gap-1 text-sm">المادة
           <select className={select} value={subjectId} onChange={event => setSubjectId(Number(event.target.value))}>
             <option value={0}>اختار المادة</option>{subjects.map(([id, title]) => <option key={id} value={id}>{title}</option>)}

@@ -7,7 +7,14 @@ export function questionFromText(text: string) {
   const choices: { label: string; text: string }[] = [];
   let answer = "";
   for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
+    let line = rawLine.trim();
+    if (answerPrefix.test(line)) { answer = line.replace(answerPrefix, "").trim(); continue; }
+    if (/الحكاية|راجع هذا الموضوع|الفكرة:|امتحان تركز|امتحان عشان|إجابتك|^خط[اأأً]|درجة/.test(line)) continue;
+    line = line.replace(/الإجابة الصحيحة/g, "").trim();
+    const trailing = line.match(/^(.+?)\s+([A-D])$/);
+    const leading = line.match(/^([A-D])\s+(.+)$/);
+    if (trailing) line = trailing[2] + ". " + trailing[1];
+    else if (leading) line = leading[1] + ". " + leading[2];
     if (!line) continue;
     if (answerPrefix.test(line)) {
       answer = line.replace(answerPrefix, "").trim();
