@@ -1,3 +1,4 @@
+import { usePlatformWorkspace } from "@/components/PlatformWorkspace";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { Play, Timer } from "lucide-react";
@@ -21,6 +22,7 @@ export function QuickStudyStart({ day }: { day: string }) {
   const videos = trpc.video.open.useQuery();
   const sources = trpc.lessonSources.list.useQuery();
   const utils = trpc.useUtils();
+  const workspace = usePlatformWorkspace();
   const [, navigate] = useLocation();
   const [selected, setSelected] = useState("");
   const [retro, setRetro] = useState(false);
@@ -63,10 +65,9 @@ export function QuickStudyStart({ day }: { day: string }) {
 
   async function launch(minutes = 0, focusOnly = false, withFocus = false) {
     if (busy || !item) return;
-    const popup = external && !focusOnly && url ? window.open("about:blank", "_blank") : null;
-    if (popup) popup.opener = null;
     setBusy(true);
     try {
+      if (external && session?.timerRunning && minutes > 0) throw new Error("المؤقت شغّال بالفعل.");
       if (focusOnly || withFocus || (!session && !url) || (!external && minutes > 0)) {
         const focus = await utils.client.pomodoro.start.mutate({ plannedMinutes: Math.max(25, minutes + 5),
           subjectId: item.subjectId, elapsedMinutes: minutes || undefined });
@@ -82,17 +83,14 @@ export function QuickStudyStart({ day }: { day: string }) {
         subject, videoUrl: url!, lessonTitle: item.title, requestedMode: "auto",
       });
       if (video.sourceMode === "external") {
-        if (!video.timerRunning || minutes > 0) {
-          await utils.client.video.setExternalTimer.mutate({ sessionId: video.id, running: true, elapsedMinutes: minutes || undefined });
-        }
-        if (popup && url) popup.location.replace(url);
-        if (!popup && url) toast.info("الجلسة بدأت. افتح المنصة من زر «افتح الدرس في المنصة».");
+        utils.video.current.setData({ subject }, video);
+        workspace?.({ url: video.videoUrl, title: video.lessonTitle ?? item.title,
+          timer: { subject, sessionId: video.id, start: true, elapsedMinutes: minutes || undefined } });
       }
       await utils.video.invalidate();
       setRetro(false);
       navigate("/study-video?subject=" + subject + (video.sourceMode === "embedded" ? "&play=1" : ""));
     } catch (error) {
-      popup?.close();
       toast.error(errorText(error));
     } finally {
       setBusy(false);

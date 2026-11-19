@@ -1,3 +1,4 @@
+import { PlatformLink } from "@/components/PlatformWorkspace";
 import { Link, useParams } from "wouter";
 import { BookOpen, ClipboardList, Focus, GraduationCap } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/PageHeader";
@@ -42,7 +43,7 @@ export default function LessonJourney() {
         <h2 className="flex items-center gap-2 font-bold"><ClipboardList className="size-4 text-primary" />واجب الدرس</h2>
         {planner.isPending ? <p role="status">بنحمّل الواجبات…</p> : planner.isError ? <Button onClick={() => void planner.refetch()}>أعد تحميل الواجبات</Button> : !homework.length && <p className="text-sm text-muted-foreground">لسه مفيش واجب مرتبط بالدرس.</p>}
         {homework.map(item => <article key={item.id} className="rounded-xl border p-3 text-sm">
-          {item.kind === "online" ? <a href={item.url} target="_blank" rel="noopener noreferrer" className="font-bold text-primary underline">{item.platform}</a> :
+          {item.kind === "online" ? <PlatformLink href={item.url} title={item.platform} className="font-bold text-primary underline">{item.platform}</PlatformLink> :
             <p className="font-bold">{resources?.books.find(book => book.id === item.bookId)?.title ?? "الكتاب"} · صفحات {item.pages}</p>}
           {item.prompt && <p className="mt-1 whitespace-pre-wrap">{item.prompt}</p>}
         </article>)}

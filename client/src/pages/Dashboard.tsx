@@ -1,3 +1,4 @@
+import { PlatformLink } from "@/components/PlatformWorkspace";
 import { QuickStudyStart } from "@/components/QuickStudyStart";
 import { TodaySections } from "@/components/TodayLayout";
 import TodayNotices, { DailyQuran } from "@/components/TodayNotices";
@@ -110,7 +111,7 @@ export default function Dashboard() {
           <div className="min-w-40 flex-1">
             <p className="font-bold">{task.title}</p>
             <p className="whitespace-pre-line text-sm text-muted-foreground">{link ? lines.slice(0, -1).join("\n") : task.description}</p>
-            {link && <a className="text-sm text-primary underline" href={link} target="_blank" rel="noreferrer">{online ? "افتح الواجب" : "افتح منصة المحاضرة"}</a>}
+            {link && <PlatformLink className="text-sm text-primary underline" href={link}>{online ? "افتح الواجب" : "افتح منصة المحاضرة"}</PlatformLink>}
             <p className="text-sm">{task.deadline ? (task.deadline.getTime() < Date.now() ? "متأخر · " : "التسليم · ") + new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium", timeStyle: "short", hour12: true, timeZone: "Africa/Cairo" }).format(task.deadline) : "ميعاد التسليم لسه مش محدد"}</p>
           </div>
           <Button size="sm" variant="outline" onClick={() => setEditingHomework(task)}>تعديل التسليم</Button>

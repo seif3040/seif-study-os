@@ -1,3 +1,4 @@
+import { PlatformLink } from "@/components/PlatformWorkspace";
 import StudyHistory from "@/components/StudyHistory";
 import StudyWeekBuilder from "@/components/StudyWeekBuilder";
 import WeekPlanner from "@/components/WeekPlanner";
@@ -56,7 +57,7 @@ export default function LessonSources() {
 
 function SourceCard({ source, onDone }: { source: any; onDone: () => Promise<unknown> }) {
   const remove = trpc.lessonSources.delete.useMutation({ onSuccess: async () => { await onDone(); toast.success("تم حذف المصدر."); }, onError: () => toast.error("تعذر حذف المصدر.") });
-  const open = source.url ? <a href={source.url} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-bold text-primary-foreground transition hover:opacity-90"><ExternalLink className="size-3.5" />فتح المصدر</a> : null;
+  const open = source.url ? <PlatformLink href={source.url} title={source.platform} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-bold text-primary-foreground transition hover:opacity-90"><ExternalLink className="size-3.5" />فتح المصدر</PlatformLink> : null;
   return <article className="surface flex flex-col p-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><Badge className={subjectTones[source.subject] ?? "bg-secondary text-secondary-foreground"}>{source.subject}</Badge><h2 className="mt-3 text-lg font-extrabold">{source.teacherName}</h2><p className="mt-1 text-sm text-muted-foreground">{source.platform}</p></div><SourceDialog source={source} onDone={onDone} /></div><div className="mt-5 flex flex-wrap gap-2"><Badge variant="outline"><MonitorPlay className="ml-1 size-3.5" />{deliveryLabel[source.delivery as keyof typeof deliveryLabel]}</Badge><Badge variant="outline"><BookOpen className="ml-1 size-3.5" />{roleLabel[source.role as keyof typeof roleLabel]}</Badge>{!source.active && <Badge variant="secondary">متوقف مؤقتًا</Badge>}</div><div className="mt-5 space-y-3 text-sm text-muted-foreground">{source.weeklyPlan && <p className="flex gap-2"><CalendarClock className="mt-0.5 size-4 shrink-0 text-primary" />{source.weeklyPlan}</p>}{source.location && <p className="flex gap-2"><MapPin className="mt-0.5 size-4 shrink-0 text-primary" />{source.location}</p>}{source.notes && <p className="rounded-xl bg-muted/65 p-3 leading-6">{source.notes}</p>}</div><div className="mt-auto flex items-center gap-2 pt-5">{open}<Button variant="ghost" size="icon" aria-label="حذف المصدر" disabled={remove.isPending} onClick={() => window.confirm("حذف هذا المصدر؟") && remove.mutate({ sourceId: source.id })}><Trash2 className="size-4 text-rose-600" /></Button></div></article>;
 }
 

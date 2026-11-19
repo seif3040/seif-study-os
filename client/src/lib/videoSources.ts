@@ -18,3 +18,14 @@ export function youtubeEmbed(url: string) {
 export function isDirectMedia(url: string) { return /\.(mp4|webm|ogv|ogg)(?:$|[?#])/i.test(url); }
 export function classifyStudySource(url: string): StudySourceKind { const safe = safeStudyUrl(url); if (!safe) return "invalid"; return youtubeEmbed(safe) || isDirectMedia(safe) ? "embedded" : "external"; }
 export function sourceDomain(url: string) { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "المصدر الخارجي"; } }
+
+export function platformFrameUrl(url: string, parentOrigin: string) {
+  const safe = safeStudyUrl(url);
+  if (!safe) return null;
+  const parsed = new URL(safe);
+  const host = parsed.hostname.replace(/^www\./, "");
+  // The course serves X-Frame-Options: SAMEORIGIN.
+  if (host === "codingwithghonaim.com" || host.endsWith(".codingwithghonaim.com")) return null;
+  if (parsed.protocol !== "https:" || parsed.origin === parentOrigin || parsed.username || parsed.password) return null;
+  return youtubeEmbed(parsed.href) ?? parsed.href;
+}

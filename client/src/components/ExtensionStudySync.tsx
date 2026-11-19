@@ -100,7 +100,7 @@ export default function ExtensionStudySync() {
           blockCompleted = result.blockCompleted;
         }
         manualSessions.set(current.id, activity.manualSince);
-      } else if (current.phase !== "break" && (auto || (current.timerRunning && manualSessions.has(current.id)))) {
+      } else if (current.phase !== "break" && ((auto && (!current.timerRunning || playing)) || (current.timerRunning && manualSessions.has(current.id)))) {
         const result = auto && !current.timerRunning
           ? await utils.client.video.extensionPlayback.mutate({
             sessionId: current.id, active: playing, playbackPosition: Math.min(172800, activity.position!),

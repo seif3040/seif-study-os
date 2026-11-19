@@ -1,3 +1,4 @@
+import { PlatformLink } from "@/components/PlatformWorkspace";
 import { ReplanStudy } from "@/components/ReplanStudy";
 import { QuickStudyStart } from "@/components/QuickStudyStart";
 import ActionDialog from "@/components/ActionDialog";
@@ -80,7 +81,7 @@ export default function DayStudy({ day, showSchedule = false, embedded = false }
         return <div key={slot.id} className="rounded-xl border p-3">
           <p className="font-bold">{slot.title} · {formatClock(slot.start)} – {formatClock(slot.end)}</p>
           {source && <p className="text-sm text-muted-foreground">{source.teacherName}
-            {source.url && /^https?:\/\//i.test(source.url) && <> · <a href={source.url} target="_blank" rel="noreferrer" className="text-primary underline">افتح الحصة أو ارجع للتسجيل</a></>}
+            {source.url && /^https?:\/\//i.test(source.url) && <> · <PlatformLink href={source.url} title={source.platform} className="text-primary underline">افتح الحصة أو ارجع للتسجيل</PlatformLink></>}
           </p>}
           {attended.length ? <p className="text-sm">حضرت · {attended.map(item => item.lessonTitle).join("، ")}</p>
             : next && <p className="text-sm">الدرس المتوقع · {next}</p>}

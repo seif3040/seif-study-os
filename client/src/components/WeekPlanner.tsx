@@ -1,3 +1,4 @@
+import { PlatformLink } from "@/components/PlatformWorkspace";
 import ActionDialog from "@/components/ActionDialog";
 import { cairoPlannerTime, examLocalDate } from "@shared/examSchedule";
 import { hybridHomeworkSources } from "@shared/lessonSources";
@@ -207,7 +208,7 @@ export default function WeekPlanner() {
             </div>
             {source && <div className="text-sm text-muted-foreground">
               {source.teacherName} · {source.platform}{source.location && " · " + source.location}
-              {source.url && (source.url.startsWith("https://") || source.url.startsWith("http://")) && <a className="ms-2 inline-flex items-center gap-1 text-primary underline" href={source.url} target="_blank" rel="noreferrer">المصدر <ExternalLink className="size-3" /></a>}
+              {source.url && (source.url.startsWith("https://") || source.url.startsWith("http://")) && <PlatformLink className="ms-2 inline-flex items-center gap-1 text-primary underline" href={source.url} title={source.platform}>المصدر <ExternalLink className="size-3" /></PlatformLink>}
             </div>}
             {recorded.length > 0 && <p className="text-sm">حضرْت · {recorded.map(item => item.lessonTitle).join("، ")}</p>}
             {subject && !arabic && <label className="block text-sm">المدرس وصل لفين؟

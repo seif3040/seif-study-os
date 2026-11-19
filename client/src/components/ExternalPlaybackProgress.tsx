@@ -1,8 +1,10 @@
+import { PlatformLink } from "@/components/PlatformWorkspace";
 import ExtensionDownloadLink from "@/components/ExtensionDownloadLink";
 import { useEffect, useState } from "react";
 
 type PlaybackProgress = {
   position?: number;
+  playing?: boolean;
   watched: number;
   manual: number;
   ranges: [number, number][];
@@ -18,7 +20,7 @@ function clock(value: number) {
     .map(part => String(part).padStart(2, "0")).join(":");
 }
 
-export default function ExternalPlaybackProgress({ url, onPosition }: { url: string; onPosition(seconds: number | undefined): void }) {
+export default function ExternalPlaybackProgress({ url, onPosition }: { url: string; onPosition(seconds: number | undefined, playingAt?: number): void }) {
   const key = "study-extension-lesson:" + url;
   const [linkedUrl, setLinkedUrl] = useState(() => localStorage.getItem(key) ?? "");
   const [lessons, setLessons] = useState<{ url: string; title: string; position?: number }[]>([]);
@@ -36,7 +38,7 @@ export default function ExternalPlaybackProgress({ url, onPosition }: { url: str
       if (data && Number.isFinite(data.watched) && Number.isFinite(data.manual) &&
           Array.isArray(data.ranges) && Array.isArray(data.notes)) {
         setProgress(data);
-        onPosition(data.lastAutoAt && Number.isFinite(data.position) ? Math.floor(data.position) : undefined);
+        onPosition(data.lastAutoAt && Number.isFinite(data.position) ? Math.floor(data.position) : undefined, data.playing ? data.lastAutoAt : undefined);
       }
     }
     function refresh() {
@@ -76,7 +78,7 @@ export default function ExternalPlaybackProgress({ url, onPosition }: { url: str
         </option>)}
       </select>
     </label>}
-    {linkedUrl && <a href={linkedUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary underline">افتح الدرس المرتبط</a>}
+    {linkedUrl && <PlatformLink href={linkedUrl} className="font-semibold text-primary underline">افتح الدرس المرتبط</PlatformLink>}
     {progress ? <>
       <div className="flex flex-wrap gap-x-4 gap-y-1">
         <span>آخر مكان <b dir="ltr">{progress.position === undefined ? "—" : clock(progress.position)}</b></span>

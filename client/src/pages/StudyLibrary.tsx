@@ -1,3 +1,4 @@
+import { PlatformLink } from "@/components/PlatformWorkspace";
 import { safeStudyUrl } from "@/lib/videoSources";
 import ActionDialog from "@/components/ActionDialog";
 import { useState } from "react";
@@ -278,7 +279,7 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
           const link = linkLine.startsWith("رابط الواجب: ") ? safeStudyUrl(linkLine.slice("رابط الواجب: ".length)) : null;
           return <div key={task.id} className="flex flex-wrap items-center gap-2 rounded-lg border p-2 text-sm">
             <span className="min-w-0 flex-1 wrap-anywhere">{task.status === "completed" ? "✓" : "○"} {task.title}</span>
-            {link && <a href={link} target="_blank" rel="noreferrer" className="text-primary underline">افتح الواجب</a>}
+            {link && <PlatformLink href={link} className="text-primary underline">افتح الواجب</PlatformLink>}
             {task.status === "open" && <Button size="sm" variant="outline" disabled={completeHomework.isPending}
               onClick={() => completeHomework.mutate({ taskId: task.id })}>خلصت</Button>}
             {task.status === "completed" && <Button size="sm" variant="outline" disabled={reopenHomework.isPending} onClick={() => reopenHomework.mutate({ taskId: task.id })}>إلغاء الإكمال</Button>}
@@ -291,7 +292,7 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
       {(resources?.homework ?? []).filter(item => !attendanceLessons || attendanceLessons.includes(item.lessonId)).map(item => <article key={item.id} className="rounded border p-2 text-sm">
         <strong>{rows.find(row => row.lesson?.id === item.lessonId)?.lesson?.title} · {item.kind === "online" ? item.platform : books.find(row => row.id === item.bookId)?.title}</strong>
         <p>{item.kind === "online" ? item.prompt : "ص " + item.pages + (item.prompt ? " · " + item.prompt : "")}</p>
-        {item.kind === "online" && safeStudyUrl(item.url) && <a href={safeStudyUrl(item.url) ?? undefined} target="_blank" rel="noreferrer" className="text-primary underline">افتح الواجب</a>}
+        {item.kind === "online" && safeStudyUrl(item.url) && <PlatformLink href={item.url} title={item.platform} className="text-primary underline">افتح الواجب</PlatformLink>}
         <Button size="sm" variant="ghost" onClick={() => { const row = rows.find(row => row.lesson?.id === item.lessonId); setHomeworkSubject(row?.subject.id ?? 0); setHomeworkChapter(row?.chapter?.id ?? 0); setEditHomework(item.id); if (item.kind === "online") { setTeacher(item.sourceId ?? attendanceSourceId ?? 0); setPlatform(item.platform); setWebsite(item.url); setSiteUrl(item.siteUrl ?? ""); } setHomeworkKind(item.kind === "online" ? "online" : "book"); setBookId(item.kind === "online" ? "" : item.bookId); setHomeworkFormOpen(true); }}>تعديل الواجب</Button>
       </article>)}
       </section></div>
