@@ -21,16 +21,17 @@ export const homeworkSchema = z.union([
 export const mistakeSchema = z.object({
   id, subjectId: lesson, lessonId: lesson.optional(), question: z.string().trim().min(1).max(1500),
   kind: z.enum(["essay", "choice"]), options: z.array(z.string().trim().min(1).max(250)).max(6),
-  answer: z.string().trim().min(1).max(1200),
+  answer: z.string().trim().max(1200),
 }).superRefine((item, ctx) => {
-  if (item.kind === "choice" && (item.options.length < 2 || new Set(item.options).size !== item.options.length || !item.options.includes(item.answer))) {
-    ctx.addIssue({ code: "custom", message: "اكتب اختيارين مختلفين على الأقل وحدد الإجابة الصحيحة." });
+  if (item.kind === "choice" && (item.options.length < 2 || new Set(item.options).size !== item.options.length || (item.answer && !item.options.includes(item.answer)))) {
+    ctx.addIssue({ code: "custom", message: "اكتب اختيارين مختلفين على الأقل، ولو حددت إجابة تكون من الاختيارات." });
   }
 });
 export const studyResourceChange = z.discriminatedUnion("type", [
   z.object({ type: z.literal("book"), item: bookSchema }),
   z.object({ type: z.literal("homework"), item: homeworkSchema }),
   z.object({ type: z.literal("mistake"), item: mistakeSchema }),
+  z.object({ type: z.literal("deleteMistake"), id }),
   z.object({ type: z.literal("check"), id, correct: z.boolean(), examId: lesson.optional() }),
   z.object({ type: z.literal("solveBookLesson"), id, lessonId: lesson }),
 ]);

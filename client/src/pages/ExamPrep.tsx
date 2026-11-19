@@ -69,7 +69,7 @@ function Practice({ examId, subjectNames, lessonIds }: { examId: number; subject
   const [answer, setAnswer] = useState("");
   const subjectIds = new Set(plan.data?.rows.filter(row => subjectNames.has(row.subject.title)).map(row => row.subject.id));
   const questions = [...(planner.data?.resources?.mistakes ?? [])]
-    .filter(question => question.lessonId ? lessonIds.includes(question.lessonId) : subjectIds.has(question.subjectId))
+    .filter(question => question.answer && (question.lessonId ? lessonIds.includes(question.lessonId) : subjectIds.has(question.subjectId)))
     .sort((a, b) => a.due.localeCompare(b.due));
   const current = questions.find(question => !seen.includes(question.id));
   const save = trpc.planner.saveStudyResource.useMutation({
@@ -111,7 +111,7 @@ function TimedMock({ examId, lessons }: { examId: number; lessons: { id: number;
   const chapters = Array.from(new Set(lessons.map(lesson => lesson.chapterTitle)));
   const [chapter, setChapter] = useState("");
   const [minutes, setMinutes] = useState(15);
-  const bank = (planner.data?.resources?.mistakes ?? []).filter(question =>
+  const bank = (planner.data?.resources?.mistakes ?? []).filter(question => question.answer).filter(question =>
     lessons.some(lesson => lesson.id === question.lessonId && (!chapter || lesson.chapterTitle === chapter)));
   const [attempt, setAttempt] = useState<{ questions: typeof bank; deadline: number }>();
   const [now, setNow] = useState(Date.now);

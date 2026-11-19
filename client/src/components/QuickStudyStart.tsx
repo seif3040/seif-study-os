@@ -11,7 +11,6 @@ import { errorText } from "@/lib/study";
 import { classifyStudySource, safeStudyUrl } from "@/lib/videoSources";
 import { subjectKey, videoSubject } from "@shared/lessonSources";
 import { cairoPlannerTime } from "@shared/examSchedule";
-import { videoBlockSeconds } from "@shared/videoTimer";
 import { plannerToday, slotOccurs } from "@shared/studyPlanner";
 
 type StudyPick = { id: string; subjectId: number; subject: string; title: string; start: string; end: string; sourceId?: number };
@@ -60,8 +59,7 @@ export function QuickStudyStart({ day }: { day: string }) {
   const url = safeStudyUrl(session?.videoUrl ?? source?.url ?? "");
   const external = session ? session.sourceMode === "external" : Boolean(url && classifyStudySource(url) === "external");
 
-  const retroMax = external ? Math.max(1, Math.floor(((session?.completedBlocks ?? 0) + 1) * videoBlockSeconds / 60
-    - (session?.activeSeconds ?? 0) / 60)) : 120;
+  const retroMax = external ? undefined : 120;
 
   async function launch(minutes = 0, focusOnly = false, withFocus = false) {
     if (busy || !item) return;
@@ -79,13 +77,19 @@ export function QuickStudyStart({ day }: { day: string }) {
           return;
         }
       }
-      const video = session ?? await utils.client.video.start.mutate({
+      let video = session ?? await utils.client.video.start.mutate({
         subject, videoUrl: url!, lessonTitle: item.title, requestedMode: "auto",
       });
       if (video.sourceMode === "external") {
+        if (minutes > 0) {
+          const result = await utils.client.video.setExternalTimer.mutate({ sessionId: video.id, running: true, elapsedMinutes: minutes });
+          video = result.session;
+          await Promise.all([utils.analytics.overview.invalidate(), utils.dashboard.welcome.invalidate(),
+            utils.dashboard.summary.invalidate(), utils.coins.ledger.invalidate()]);
+        }
         utils.video.current.setData({ subject }, video);
         workspace?.({ url: video.videoUrl, title: video.lessonTitle ?? item.title,
-          timer: { subject, sessionId: video.id, start: true, elapsedMinutes: minutes || undefined } });
+          timer: { subject, sessionId: video.id, start: minutes === 0 } });
       }
       await utils.video.invalidate();
       setRetro(false);
@@ -110,14 +114,14 @@ export function QuickStudyStart({ day }: { day: string }) {
       <Button disabled={busy} onClick={() => void launch()}><Play />{external ? "افتح المنصة وابدأ المؤقت" : "ابدأ " + item.subject}</Button>
       {!external && (session || url) && <Button variant="outline" disabled={busy} onClick={() => void launch(0, false, true)}><Timer />فيديو + بومودورو</Button>}
       {(session || url) && <Button variant="outline" disabled={busy} onClick={() => void launch(0, true)}><Timer />تركيز بس</Button>}
-      <Button variant="ghost" disabled={busy} onClick={() => { setElapsed(Math.min(10, retroMax)); setRetro(true); }}>بدأت من شوية</Button>
+      <Button variant="ghost" disabled={busy} onClick={() => { setElapsed(10); setRetro(true); }}>بدأت من شوية</Button>
     </div>
     {retro && <ActionDialog title="بدأت من شوية" pending={busy} onClose={() => setRetro(false)}>
-      <form className="space-y-3" onSubmit={event => { event.preventDefault(); if (Number.isInteger(elapsed) && elapsed >= 1 && elapsed <= retroMax) void launch(elapsed); }}>
+      <form className="space-y-3" onSubmit={event => { event.preventDefault(); if (Number.isSafeInteger(elapsed) && elapsed >= 1 && (retroMax === undefined || elapsed <= retroMax)) void launch(elapsed); }}>
         <label className="grid gap-1 text-sm">بدأت من كام دقيقة؟
           <Input type="number" min={1} max={retroMax} step={1} required value={elapsed} onChange={event => setElapsed(Number(event.target.value))} />
         </label>
-        <p className="text-sm text-muted-foreground">{external ? "سجّل الدقائق لحد نهاية دورة الفيديو الحالية." : "الدقائق اللي فاتت هتتسجّل على مؤقت التركيز."}</p>
+        <p className="text-sm text-muted-foreground">{external ? "سجّل المدة اللي ذاكرتها، والمؤقت هيكمّل بعدها." : "الدقائق اللي فاتت هتتسجّل على مؤقت التركيز."}</p>
         <p className="rounded-lg border p-2 text-sm"><strong>هيتسجل على {item.subject}:</strong> {Number.isFinite(elapsed) ? elapsed : 0} دقيقة قبل البداية.</p>
         <Button disabled={busy} type="submit">سجّل الوقت وكمّل</Button>
       </form>

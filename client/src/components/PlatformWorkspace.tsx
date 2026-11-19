@@ -70,7 +70,7 @@ function PlatformDialog({ request, onClose }: { request: PlatformRequest; onClos
       startedHere.current = input.running === true && result.session.timerRunning;
       utils.video.current.setData({ subject: timer.subject }, result.session);
       void Promise.all([utils.video.open.invalidate(), utils.planner.studyBreak.invalidate(),
-        utils.analytics.overview.invalidate(), utils.dashboard.welcome.invalidate(), utils.dashboard.summary.invalidate()]);
+        utils.analytics.overview.invalidate(), utils.coins.ledger.invalidate(), utils.dashboard.welcome.invalidate(), utils.dashboard.summary.invalidate()]);
     },
     onError: error => toast.error(errorText(error)),
   });

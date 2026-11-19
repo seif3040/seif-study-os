@@ -5,6 +5,12 @@ export function videoRemainderReward(activeSeconds: number, completedBlocks: num
   return Math.round(blockReward * Math.min(remainder, videoBlockSeconds) / videoBlockSeconds);
 }
 
+export function externalVideoWithElapsed(activeSeconds: number, completedBlocks: number, elapsedMinutes: number) {
+  const seconds = activeSeconds + elapsedMinutes * 60;
+  if (!Number.isSafeInteger(seconds) || seconds > 2_147_483_647) throw new Error("راجع مدة المذاكرة المكتوبة.");
+  return { activeSeconds: seconds, completedBlocks: Math.max(completedBlocks, Math.floor(seconds / videoBlockSeconds)) };
+}
+
 type ExternalTimer = {
   activeSeconds: number;
   completedBlocks: number;

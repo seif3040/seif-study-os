@@ -186,7 +186,29 @@ function versionExtensionDownload(): Plugin {
   };
 }
 
-const plugins = [versionStudyWorker(), versionExtensionDownload(), react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+function localQuestionLanguages(): Plugin {
+  const loadLanguage = (code: string) => fs.readFileSync(
+    path.join(PROJECT_ROOT, "node_modules", "@tesseract.js-data", code, "4.0.0_best_int", code + ".traineddata.gz"),
+  );
+  return {
+    name: "local-question-languages",
+    configureServer(server) {
+      server.middlewares.use("/assets/question-ocr", (req, res, next) => {
+        const code = req.url?.match(/^\/(ara|eng)\.traineddata\.gz$/)?.[1];
+        if (!code) return next();
+        res.setHeader("Content-Type", "application/octet-stream");
+        res.end(loadLanguage(code));
+      });
+    },
+    generateBundle() {
+      for (const code of ["ara", "eng"]) {
+        this.emitFile({ type: "asset", fileName: "assets/question-ocr/" + code + ".traineddata.gz", source: loadLanguage(code) });
+      }
+    },
+  };
+}
+
+const plugins = [versionStudyWorker(), localQuestionLanguages(), versionExtensionDownload(), react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
 
 export default defineConfig({
   plugins,

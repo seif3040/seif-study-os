@@ -1,7 +1,7 @@
 import { transitionStudyClock, videoHeartbeatTimeout, type StudySpan } from "../shared/studyClock.js";
 import { splitStudyTimeAtMidnight, studyOverlapByDay, studyTimeWithSessions, totalStudyMinutes } from "../shared/studyTime.js";
 import { addBreakTime } from "../shared/studyBreak.js";
-import { externalVideoDeadline, externalVideoElapsed, videoBlockSeconds, videoRemainderReward } from "../shared/videoTimer.js";
+import { externalVideoDeadline, externalVideoElapsed, externalVideoWithElapsed, videoBlockSeconds, videoRemainderReward } from "../shared/videoTimer.js";
 import { studyEfforts, type StudyEffort, type StudyItem, type WeeklyStudy } from "../shared/weeklyStudy.js";
 import { sleepDuration, sleepTargetMinutes, type SleepLog } from "../shared/sleep.js";
 import { cairoPlannerTime, examClock, examLocalDate, examOccurrences, type ExamScheduleOptions } from "../shared/examSchedule.js";
@@ -965,11 +965,13 @@ async function updateExternalVideo(userId: number, sessionId: number, action: "s
         return { session: item, blockCompleted: false };
       }
       if (item.phase === "break" && item.breakEndsAt && item.breakEndsAt > now) throw new Error("فترة الاستراحة لم تنتهِ بعد.");
-      const changes = { phase: "watching" as const, timerRunning: true, breakEndsAt: null,
-        lastPlaybackAt: new Date(+now - elapsedMinutes * 60_000) };
+      const credited = externalVideoWithElapsed(item.activeSeconds, item.completedBlocks, elapsedMinutes);
+      const start = +now - elapsedMinutes * 60_000;
+      const changes = { ...credited, phase: "watching" as const, timerRunning: true, breakEndsAt: null,
+        lastPlaybackAt: now };
       await changeStudyBreak(tx, userId, now);
-      const start = +changes.lastPlaybackAt;
       await writeStudyClock(tx, userId, "video:" + item.id, +now, start, videoLegacySpan(item, Math.min(+now, start)));
+      await awardVideoBlocks(tx, item, credited.completedBlocks);
       await tx.update(studyVideoSessions).set(changes).where(owned);
       return { session: { ...item, ...changes }, blockCompleted: false };
     }
@@ -3178,9 +3180,14 @@ export async function saveStudyResource(userId: number, change: StudyResourceCha
   const cycle = ["homework", "check", "solveBookLesson"].includes(change.type) ? await getActiveCycle(userId) : undefined;
   return changePlanner(userId, async (state, tx) => {
     const resources = state.resources ??= structuredClone(emptyResources);
+    if (change.type === "deleteMistake") {
+      resources.mistakes = resources.mistakes.filter(row => row.id !== change.id);
+      return;
+    }
     if (change.type === "check") {
       const item = resources.mistakes.find(row => row.id === change.id);
       if (!item) throw new Error("السؤال مش موجود.");
+      if (!item.answer) throw new Error("ضيف الإجابة الصحيحة قبل المراجعة.");
       const day = plannerToday();
       if (item.lastChecked === day || (!change.examId && item.due > day)) return;
       if (change.examId) {
@@ -3248,7 +3255,7 @@ export async function saveStudyResource(userId: number, change: StudyResourceCha
       }
       return;
     }
-    if (change.item.lessonId && (await ownedLesson(tx, userId, change.item.lessonId)).subjectId !== change.item.subjectId) {
+    if (change.type === "mistake" && change.item.lessonId && (await ownedLesson(tx, userId, change.item.lessonId)).subjectId !== change.item.subjectId) {
       throw new Error("اختار درس من نفس مادة السؤال.");
     }
     const [subject] = await tx.select({ id: subjects.id }).from(subjects)
@@ -3283,7 +3290,8 @@ export async function saveStudyResource(userId: number, change: StudyResourceCha
     const previous = resources.mistakes.find(row => row.id === item.id);
     if (!previous && resources.mistakes.length >= 300) throw new Error("وصلت للحد الأقصى للأسئلة.");
     resources.mistakes = [...resources.mistakes.filter(row => row.id !== item.id),
-      { ...change.item, due: previous?.due ?? plannerToday(), streak: previous?.streak ?? 0 }];
+      { ...change.item, due: previous?.due ?? plannerToday(), streak: previous?.streak ?? 0,
+        lastCorrect: previous?.lastCorrect, lastChecked: previous?.lastChecked }];
   });
 }
 

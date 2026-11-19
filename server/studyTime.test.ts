@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { splitStudyTimeAtMidnight, studyOverlapByDay, studyTimeWithSessions, totalStudyMinutes, type StudyTimeRow } from "../shared/studyTime";
-import { videoRemainderReward } from "../shared/videoTimer";
+import { externalVideoDeadline, externalVideoWithElapsed, videoRemainderReward } from "../shared/videoTimer";
 
 const start = new Date("2026-11-19T10:00:00Z");
 const at = (minute: number) => new Date(+start + minute * 60_000);
@@ -67,4 +67,11 @@ it("awards the chosen rate proportionally without rewarding a completed block tw
   expect(videoRemainderReward(50 * 60, 1, 200)).toBe(22);
   expect(videoRemainderReward(45 * 60, 1, 200)).toBe(0);
   expect(videoRemainderReward(20 * 60, 0, 0)).toBe(0);
+});
+
+it("credits 50 or 120 retrospective minutes and continues toward the next reward", () => {
+  expect(externalVideoWithElapsed(0, 0, 50)).toEqual({ activeSeconds: 3000, completedBlocks: 1 });
+  expect(externalVideoWithElapsed(0, 0, 120)).toEqual({ activeSeconds: 7200, completedBlocks: 2 });
+  const credited = externalVideoWithElapsed(0, 0, 50);
+  expect(externalVideoDeadline({ ...credited, timerRunning: true, lastPlaybackAt: at(60) })).toBe(+at(100));
 });

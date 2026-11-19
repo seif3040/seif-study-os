@@ -1,8 +1,11 @@
+import MistakeQuestionForm from "@/components/MistakeQuestionForm";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import type { StudyResources } from "@shared/studyResources";
 import { PlatformLink } from "@/components/PlatformWorkspace";
 import { safeStudyUrl } from "@/lib/videoSources";
 import ActionDialog from "@/components/ActionDialog";
 import { useState } from "react";
-import { BookOpen, ClipboardList, CalendarDays, Pencil } from "lucide-react";
+import { BookOpen, ClipboardList, CalendarDays, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,8 +57,8 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
   const [bookId, setBookId] = useState("");
   const [editHomework, setEditHomework] = useState("");
   const [homeworkFormOpen, setHomeworkFormOpen] = useState(false);
-  const [mistakeSubject, setMistakeSubject] = useState("");
-  const [mistakeFormOpen, setMistakeFormOpen] = useState(false);
+  const [mistakeForm, setMistakeForm] = useState<{ question?: StudyResources["mistakes"][number] }>();
+  const [deleteQuestion, setDeleteQuestion] = useState<StudyResources["mistakes"][number]>();
   const assignedTasks = trpc.tasks.list.useQuery(undefined, { enabled: tab === "الواجبات" });
   const reopenHomework = trpc.tasks.reopen.useMutation({ onSuccess: () => utils.invalidate(), onError: error => toast.error(errorText(error)) });
   const completeHomework = trpc.tasks.complete.useMutation({
@@ -67,7 +70,6 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
   const [backlogMode, setBacklogMode] = useState<BookBacklogMode>("automatic");
   const [branchThrough, setBranchThrough] = useState<Record<string, number>>({});
   const [manualBacklog, setManualBacklog] = useState<number[]>([]);
-  const [kind, setKind] = useState<"essay" | "choice">("essay");
   const [response, setResponse] = useState("");
   const [show, setShow] = useState(false);
   const change = trpc.planner.saveStudyResource.useMutation({
@@ -75,8 +77,9 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
       await Promise.all([utils.planner.list.invalidate(), utils.tasks.list.invalidate(), utils.dashboard.summary.invalidate(), utils.calendar.list.invalidate(), utils.coins.ledger.invalidate()]);
       if (entry.type === "book") setBookFormOpen(false);
       if (entry.type === "homework") closeHomework();
-      if (entry.type === "mistake") setMistakeFormOpen(false);
-      setShow(false); setResponse(""); toast.success("اتحفظ.");
+      if (entry.type === "mistake") setMistakeForm(undefined);
+      if (entry.type === "deleteMistake") setDeleteQuestion(undefined);
+      setShow(false); setResponse(""); toast.success(entry.type === "deleteMistake" ? "السؤال اتمسح." : "اتحفظ.");
     },
     onError: error => toast.error(errorText(error)),
   });
@@ -94,7 +97,7 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
   const branches = Array.from(new Map(items.flatMap(row => row.chapter ? [[row.chapter.id, row.chapter] as const] : [])).values());
   const visibleLessons = new Set(items.map(row => row.lesson?.id));
   const questions = resources?.mistakes ?? [];
-  const due = questions.find(item => item.due <= plannerToday());
+  const due = questions.find(item => item.answer && item.due <= plannerToday());
   const attendanceRows = attendanceLessons ? rows.filter(row => row.lesson && attendanceLessons.includes(row.lesson.id)) : [];
   const homeworkSubjectId = homeworkKind === "book" ? homeworkBook?.subjectId
     : attendanceRows[0]?.subject.id ?? homeworkSubject;
@@ -172,7 +175,7 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
     {!attendanceLessons && <PageHeader title={section === "الكتب" ? "كتبي" : section} description={sectionDescriptions[section]}
       action={section === "الكتب" ? { label: "كتاب جديد", onClick: () => openBook() }
         : section === "الواجبات" ? { label: "سجّل واجب درس", onClick: () => setHomeworkFormOpen(true) }
-        : section === "كشكول الأخطاء" ? { label: "ضيف سؤال", onClick: () => setMistakeFormOpen(true) } : undefined} />}
+        : section === "كشكول الأخطاء" ? { label: "ضيف سؤال", onClick: () => setMistakeForm({}) } : undefined} />}
     {attendanceLessons && <p className="text-sm">سجّل كل واجب لوحده. اختار كتاب وصفحات، أو اكتب اسم الموقع ولينك الواجب، وبعد الحفظ ضيف الواجب اللي بعده.</p>}
     {attendanceLessons && <div className="flex flex-wrap gap-2">
       {(["الكتب", "الواجبات"] as const).map(item => <Button key={item} variant={item === tab ? "default" : "outline"} aria-pressed={item === tab} onClick={() => setAttendanceTab(item)}>{item}</Button>)}
@@ -301,7 +304,12 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
       <section className="surface space-y-3 p-5">
       <h2 className="font-bold">المراجعة</h2>
       {due ? <article className="space-y-2 rounded-lg border p-3">
-        <h2 className="font-bold">سؤال للمراجعة</h2><p className="whitespace-pre-wrap">{due.question}</p>
+        <div className="flex items-start justify-between gap-2">
+          <h2 className="font-bold">سؤال للمراجعة</h2>
+          <Button size="icon" variant="ghost" className="text-destructive" aria-label="حذف سؤال المراجعة"
+            onClick={() => setDeleteQuestion(due)}><Trash2 /></Button>
+        </div>
+        <p className="whitespace-pre-wrap">{due.question}</p>
         {due.kind === "choice" ? <select className={select} value={response} onChange={e => setResponse(e.target.value)} disabled={show}>
           <option value="">اختار إجابتك</option>{due.options.map(option => <option key={option}>{option}</option>)}
         </select> : <Textarea aria-label="إجابتك" value={response} onChange={event => setResponse(event.target.value)} disabled={show} />}
@@ -311,25 +319,43 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
         </> : <Button disabled={!response.trim()} onClick={() => setShow(true)}>اعرض الإجابة</Button>}
       </article> : <p>مفيش أسئلة مستحقة دلوقتي.</p>}
       </section>
-      {mistakeFormOpen && <ActionDialog title="ضيف سؤال غلطت فيه" pending={change.isPending} onClose={() => setMistakeFormOpen(false)}>
-      <form className="space-y-3" onSubmit={event => {
-        event.preventDefault();
-        const form = fields(event.currentTarget);
-        change.mutate({ type: "mistake", item: { id: crypto.randomUUID(), subjectId: Number(str(form, "subject")), lessonId: Number(str(form, "lesson")) || undefined,
-          question: str(form, "question"), kind, options: kind === "choice" ? str(form, "options").split("\n").map(x => x.trim()).filter(Boolean) : [],
-          answer: str(form, "answer") } });
-      }}>
-        <select name="subject" required aria-label="المادة" className={select} value={mistakeSubject} onChange={event => setMistakeSubject(event.target.value)}><option value="">اختار المادة</option>{subjects.map(([id, name]) => <option value={id} key={id}>{name}</option>)}</select>
-        <select key={mistakeSubject} name="lesson" aria-label="درس السؤال" className={select}>
-          <option value="">درس السؤال (اختياري)</option>
-          {rows.filter(row => String(row.subject.id) === mistakeSubject && row.lesson).map(row => <option key={row.lesson!.id} value={row.lesson!.id}>{row.chapter?.title} · {row.lesson!.title}</option>)}
-        </select>
-        <select value={kind} aria-label="نوع السؤال" className={select} onChange={e => setKind(e.target.value === "choice" ? "choice" : "essay")}><option value="essay">مقالي</option><option value="choice">اختياري</option></select>
-        <Textarea name="question" required maxLength={1500} placeholder="نص السؤال" />
-        {kind === "choice" && <Textarea name="options" required placeholder="كل اختيار في سطر" />}
-        <Textarea name="answer" required maxLength={1200} placeholder="الإجابة النموذجية أو الاختيار الصحيح بالنص" />
-        <Button disabled={change.isPending}>احفظ السؤال</Button>
-      </form></ActionDialog>}
+      <section className="surface space-y-3 p-5">
+        <h2 className="font-bold">الأسئلة المحفوظة</h2>
+        {questions.length ? <ul className="max-h-[60dvh] divide-y overflow-y-auto">
+          {questions.map(item => {
+            const row = rows.find(entry => entry.lesson?.id === item.lessonId);
+            const label = [subjects.find(([id]) => id === item.subjectId)?.[1], row?.lesson?.title,
+              !item.answer ? "محتاج إجابة" : null].filter(Boolean).join(" · ");
+            return <li key={item.id} className="flex items-start justify-between gap-3 py-3">
+              <div className="min-w-0">
+                <p className="whitespace-pre-wrap break-words text-sm font-medium">{item.question}</p>
+                {label && <p className="mt-1 text-xs text-muted-foreground">{label}</p>}
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <Button size="icon" variant="ghost" aria-label="تعديل السؤال" onClick={() => setMistakeForm({ question: item })}><Pencil /></Button>
+                <Button size="icon" variant="ghost" className="text-destructive" aria-label="حذف السؤال" onClick={() => setDeleteQuestion(item)}><Trash2 /></Button>
+              </div>
+            </li>;
+          })}
+        </ul> : <p className="text-sm text-muted-foreground">لسه مفيش أسئلة محفوظة.</p>}
+      </section>
+      {mistakeForm && <MistakeQuestionForm
+        existing={mistakeForm.question} subjects={subjects} saving={change.isPending}
+        lessons={rows.flatMap(row => row.lesson ? [{ id: row.lesson.id, title: row.lesson.title,
+          subjectId: row.subject.id, subject: row.subject.title, chapter: row.chapter?.title }] : [])}
+        onSave={item => change.mutate({ type: "mistake", item })}
+        onClose={() => setMistakeForm(undefined)} />}
+      {deleteQuestion && <AlertDialog open onOpenChange={open => { if (!open && !change.isPending) setDeleteQuestion(undefined); }}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogTitle>تمسح السؤال ده؟</AlertDialogTitle>
+          <AlertDialogDescription className="line-clamp-4 whitespace-pre-wrap">{deleteQuestion.question}</AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={change.isPending}>إلغاء</AlertDialogCancel>
+            <Button variant="destructive" disabled={change.isPending}
+              onClick={() => change.mutate({ type: "deleteMistake", id: deleteQuestion.id })}>احذف السؤال</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>}
     </div>}
   </div>;
 }
