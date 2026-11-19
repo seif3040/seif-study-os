@@ -5,6 +5,7 @@ import fs from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
+import { extensionArchive, extensionDownloadName } from "./shared/extensionRelease";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 
 // =============================================================================
@@ -171,7 +172,21 @@ function versionStudyWorker(): Plugin {
   };
 }
 
-const plugins = [versionStudyWorker(), react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+function versionExtensionDownload(): Plugin {
+  return {
+    name: "version-extension-download",
+    apply: "build",
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "assets/" + extensionDownloadName,
+        source: fs.readFileSync(path.join(PROJECT_ROOT, "client", "public", extensionArchive)),
+      });
+    },
+  };
+}
+
+const plugins = [versionStudyWorker(), versionExtensionDownload(), react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
 
 export default defineConfig({
   plugins,

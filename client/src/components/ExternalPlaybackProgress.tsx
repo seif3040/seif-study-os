@@ -1,3 +1,4 @@
+import ExtensionDownloadLink from "@/components/ExtensionDownloadLink";
 import { useEffect, useState } from "react";
 
 type PlaybackProgress = {
@@ -98,6 +99,6 @@ export default function ExternalPlaybackProgress({ url, onPosition }: { url: str
       </details>}
       <p className="text-muted-foreground">افتح الدرس في منصته، ومن أيقونة الإضافة اضغط «كمّل من آخر مكان».</p>
     </> : <p className="text-muted-foreground">ثبّت الإضافة وفعّلها على صفحة الدرس عشان يظهر تقدّمك هنا.</p>}
-    <a href="/seif-study-extension.zip" download className="inline-flex font-semibold text-primary underline">نزّل إضافة المتصفح</a>
+    <ExtensionDownloadLink className="inline-flex gap-1 font-semibold text-primary underline" />
   </div>;
 }
