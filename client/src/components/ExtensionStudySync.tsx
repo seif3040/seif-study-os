@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 type Activity = {
   url: string;
   title?: string;
+  detectedTitle?: string;
+  restartedAt?: number;
   position?: number;
   playing?: boolean;
   lastAutoAt?: number;
@@ -17,6 +19,7 @@ type Activity = {
   manualChangedAt?: number;
   updatedAt: number;
 };
+type EndGrant = { sessionId: number; endToken: string };
 type Choice = { subject: VideoSubject; teacherName: string };
 type SyncState = "linked" | "paused" | "break" | "conflict" | "unknown" | "choose" | "error";
 
@@ -49,15 +52,17 @@ export default function ExtensionStudySync() {
     const queued = new Map<string, { activity: Activity; subject: VideoSubject }>();
     const processed = new Map<string, { activity: Activity; state: SyncState }>();
     const sessions = new Map<string, number>();
+    const ended = new Map<string, number>();
+    const grants = new Map<number, { token: string; issuedAt: number }>();
     const manualSessions = new Map<number, number>();
     let running = false;
     let disposed = false;
 
-    function publish(activity: Activity, state: SyncState, subject?: VideoSubject, timer?: { seconds: number; startedAt: number; deadline: number }) {
+    function publish(activity: Activity, state: SyncState, subject?: VideoSubject, timer?: { seconds: number; startedAt: number; deadline: number }, grant?: EndGrant) {
       if (disposed) return;
       window.postMessage({
         type: "seif-study-extension:status", id, url: activity.url,
-        status: { state, subject: subject ? videoSubjectNames[subject] : "", subjectKey: subject ?? "", timer },
+        status: { state, subject: subject ? videoSubjectNames[subject] : "", subjectKey: subject ?? "", timer, ...grant },
       }, origin);
       if (subject) setNotice(previous => previous?.subject === subject && previous.state === state ? previous : { subject, state });
     }
@@ -82,7 +87,7 @@ export default function ExtensionStudySync() {
       }
 
       const current = session ?? await utils.client.video.start.mutate({
-        subject, videoUrl: url, lessonTitle: activity.title?.slice(0, 220), requestedMode: "external",
+        subject, videoUrl: url, lessonTitle: (activity.detectedTitle || activity.title)?.slice(0, 220), requestedMode: "external",
       });
       sessions.set(activity.url, current.id);
       let updated = current;
@@ -99,6 +104,7 @@ export default function ExtensionStudySync() {
         const result = auto && !current.timerRunning
           ? await utils.client.video.extensionPlayback.mutate({
             sessionId: current.id, active: playing, playbackPosition: Math.min(172800, activity.position!),
+            ...(activity.detectedTitle ? { detectedTitle: activity.detectedTitle.slice(0, 220), pageTitle: activity.title?.slice(0, 220) } : {}),
           })
           : await utils.client.video.setExternalTimer.mutate({ sessionId: current.id, running: false });
         updated = result.session;
@@ -123,7 +129,15 @@ export default function ExtensionStudySync() {
       const deadline = externalVideoDeadline(updated);
       const timer = activity.manualSince && deadline != null && updated.lastPlaybackAt
         ? { seconds: updated.activeSeconds, startedAt: +updated.lastPlaybackAt, deadline } : undefined;
-      publish(activity, state, subject, timer);
+      let grant = grants.get(updated.id);
+      if (updated.phase !== "completed" && (!grant || Date.now() - grant.issuedAt >= 6 * 60 * 60_000)) {
+        try {
+          const token = await utils.client.video.extensionEndToken.mutate({ subject, sessionId: updated.id });
+          grant = { token, issuedAt: Date.now() };
+          grants.set(updated.id, grant);
+        } catch { /* Playback still syncs if the end grant cannot be renewed. */ }
+      }
+      publish(activity, state, subject, timer, grant ? { sessionId: updated.id, endToken: grant.token } : undefined);
       return state;
     }
 
@@ -167,12 +181,31 @@ export default function ExtensionStudySync() {
     };
 
     function receive(event: MessageEvent) {
-      if (event.source !== window || event.origin !== origin || event.data?.id !== id ||
-          event.data.type !== "seif-study-extension:activities" || !Array.isArray(event.data.data)) return;
+      if (event.source !== window || event.origin !== origin || event.data?.id !== id) return;
+      if (event.data.type === "seif-study-extension:ended") {
+        const { url, subject, endedAt, sessionId } = event.data;
+        if (typeof url !== "string" || !Object.hasOwn(videoSubjectNames, subject) || !Number.isFinite(endedAt)) return;
+        ended.set(url, endedAt);
+        queued.delete(url);
+        grants.delete(sessionId);
+        void Promise.all([
+          utils.video.invalidate(), utils.planner.studyBreak.invalidate(),
+          utils.analytics.overview.invalidate(), utils.dashboard.summary.invalidate(), utils.coins.ledger.invalidate(),
+        ]);
+        return;
+      }
+      if (event.data.type !== "seif-study-extension:activities" || !Array.isArray(event.data.data)) return;
       const activeSubjects = new Set<VideoSubject>();
       for (const activity of event.data.data as Activity[]) {
         if (typeof activity?.url !== "string" || activity.url.length > 2000 || !Number.isFinite(activity.updatedAt)
             || (!activity.lastAutoAt && !activity.manualChangedAt)) continue;
+        const endedAt = ended.get(activity.url);
+        if (endedAt !== undefined) {
+          if (!activity.restartedAt || activity.restartedAt <= endedAt) continue;
+          ended.delete(activity.url);
+          sessions.delete(activity.url);
+          processed.delete(activity.url);
+        }
         const host = platformHost(activity.url);
         if (!host) continue;
         const matching = saved.filter(source => host === source.host || host.endsWith("." + source.host));

@@ -1,8 +1,6 @@
 import { lessonKey } from "./progress.js";
 
 const byId = id => document.getElementById(id);
-const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-const key = lessonKey(tab?.url);
 const site = "https://seif-study-os.vercel.app";
 const status = byId("status");
 const theme = byId("theme");
@@ -13,13 +11,43 @@ theme.addEventListener("change", () => {
   document.documentElement.dataset.theme = theme.value;
   void chrome.storage.local.set({ theme: theme.value });
 });
-if (!key || new URL(key).origin === site) {
-  status.textContent = "افتح صفحة درس على منصة المدرس واضغط على الإضافة.";
-} else {
-  initialize().catch(() => { status.textContent = "تعذّر فتح متابعة الدرس. جرّب تاني."; });
+if (chrome.sidePanel) document.body.dataset.panel = "";
+const initialControls = byId("controls").cloneNode(true);
+let activeTab;
+let controller;
+let selection = 0;
+
+async function selectTab() {
+  const revision = ++selection;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (revision !== selection || (activeTab && tab?.id === activeTab.id && tab.url === activeTab.url)) return;
+  activeTab = tab;
+  controller?.abort();
+  controller = new AbortController();
+  const controls = initialControls.cloneNode(true);
+  byId("controls").replaceWith(controls);
+  byId("open-site").href = site + "/study-video";
+  const key = lessonKey(tab?.url);
+  if (!key || new URL(key).origin === site) {
+    status.textContent = "افتح صفحة الدرس في التابة الحالية عشان تتابعه هنا.";
+    return;
+  }
+  status.textContent = "جارٍ قراءة صفحة الدرس…";
+  const { signal } = controller;
+  await initialize(tab, key, controls, signal).catch(() => {
+    if (!signal.aborted) status.textContent = "تعذّر فتح متابعة الدرس. جرّب تاني.";
+  });
 }
 
-async function initialize() {
+function refreshTab() { void selectTab().catch(() => {}); }
+chrome.tabs.onActivated.addListener(refreshTab);
+chrome.tabs.onUpdated.addListener((tabId, change) => {
+  if (tabId === activeTab?.id && change.url !== undefined) refreshTab();
+});
+refreshTab();
+
+async function initialize(tab, key, controls, signal) {
+  const byId = id => controls.querySelector("#" + id) ?? document.getElementById(id);
   const origin = new URL(key).origin;
   const pattern = origin + "/*";
   const scriptId = "seif-" + [...origin].map(char => char.charCodeAt(0).toString(16)).join("");
@@ -43,6 +71,7 @@ async function initialize() {
     unknown: "المنصة مش مسجّلة في مصادر دروسك",
     choose: "اختار المادة في الموقع",
     error: "الربط متعطّل مؤقتًا",
+    ended: "الجلسة اتقفلت واتحفظت",
   };
 
   async function probe() {
@@ -80,9 +109,12 @@ async function initialize() {
   async function refresh() {
     const data = await send("read");
     if (!data || data.error) throw new Error("No lesson status");
+    if (signal.aborted) return;
     savedPlace = data.position;
+    byId("lesson-title").textContent = data.detectedTitle || data.title || tab.title || new URL(key).hostname;
+    byId("finish").hidden = !data.canFinish;
     const sync = data.status;
-    const recent = sync && (Date.now() - sync.at < 15000 || !data.playing);
+    const recent = sync && (sync.state === "ended" || data.canFinish || Date.now() - sync.at < 15000 || !data.playing);
     const state = recent ? states[sync.state] : undefined;
     byId("subject").textContent = sync?.subject || "المادة لسه ما اتحددتش";
     byId("connection").textContent = state || "في انتظار الموقع";
@@ -103,14 +135,15 @@ async function initialize() {
   function listen(id, type, action) {
     byId(id).addEventListener(type, event => {
       event.preventDefault();
-      Promise.resolve(action()).catch(() => { status.textContent = "العملية ما كملتش. جرّب تاني."; });
-    });
+      Promise.resolve(action()).catch(() => { if (!signal.aborted) status.textContent = "العملية ما كملتش. جرّب تاني."; });
+    }, { signal });
   }
 
   resumeAt = (await send("read"))?.position;
   byId("controls").hidden = false;
   const granted = await chrome.permissions.contains({ origins: [pattern] });
   if (granted) await installForTab().catch(() => {});
+  if (signal.aborted) return;
   status.textContent = supported ? "المتابعة شغّالة على الفيديو ده." : "لو المشغّل مقفول، استخدم المؤقت والحفظ اليدوي.";
   byId("enable").hidden = granted;
   listen("enable", "click", async () => {
@@ -145,6 +178,18 @@ async function initialize() {
     resumeAt = undefined;
     status.textContent = "رجّعنا الفيديو لآخر مكان محفوظ.";
   });
+  listen("finish", "click", async () => {
+    const button = byId("finish");
+    button.disabled = true;
+    try {
+      const result = await send("finish");
+      if (signal.aborted) return;
+      status.textContent = result?.ended ? "جلسة المذاكرة اتقفلت وآخر مكان اتحفظ." : result?.error || "إنهاء الجلسة ما اتسجّلش.";
+      await refresh();
+    } finally {
+      button.disabled = false;
+    }
+  });
   listen("manual", "click", async () => { await send("manual"); await refresh(); });
   listen("bookmark", "submit", async () => {
     const input = byId("time");
@@ -167,13 +212,19 @@ async function initialize() {
     status.textContent = "الملاحظة اتحفظت.";
   });
   await refresh();
-  chrome.storage.onChanged.addListener((changes, area) => {
+  if (signal.aborted) return;
+  const onStorage = (changes, area) => {
     if (area === "local" && (changes["lesson:" + key] || changes["sync:" + key])) void refresh().catch(() => {});
-  });
-  setInterval(async () => {
+  };
+  chrome.storage.onChanged.addListener(onStorage);
+  const timer = setInterval(async () => {
     try {
       if (granted || frameIds.length) supported = (await probe()) !== null;
       await refresh();
     } catch { /* The tab may already have switched lessons. */ }
   }, 1000);
+  signal.addEventListener("abort", () => {
+    clearInterval(timer);
+    chrome.storage.onChanged.removeListener(onStorage);
+  }, { once: true });
 }

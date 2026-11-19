@@ -797,8 +797,8 @@ export async function scheduleVideoReview(userId: number, sessionId: number, not
   });
 }
 
-export async function endVideoSession(userId: number, sessionId: number) {
-  const result = await updateExternalVideo(userId, sessionId, "end");
+export async function endVideoSession(userId: number, sessionId: number, extension?: { position?: number }) {
+  const result = await updateExternalVideo(userId, sessionId, "end", 0, extension);
   return { ended: true, activeSeconds: result.session.activeSeconds };
 }
 
@@ -818,7 +818,7 @@ export async function listVideoSessions(userId: number) { const db = await datab
 export async function createVideoNote(userId: number, input: { sessionId: number; title: string; content: string; timestampSeconds?: number }) { const db = await database(); const session = await db.select({ id: studyVideoSessions.id }).from(studyVideoSessions).where(and(eq(studyVideoSessions.id, input.sessionId), eq(studyVideoSessions.userId, userId))).limit(1); if (!session[0]) throw new Error("جلسة الفيديو غير موجودة."); await db.insert(videoNotes).values({ userId, sessionId: input.sessionId, title: input.title, content: input.content, timestampSeconds: input.timestampSeconds ?? null }); }
 export async function updateVideoNote(userId: number, noteId: number, input: { title: string; content: string; timestampSeconds?: number }) { const db = await database(); const result = await db.update(videoNotes).set({ title: input.title, content: input.content, timestampSeconds: input.timestampSeconds ?? null }).where(and(eq(videoNotes.id, noteId), eq(videoNotes.userId, userId))); if (!result) throw new Error("الملاحظة غير موجودة."); }
 export async function deleteVideoNote(userId: number, noteId: number) { const db = await database(); return db.delete(videoNotes).where(and(eq(videoNotes.id, noteId), eq(videoNotes.userId, userId))); }
-export async function trackVideoPlayback(userId: number, sessionId: number, input: { active: boolean; playbackPosition?: number; external?: boolean }) {
+export async function trackVideoPlayback(userId: number, sessionId: number, input: { active: boolean; playbackPosition?: number; external?: boolean; detectedTitle?: string; pageTitle?: string }) {
   const db = await database();
   const result = await db.transaction(async tx => {
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
@@ -840,6 +840,7 @@ export async function trackVideoPlayback(userId: number, sessionId: number, inpu
       breakEndsAt: blockCompleted ? new Date(+now + 15 * 60_000) : null,
       lastPlaybackAt: blockCompleted || !input.active ? null : now,
       lastPlaybackPosition: position,
+      ...(input.external && input.detectedTitle && (!item.lessonTitle || item.lessonTitle === input.pageTitle) ? { lessonTitle: input.detectedTitle } : {}),
     };
     await tx.update(studyVideoSessions).set(changes).where(owned);
     await awardVideoBlocks(tx, item, completedBlocks);
@@ -884,13 +885,14 @@ async function awardVideoBlocks(tx: StudyTransaction, item: typeof studyVideoSes
   }
 }
 
-async function updateExternalVideo(userId: number, sessionId: number, action: "start" | "pause" | "tick" | "end", elapsedMinutes = 0) {
+async function updateExternalVideo(userId: number, sessionId: number, action: "start" | "pause" | "tick" | "end", elapsedMinutes = 0, extension?: { position?: number }) {
   const db = await database();
   const result = await db.transaction(async tx => {
     await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update");
     const owned = and(eq(studyVideoSessions.id, sessionId), eq(studyVideoSessions.userId, userId));
     const [item] = await tx.select().from(studyVideoSessions).where(owned).for("update");
     if (!item) throw new Error("جلسة الفيديو غير موجودة.");
+    if (extension && item.sourceMode !== "external") throw new Error("هذه الجلسة ليست مرتبطة بالإضافة.");
     if (item.phase === "completed") return { session: item, blockCompleted: false };
     const now = new Date();
     if (item.sourceMode !== "external") {
@@ -918,11 +920,14 @@ async function updateExternalVideo(userId: number, sessionId: number, action: "s
     }
     if (action === "pause" && !item.timerRunning) return { session: item, blockCompleted: false };
 
-    const activeSeconds = externalVideoElapsed(item, +now);
+    const position = extension?.position != null && !item.timerRunning ? Math.floor(extension.position) : undefined;
+    const elapsed = externalVideoElapsed(item, +now);
+    const activeSeconds = item.phase === "watching" && position !== undefined ? Math.max(elapsed, position) : elapsed;
     const completedBlocks = Math.max(item.completedBlocks, Math.floor(activeSeconds / videoBlockSeconds));
     const blockCompleted = completedBlocks > item.completedBlocks;
     const phase = action === "end" ? "completed" as const : blockCompleted ? "break" as const : "watching" as const;
     const changes = { activeSeconds, completedBlocks, phase, timerRunning: false, lastPlaybackAt: null,
+      ...(position !== undefined ? { lastPlaybackPosition: position } : {}),
       breakEndsAt: phase === "break" ? new Date(+now + 15 * 60_000) : null };
     await awardVideoBlocks(tx, item, completedBlocks);
     await tx.update(studyVideoSessions).set(changes).where(owned);

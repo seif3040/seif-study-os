@@ -39,7 +39,13 @@
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !Object.keys(changes).some(key => key.startsWith("lesson:")) || scheduled) return;
+    if (area !== "local") return;
+    if (subscription) for (const [key, change] of Object.entries(changes)) {
+      if (key.startsWith("sync:") && change.newValue?.state === "ended" && change.oldValue?.state !== "ended") {
+        post("ended", { id: subscription, url: key.slice(5), subject: change.newValue.subjectKey, sessionId: change.newValue.sessionId, endedAt: change.newValue.at });
+      }
+    }
+    if (!Object.keys(changes).some(key => key.startsWith("lesson:")) || scheduled) return;
     scheduled = true;
     setTimeout(() => {
       scheduled = false;

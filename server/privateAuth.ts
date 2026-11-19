@@ -45,3 +45,26 @@ export async function readPrivateSession(cookieHeader: string | undefined, autho
   const bearerToken = authorizationHeader?.match(/^Bearer\s+(.+)$/i)?.[1];
   return readPrivateSessionToken(bearerToken ?? cookieToken);
 }
+export async function createExtensionVideoEndToken(userId: number, sessionId: number) {
+  if (!(process.env.JWT_SECRET || process.env.PRIVATE_LOGIN_PASSWORD)) {
+    throw new Error("لا يمكن ربط إنهاء الجلسة بالإضافة.");
+  }
+  return new SignJWT({ userId, sessionId })
+    .setProtectedHeader({ alg: "HS256" })
+    .setAudience("seif-extension-video-end")
+    .setIssuedAt()
+    .setExpirationTime("12h")
+    .sign(signingKey());
+}
+
+export async function readExtensionVideoEndToken(token: string) {
+  if (!(process.env.JWT_SECRET || process.env.PRIVATE_LOGIN_PASSWORD)) return null;
+  try {
+    const { payload } = await jwtVerify(token, signingKey(), { audience: "seif-extension-video-end", algorithms: ["HS256"] });
+    const { userId, sessionId } = payload;
+    return typeof userId === "number" && Number.isSafeInteger(userId) && userId > 0 &&
+      typeof sessionId === "number" && Number.isSafeInteger(sessionId) && sessionId > 0 ? { userId, sessionId } : null;
+  } catch {
+    return null;
+  }
+}

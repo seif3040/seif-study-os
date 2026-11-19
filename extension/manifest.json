@@ -1,14 +1,19 @@
 {
   "manifest_version": 3,
   "name": "Seif Study OS · متابعة الدروس",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "احفظ مكانك ووقت مشاهدتك على منصات المدرسين.",
   "permissions": [
     "activeTab",
     "scripting",
-    "storage"
+    "storage",
+    "sidePanel",
+    "tabs",
+    "alarms"
   ],
-  "host_permissions": ["https://seif-study-os.vercel.app/*"],
+  "host_permissions": [
+    "https://seif-study-os.vercel.app/*"
+  ],
   "optional_host_permissions": [
     "https://*/*"
   ],
@@ -17,7 +22,7 @@
     "type": "module"
   },
   "action": {
-    "default_popup": "popup.html"
+    "default_title": "متابعة الدروس"
   },
   "content_scripts": [
     {
@@ -28,5 +33,8 @@
         "bridge.js"
       ]
     }
-  ]
+  ],
+  "side_panel": {
+    "default_path": "popup.html"
+  }
 }

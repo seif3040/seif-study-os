@@ -1,3 +1,4 @@
+import { createExtensionVideoEndToken, readExtensionVideoEndToken } from "./privateAuth.js";
 import { invokeLLM } from "./_core/llm.js";
 import { dailyQuranVerse } from "./dailyQuran.js";
 import { defaultDesktopTabs } from "../shared/navigation.js";
@@ -279,7 +280,23 @@ export const appRouter = router({
     delete: protectedProcedure.input(z.object({ cardId: id })).mutation(({ ctx, input }) => db.deleteFlashcard(ctx.user.id, input.cardId)),
   }),
   video: router({
-    extensionPlayback: protectedProcedure.input(z.object({ sessionId: id, active: z.boolean(), playbackPosition: z.number().min(0).max(172800) }))
+    extensionEndToken: protectedProcedure.input(z.object({ sessionId: id, subject: z.enum(["arabic", "history", "english", "programming_ai", "german", "other"]) }))
+      .mutation(async ({ ctx, input }) => {
+        const session = await db.currentVideoSession(ctx.user.id, input.subject);
+        if (session?.id !== input.sessionId || session.sourceMode !== "external") throw new TRPCError({ code: "NOT_FOUND" });
+        return createExtensionVideoEndToken(ctx.user.id, session.id);
+      }),
+    extensionEnd: publicProcedure.input(z.object({ token: z.string().max(1000), position: z.number().min(0).max(172800).optional() }))
+      .mutation(async ({ input }) => {
+        const grant = await readExtensionVideoEndToken(input.token);
+        if (!grant) throw new TRPCError({ code: "UNAUTHORIZED" });
+        return db.endVideoSession(grant.userId, grant.sessionId, { position: input.position });
+      }),
+    extensionPlayback: protectedProcedure.input(z.object({
+      sessionId: id, active: z.boolean(), playbackPosition: z.number().min(0).max(172800),
+      detectedTitle: z.string().trim().min(1).max(220).optional(),
+      pageTitle: z.string().trim().max(220).optional(),
+    }))
       .mutation(({ ctx, input }) => db.trackVideoPlayback(ctx.user.id, input.sessionId, { ...input, external: true })),
     saveExternalPosition: protectedProcedure.input(z.object({ sessionId: id, seconds: z.number().int().min(0).max(172800) }))
       .mutation(({ ctx, input }) => db.saveExternalVideoPosition(ctx.user.id, input.sessionId, input.seconds)),
