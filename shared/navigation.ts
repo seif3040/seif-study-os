@@ -1,11 +1,14 @@
 const librarySections = ["/homework", "/mistakes", "/year-review"] as const;
 
-export const defaultDesktopTabs = ["/", "/today", "/lesson-sources", "/backlog", "/study-plan", "/study-library", ...librarySections, "/assessments", "/exams", "/study-video", "/quran", "/music", "/analytics", "/calendar", "/rewards", "/coins", "/settings"] as const;
+export const defaultDesktopTabs = ["/", "/today", "/lesson-sources", "/backlog", "/study-plan", "/study-library", ...librarySections, "/assessments", "/exams", "/study-video", "/quran", "/analytics", "/calendar", "/rewards", "/coins", "/settings"] as const;
 export const defaultMobileTabs = ["/today", "/study-plan", "/calendar", "/study-video", "/settings"] as const;
-export type NavigationPrefs = { mobile: string[]; desktop: string[]; libraryTabSeen?: boolean; librarySectionsSeen?: boolean; quranTabSeen?: boolean; musicTabSeen?: boolean; welcomeTabSeen?: boolean; notebookTabSeen?: boolean };
+export type NavigationPrefs = { mobile: string[]; desktop: string[]; libraryTabSeen?: boolean; librarySectionsSeen?: boolean; quranTabSeen?: boolean; welcomeTabSeen?: boolean; notebookTabSeen?: boolean };
 
 export function mobileNavigation(prefs?: NavigationPrefs): readonly string[] {
-  return prefs ? (prefs.welcomeTabSeen ? prefs.mobile : prefs.mobile.map(path => path === "/" ? "/today" : path)) : defaultMobileTabs;
+  if (!prefs) return defaultMobileTabs;
+  const activeTabs = prefs.mobile.filter(path => path !== "/music");
+  if (!activeTabs.length) return defaultMobileTabs;
+  return prefs.welcomeTabSeen ? activeTabs : activeTabs.map(path => path === "/" ? "/today" : path);
 }
 
 export function desktopNavigation(prefs?: NavigationPrefs): readonly string[] {
@@ -14,10 +17,7 @@ export function desktopNavigation(prefs?: NavigationPrefs): readonly string[] {
     : ["/", ...prefs.desktop.map(path => path === "/" ? "/today" : path)];
   const withQuran = prefs.quranTabSeen || base.includes("/quran") ? base
     : base.flatMap(path => path === "/settings" ? ["/quran", path] : [path]);
-  const musicAnchor = withQuran.includes("/quran") ? "/quran" : withQuran[0];
-  const withMusic = prefs.musicTabSeen || withQuran.includes("/music") ? withQuran
-    : withQuran.flatMap(path => path === musicAnchor ? [path, "/music"] : [path]);
-  const desktop = withMusic.filter(path => path !== "/notebooks");
+  const desktop = withQuran.filter(path => path !== "/notebooks" && path !== "/music");
   if (prefs.librarySectionsSeen) return desktop;
   const missing = librarySections.filter(path => !prefs.desktop.includes(path));
   if (prefs.desktop.includes("/study-library")) {
