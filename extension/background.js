@@ -4,6 +4,13 @@ const site = "https://seif-study-os.vercel.app";
 const prefix = "lesson:";
 const tasks = new Map();
 
+chrome.runtime.onInstalled.addListener(() => {
+  void chrome.tabs.query({ url: site + "/*" }).then(tabs =>
+    Promise.allSettled(tabs.map(tab =>
+      chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["bridge.js"] })
+    ))).catch(() => {});
+});
+
 function onLesson(key, action) {
   const pending = tasks.get(key) ?? Promise.resolve();
   const next = pending.catch(() => {}).then(async () => {
@@ -26,6 +33,15 @@ async function handle(message, sender) {
   if (!message || !sender.url) return null;
   const extensionPage = sender.url === chrome.runtime.getURL("popup.html");
   const studySite = new URL(sender.url).origin === site;
+  if (studySite && message.type === "activities") {
+    const all = await chrome.storage.local.get(null);
+    const now = Date.now();
+    return Object.entries(all)
+      .filter(([id, value]) => id.startsWith(prefix) && (value.manualSince || now - (value.updatedAt ?? 0) < 60000))
+      .map(([id, { title, position, lastAutoAt, lastPlayingAt, playing, manualSince, manualChangedAt, updatedAt }]) =>
+        ({ url: id.slice(prefix.length), title, position, lastAutoAt, lastPlayingAt, playing, manualSince, manualChangedAt, updatedAt }))
+      .sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 30);
+  }
   const key = lessonKey(extensionPage || studySite ? message.url : sender.tab?.url || sender.url);
   if (!key) return null;
   if (studySite && message.type === "list") {
@@ -42,6 +58,18 @@ async function handle(message, sender) {
         return [{ url: normalized, title: value.title || new URL(normalized).pathname, position: value.position, lastPlayingAt: value.lastPlayingAt, playing: value.playing, lastAutoAt: value.lastAutoAt, manualSince: value.manualSince, updatedAt: value.updatedAt ?? value.lastAutoAt ?? value.manualSince ?? 0 }];
       }).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 30);
   }
+  if (studySite && message.type === "sync-status") {
+    const status = message.status;
+    if (!status || !["linked", "paused", "break", "conflict", "unknown", "choose", "error"].includes(status.state)
+        || typeof status.subject !== "string" || status.subject.length > 80) return null;
+    await chrome.storage.local.set({ ["sync:" + key]: {
+      state: status.state, subject: status.subject,
+      subjectKey: /^[a-z_]{1,20}$/.test(status.subjectKey) ? status.subjectKey : "",
+      timer: [status.timer?.seconds, status.timer?.startedAt, status.timer?.deadline].every(Number.isFinite) ? status.timer : undefined,
+      at: Date.now(),
+    } });
+    return true;
+  }
   if (studySite && message.type !== "read") return null;
   if (!extensionPage && !studySite) {
     if (message.type !== "sample" || !sender.tab?.url) return null;
@@ -50,10 +78,15 @@ async function handle(message, sender) {
   }
   return onLesson(key, async (data, id) => {
     const now = Date.now();
-    if (message.type === "read") return { ...data, manual: data.manual + (data.manualSince ? Math.floor((now - data.manualSince) / 1000) : 0) };
+    if (message.type === "read") {
+      const statusKey = "sync:" + key;
+      const status = extensionPage ? (await chrome.storage.local.get(statusKey))[statusKey] : undefined;
+      return { ...data, status, manual: data.manual + (data.manualSince ? Math.floor((now - data.manualSince) / 1000) : 0) };
+    }
     if (message.type === "sample") {
       if (!Number.isFinite(message.position) || message.position < 0 || message.position > 604800) return null;
       data.position = message.position;
+      if (typeof sender.tab?.title === "string") data.title = sender.tab.title.trim().slice(0, 160);
       data.lastAutoAt = now;
       data.playing = message.playing === true;
       if (data.playing) data.lastPlayingAt = now;
@@ -67,6 +100,7 @@ async function handle(message, sender) {
         }
       }
     } else if (message.type === "manual") {
+      data.manualChangedAt = now;
       if (data.manualSince) {
         data.manual += Math.floor((now - data.manualSince) / 1000);
         delete data.manualSince;

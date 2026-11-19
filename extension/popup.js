@@ -5,6 +5,14 @@ const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 const key = lessonKey(tab?.url);
 const site = "https://seif-study-os.vercel.app";
 const status = byId("status");
+const theme = byId("theme");
+const preferences = await chrome.storage.local.get("theme");
+theme.value = ["graphite", "violet", "light"].includes(preferences.theme) ? preferences.theme : "graphite";
+document.documentElement.dataset.theme = theme.value;
+theme.addEventListener("change", () => {
+  document.documentElement.dataset.theme = theme.value;
+  void chrome.storage.local.set({ theme: theme.value });
+});
 if (!key || new URL(key).origin === site) {
   status.textContent = "افتح صفحة درس على منصة المدرس واضغط على الإضافة.";
 } else {
@@ -26,6 +34,16 @@ async function initialize() {
   let frameIds = [];
   let savedPlace;
   let supported = false;
+  byId("lesson-title").textContent = tab.title || new URL(key).hostname;
+  const states = {
+    linked: "الجلسة متصلة",
+    paused: "الجلسة متوقفة",
+    break: "الجلسة في استراحة",
+    conflict: "فيه درس تاني مفتوح للمادة",
+    unknown: "المنصة مش مسجّلة في مصادر دروسك",
+    choose: "اختار المادة في الموقع",
+    error: "الربط متعطّل مؤقتًا",
+  };
 
   async function probe() {
     for (const frameId of frameIds) {
@@ -63,9 +81,21 @@ async function initialize() {
     const data = await send("read");
     if (!data || data.error) throw new Error("No lesson status");
     savedPlace = data.position;
-    byId("position").textContent = savedPlace === undefined ? "—" : clock(savedPlace);
-    byId("watched").textContent = "المشاهدة " + clock(data.watched) + " · المؤقت اليدوي " + clock(data.manual);
-    byId("ranges").textContent = data.ranges.slice(-8).map(([from, to]) => clock(from) + "–" + clock(to)).join("، ");
+    const sync = data.status;
+    const recent = sync && (Date.now() - sync.at < 15000 || !data.playing);
+    const state = recent ? states[sync.state] : undefined;
+    byId("subject").textContent = sync?.subject || "المادة لسه ما اتحددتش";
+    byId("connection").textContent = state || "في انتظار الموقع";
+    byId("open-site").href = site + "/study-video" + (sync?.subjectKey ? "?subject=" + sync.subjectKey : "");
+    const manual = data.manualSince && sync?.timer;
+    const manualTime = manual ? manual.seconds + Math.max(0, Math.floor((Math.min(Date.now(), manual.deadline) - manual.startedAt) / 1000)) : data.manual;
+    byId("clock-label").textContent = data.manualSince ? "وقت الجلسة اليدوي" : "موضع الفيديو";
+    byId("position").textContent = data.manualSince ? clock(manualTime) : savedPlace === undefined ? "—" : clock(savedPlace);
+    byId("playback").textContent = data.manualSince ? "المؤقت اليدوي شغّال"
+      : data.lastAutoAt ? data.playing && Date.now() - data.lastAutoAt < 15000 ? "الفيديو شغّال" : "الفيديو متوقف"
+      : "شغّل الفيديو أو ابدأ المؤقت اليدوي.";
+    if (!state && (data.playing || data.manualSince)) status.textContent = "سيب Seif Study OS مفتوح في تابة تانية للمزامنة.";
+    else if (status.textContent.startsWith("سيب Seif")) status.textContent = "";
     byId("manual").textContent = data.manualSince ? "أوقف المؤقت اليدوي" : "ابدأ مؤقت يدوي";
     byId("resume").disabled = !supported || (resumeAt ?? savedPlace) === undefined;
   }
@@ -137,10 +167,13 @@ async function initialize() {
     status.textContent = "الملاحظة اتحفظت.";
   });
   await refresh();
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && (changes["lesson:" + key] || changes["sync:" + key])) void refresh().catch(() => {});
+  });
   setInterval(async () => {
     try {
       if (granted || frameIds.length) supported = (await probe()) !== null;
       await refresh();
     } catch { /* The tab may already have switched lessons. */ }
-  }, 2000);
+  }, 1000);
 }

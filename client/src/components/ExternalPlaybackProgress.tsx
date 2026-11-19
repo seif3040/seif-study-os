@@ -1,5 +1,4 @@
-import { trpc } from "@/lib/trpc";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 type PlaybackProgress = {
   position?: number;
@@ -18,20 +17,7 @@ function clock(value: number) {
     .map(part => String(part).padStart(2, "0")).join(":");
 }
 
-export default function ExternalPlaybackProgress({ url, sessionId, running, inBreak }: { url: string; sessionId: number; running: boolean; inBreak: boolean }) {
-  const utils = trpc.useUtils();
-  const timer = trpc.video.setExternalTimer.useMutation({
-    onSuccess: () => Promise.all([utils.video.current.invalidate(), utils.analytics.overview.invalidate(), utils.coins.ledger.invalidate()]),
-  });
-  const observed = useRef(false);
-  useEffect(() => {
-    if (!progress || progress.lastAutoAt) return;
-    const active = Boolean(progress.manualSince) || Boolean(progress.lastPlayingAt && Date.now() - progress.lastPlayingAt < 12000);
-    if (active) observed.current = true;
-    if (observed.current && !inBreak && active !== running && !timer.isPending && !timer.isError) {
-      timer.mutate({ sessionId, running: active });
-    }
-  });
+export default function ExternalPlaybackProgress({ url, onPosition }: { url: string; onPosition(seconds: number | undefined): void }) {
   const key = "study-extension-lesson:" + url;
   const [linkedUrl, setLinkedUrl] = useState(() => localStorage.getItem(key) ?? "");
   const [lessons, setLessons] = useState<{ url: string; title: string; position?: number }[]>([]);
@@ -47,7 +33,10 @@ export default function ExternalPlaybackProgress({ url, sessionId, running, inBr
         return;
       }
       if (data && Number.isFinite(data.watched) && Number.isFinite(data.manual) &&
-          Array.isArray(data.ranges) && Array.isArray(data.notes)) setProgress(data);
+          Array.isArray(data.ranges) && Array.isArray(data.notes)) {
+        setProgress(data);
+        onPosition(data.lastAutoAt && Number.isFinite(data.position) ? Math.floor(data.position) : undefined);
+      }
     }
     function refresh() {
       window.postMessage({ type: "seif-study-extension:request", id, url: linkedUrl || url }, location.origin);
@@ -59,13 +48,14 @@ export default function ExternalPlaybackProgress({ url, sessionId, running, inBr
     window.addEventListener("message", receive);
     window.addEventListener("focus", refreshLessons);
     refreshLessons();
-    const interval = window.setInterval(refresh, 6000);
+    const interval = window.setInterval(refreshLessons, 12000);
     return () => {
       window.removeEventListener("message", receive);
       window.removeEventListener("focus", refreshLessons);
       window.clearInterval(interval);
+      window.postMessage({ type: "seif-study-extension:unsubscribe", id }, location.origin);
     };
-  }, [url, linkedUrl]);
+  }, [url, linkedUrl, onPosition]);
 
   return <div className="space-y-2 border-b p-4 text-sm">
     <h3 className="font-semibold">متابعة الفيديو من إضافة المتصفح</h3>
@@ -74,6 +64,7 @@ export default function ExternalPlaybackProgress({ url, sessionId, running, inBr
       <select className="rounded-md border bg-background p-2" value={linkedUrl} onChange={event => {
         const choice = event.target.value;
         setProgress(undefined);
+        onPosition(undefined);
         setLinkedUrl(choice);
         if (choice) localStorage.setItem(key, choice);
         else localStorage.removeItem(key);

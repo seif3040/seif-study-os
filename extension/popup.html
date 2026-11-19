@@ -1,21 +1,40 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>متابعة الدروس</title><link rel="stylesheet" href="popup.css"></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>متابعة الدروس</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
 <body>
-  <h1>متابعة الدروس</h1>
+  <header>
+    <h1>متابعة الدروس</h1>
+    <label class="theme" for="theme">المظهر
+      <select id="theme"><option value="graphite">جرافيت</option><option value="violet">بنفسجي</option><option value="light">فاتح</option></select>
+    </label>
+  </header>
   <p id="status" role="status">جارٍ قراءة الصفحة…</p>
   <section id="controls" hidden>
-    <p><strong id="position">—</strong> <span>آخر مكان</span></p>
-    <p id="watched"></p>
-    <p id="ranges"></p>
-    <button id="enable">فعّل المتابعة على المنصة دي</button>
-    <div id="frames" hidden><label>مشغّل داخل الصفحة <select id="frame"></select></label><button id="enable-frame">اسمح بقراءة المشغّل</button></div>
-    <button id="resume" disabled>كمّل من آخر مكان</button>
-    <button id="manual">ابدأ مؤقت يدوي</button>
-    <form id="bookmark"><label>مكانك بالدقايق والثواني <input id="time" placeholder="٣٥:٢٠" dir="ltr" required maxlength="12"></label><button>احفظ المكان</button></form>
-    <form id="note"><label>ملاحظة عند آخر توقيت <textarea id="text" maxlength="1000" required></textarea></label><button>احفظ الملاحظة</button></form>
+    <div class="lesson">
+      <div class="row"><b id="subject">المادة</b><span id="connection" role="status">في انتظار الربط</span></div>
+      <p id="lesson-title" class="muted"></p>
+      <p id="clock-label" class="muted">موضع الفيديو</p>
+      <strong id="position" class="clock" dir="ltr">—</strong>
+      <p id="playback" class="muted"></p>
+      <button id="enable">فعّل المتابعة على المنصة</button>
+      <div id="frames" hidden><label>مشغّل داخل الصفحة <select id="frame"></select></label><button id="enable-frame">اسمح بقراءة المشغّل</button></div>
+      <div class="row actions">
+        <button id="resume" disabled>كمّل من آخر مكان</button>
+        <button id="manual" class="secondary">ابدأ مؤقت يدوي</button>
+      </div>
+    </div>
+    <details>
+      <summary>حفظ توقيت أو ملاحظة</summary>
+      <form id="bookmark"><label>التوقيت <input id="time" placeholder="35:20" dir="ltr" required maxlength="12"></label><button>احفظ المكان</button></form>
+      <form id="note"><label>ملاحظة عند موضع الفيديو <textarea id="text" maxlength="1000" required></textarea></label><button>احفظ الملاحظة</button></form>
+    </details>
   </section>
-  <a href="https://seif-study-os.vercel.app/study-video" target="_blank" rel="noopener">افتح Seif Study OS</a>
+  <a id="open-site" href="https://seif-study-os.vercel.app/study-video" target="_blank" rel="noopener">افتح فيديو المذاكرة</a>
   <script type="module" src="popup.js"></script>
-</body></html>
+</body>
+</html>

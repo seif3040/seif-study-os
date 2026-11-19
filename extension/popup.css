@@ -1,12 +1,50 @@
-html { color-scheme: dark; background: #151e1c; color: #f4fff9; }
-body { box-sizing: border-box; width: 330px; padding: 16px; margin: 0; font: 14px/1.55 system-ui, sans-serif; }
-h1 { margin: 0 0 8px; font-size: 20px; }
-p { margin: 5px 0; }
-#status { color: #b9d2c7; }
-#ranges { max-height: 4.8em; overflow: auto; }
-button, input, textarea { font: inherit; border: 1px solid #536e63; border-radius: 8px; padding: 6px 9px; }
-button { margin: 4px 0; background: #bbef77; color: #14230b; cursor: pointer; font-weight: 700; }
+html {
+  color-scheme: dark;
+  --background: #151e1c;
+  --surface: #202e29;
+  --text: #f4fff9;
+  --muted: #b9d2c7;
+  --accent: #bbef77;
+  --accent-text: #14230b;
+  --border: #536e63;
+  background: var(--background);
+  color: var(--text);
+}
+html[data-theme="violet"] {
+  --background: #191a31;
+  --surface: #242643;
+  --muted: #c9c8e5;
+  --accent: #d0bfff;
+  --accent-text: #211539;
+  --border: #66658e;
+}
+html[data-theme="light"] {
+  color-scheme: light;
+  --background: #f5f8f3;
+  --surface: #fff;
+  --text: #16211b;
+  --muted: #495c51;
+  --accent: #285503;
+  --accent-text: #fff;
+  --border: #a2afa5;
+}
+body { box-sizing: border-box; width: 354px; padding: 16px; margin: 0; font: 14px/1.55 system-ui, sans-serif; }
+header, .row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+header { margin-bottom: 12px; }
+h1 { margin: 0; font-size: 18px; }
+p { margin: 4px 0; }
+#status, .muted, .theme { color: var(--muted); font-size: 12px; }
+#status:empty { display: none; }
+#connection { color: var(--accent); font-size: 12px; }
+.lesson { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin: 10px 0; }
+#lesson-title { overflow-wrap: anywhere; margin-bottom: 10px; }
+.clock { display: inline-block; font-size: 34px; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.actions { justify-content: flex-start; margin-top: 8px; }
+button, select, input, textarea { font: inherit; border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; }
+button { background: var(--accent); color: var(--accent-text); cursor: pointer; font-weight: 700; }
+button.secondary, select, input, textarea { background: var(--surface); color: var(--text); }
 button:disabled { opacity: .5; cursor: default; }
-input, textarea { width: 100%; box-sizing: border-box; background: #202e29; }
-form { margin-block: 8px; }
-a { color: #bbef77; }
+input, textarea { width: 100%; box-sizing: border-box; margin-bottom: 4px; }
+form, summary { margin-block: 8px; }
+summary { cursor: pointer; }
+a { color: var(--accent); display: inline-block; margin-top: 8px; }

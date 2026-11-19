@@ -1,96 +1,223 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { videoSubject } from "@shared/lessonSources";
-import { toast } from "sonner";
+import { videoSubject, videoSubjectNames, type VideoSubject } from "@shared/lessonSources";
+import { externalVideoDeadline } from "@shared/videoTimer";
+import { notifyStudy } from "@/lib/studyAlerts";
 import { Button } from "@/components/ui/button";
 
-type Activity = { url: string; title: string; position?: number; playing?: boolean; lastAutoAt?: number; lastPlayingAt?: number; manualSince?: number };
+type Activity = {
+  url: string;
+  title?: string;
+  position?: number;
+  playing?: boolean;
+  lastAutoAt?: number;
+  lastPlayingAt?: number;
+  manualSince?: number;
+  manualChangedAt?: number;
+  updatedAt: number;
+};
+type Choice = { subject: VideoSubject; teacherName: string };
+type SyncState = "linked" | "paused" | "break" | "conflict" | "unknown" | "choose" | "error";
+
+function platformHost(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password ? url.hostname.replace(/^www\./, "") : "";
+  } catch {
+    return "";
+  }
+}
 
 export default function ExtensionStudySync() {
-  const [location, navigate] = useLocation();
   const sources = trpc.lessonSources.list.useQuery();
   const utils = trpc.useUtils();
-  const pending = useRef(false);
-  const [ambiguous, setAmbiguous] = useState<{ activity: Activity; choices: { subject: string; teacherName: string }[] }>();
-  const [connection, setConnection] = useState("في انتظار اتصال إضافة المتصفح");
-  const [detected, setDetected] = useState<{ activity: Activity; subject: string }>();
-  const [last, setLast] = useState("");
-  async function start(activity: Activity, subjectName: string) {
-    if (pending.current) return;
-    pending.current = true;
-    try {
-      const subject = videoSubject(subjectName);
-      if (subject === "other") return;
-      const open = await utils.client.video.open.query();
-      const session = open.find(item => item.subject === subject);
-      if (session && (session.sourceMode !== "external" || session.videoUrl !== activity.url)) {
-        if (last !== activity.url) toast.info("عندك جلسة مفتوحة في " + subjectName + ". افتح فيديو المذاكرة لاختيار الدرس.");
-        setLast(activity.url);
-        return;
-      }
-      const current = session ?? await utils.client.video.start.mutate({
-        subject, videoUrl: activity.url, lessonTitle: activity.title.slice(0, 220), requestedMode: "external",
-      });
-      if (current.phase !== "break" && Number.isFinite(activity.position) && activity.lastAutoAt && Date.now() - activity.lastAutoAt < 30000) {
-        const result = await utils.client.video.extensionPlayback.mutate({ sessionId: current.id, active: activity.playing === true, playbackPosition: Math.min(172800, activity.position!) });
-        utils.video.current.setData({ subject }, result.session);
-        await utils.video.open.invalidate();
-        if (!session && location === "/study-video") navigate("/study-video?subject=" + subject);
-      } else if (current.phase !== "break" && activity.manualSince && !current.timerRunning) {
-        await utils.client.video.setExternalTimer.mutate({ sessionId: current.id, running: true });
-        await Promise.all([utils.video.invalidate(), utils.analytics.overview.invalidate()]);
-        toast.success("بدأت جلسة " + subjectName + " من منصة المدرس.");
-      }
-    } catch { if (last !== activity.url) toast.error("تعذّر بدء جلسة المنصة. جرّب فتح فيديو المذاكرة."); setLast(activity.url); }
-    finally { pending.current = false; }
-  }
-  const startRef = useRef(start);
-  startRef.current = start;
+  const [ambiguous, setAmbiguous] = useState<{ activity: Activity; choices: Choice[] }>();
+  const choose = useRef<(activity: Activity, subject: VideoSubject) => void>(() => {});
+  const [notice, setNotice] = useState<{ subject: VideoSubject; state: SyncState }>();
+
   useEffect(() => {
     if (!sources.data) return;
-    const saved = sources.data.filter(source => source.active && source.delivery !== "in_person" && source.url);
+    const origin = window.location.origin;
     const id = crypto.randomUUID();
-    function receive(event: MessageEvent) {
-      if (event.source !== window || event.origin !== location.origin || event.data?.id !== id ||
-          event.data.type !== "seif-study-extension:progress" || !event.data.list || !Array.isArray(event.data.data)) return;
-      const recent = (event.data.data as Activity[]).find(item =>
-        typeof item.url === "string" && (item.manualSince || Number.isFinite(item.lastAutoAt) && Date.now() - item.lastAutoAt! < 30000));
-      setConnection("الإضافة متصلة · في انتظار فيديو نشط من المصادر");
-      if (!recent) return;
-      let url: URL;
-      try { url = new URL(recent.url); if (url.protocol !== "https:") return; } catch { return; }
-      const matching = saved.filter(source => {
-        try {
-          const host = new URL(source.url!).hostname.replace(/^www\./, "");
-          const current = url.hostname.replace(/^www\./, "");
-          return current === host || current.endsWith("." + host);
-        } catch { return false; }
-      });
-      const unique = Array.from(new Map(matching.map(source => [source.subject, source])).values());
-      if (unique.length === 1) {
-        setConnection("تم اكتشاف فيديو " + unique[0].subject);
-        setDetected({ activity: recent, subject: unique[0].subject });
-        void startRef.current(recent, unique[0].subject);
-      }
-      else if (unique.length > 1) setAmbiguous({ activity: recent, choices: unique });
+    const saved = sources.data.flatMap(source => {
+      const host = source.url && platformHost(source.url);
+      return source.active && source.delivery !== "in_person" && host
+        ? [{ host, subject: videoSubject(source.subject), teacherName: source.teacherName }] : [];
+    });
+    const choices = new Map<string, VideoSubject>();
+    const queued = new Map<string, { activity: Activity; subject: VideoSubject }>();
+    const processed = new Map<string, { activity: Activity; state: SyncState }>();
+    const sessions = new Map<string, number>();
+    const manualSessions = new Map<number, number>();
+    let running = false;
+    let disposed = false;
+
+    function publish(activity: Activity, state: SyncState, subject?: VideoSubject, timer?: { seconds: number; startedAt: number; deadline: number }) {
+      if (disposed) return;
+      window.postMessage({
+        type: "seif-study-extension:status", id, url: activity.url,
+        status: { state, subject: subject ? videoSubjectNames[subject] : "", subjectKey: subject ?? "", timer },
+      }, origin);
+      if (subject) setNotice(previous => previous?.subject === subject && previous.state === state ? previous : { subject, state });
     }
-    function refresh() {
-      for (const source of saved) window.postMessage({ type: "seif-study-extension:request", id, url: source.url, list: true }, location.origin);
+
+    async function sync(activity: Activity, subject: VideoSubject) {
+      const auto = activity.lastAutoAt != null && Number.isFinite(activity.position);
+      const playing = activity.playing === true && Date.now() - (activity.lastPlayingAt ?? 0) < 15000;
+      const canStart = playing || !!activity.manualSince;
+      const cached = utils.video.current.getData({ subject });
+      const session = sessions.has(activity.url) && cached?.id === sessions.get(activity.url)
+        ? cached : await utils.client.video.current.query({ subject });
+      const url = new URL(activity.url).href;
+
+      const linked = session && window.localStorage.getItem("study-extension-lesson:" + session.videoUrl);
+      if (session && (session.sourceMode !== "external" || (session.videoUrl !== url && linked !== activity.url))) {
+        publish(activity, "conflict", subject);
+        return "conflict";
+      }
+      if (!session && (!canStart || sessions.has(activity.url))) {
+        publish(activity, "paused", subject);
+        return "paused";
+      }
+
+      const current = session ?? await utils.client.video.start.mutate({
+        subject, videoUrl: url, lessonTitle: activity.title?.slice(0, 220), requestedMode: "external",
+      });
+      sessions.set(activity.url, current.id);
+      let updated = current;
+      let blockCompleted = false;
+      if (current.phase !== "break" && activity.manualSince) {
+        const newManualStart = manualSessions.get(current.id) !== activity.manualSince;
+        if ((!current.timerRunning && newManualStart) || Date.now() >= (externalVideoDeadline(current) ?? Infinity)) {
+          const result = await utils.client.video.setExternalTimer.mutate({ sessionId: current.id, running: current.timerRunning ? undefined : true });
+          updated = result.session;
+          blockCompleted = result.blockCompleted;
+        }
+        manualSessions.set(current.id, activity.manualSince);
+      } else if (current.phase !== "break" && (auto || (current.timerRunning && manualSessions.has(current.id)))) {
+        const result = auto && !current.timerRunning
+          ? await utils.client.video.extensionPlayback.mutate({
+            sessionId: current.id, active: playing, playbackPosition: Math.min(172800, activity.position!),
+          })
+          : await utils.client.video.setExternalTimer.mutate({ sessionId: current.id, running: false });
+        updated = result.session;
+        blockCompleted = result.blockCompleted;
+      }
+      if (disposed) return "paused";
+
+      if (updated.phase === "completed") void utils.video.current.invalidate({ subject });
+      else utils.video.current.setData({ subject }, updated);
+      utils.video.open.setData(undefined, previous => {
+        const remaining = (previous ?? []).filter(item => item.id !== updated.id);
+        return updated.phase === "completed" ? remaining : [updated, ...remaining];
+      });
+      if (!session) window.dispatchEvent(new CustomEvent("study-extension-session", { detail: subject }));
+      if (blockCompleted) {
+        notifyStudy("وقت مذاكرة الفيديو خلص. بدأت استراحة ١٥ دقيقة.", "timer");
+        void utils.planner.studyBreak.invalidate();
+        void utils.analytics.overview.invalidate();
+        void utils.coins.ledger.invalidate();
+      }
+      const state = updated.phase === "break" ? "break" : (activity.manualSince ? updated.timerRunning : playing) && updated.phase !== "completed" ? "linked" : "paused";
+      const deadline = externalVideoDeadline(updated);
+      const timer = activity.manualSince && deadline != null && updated.lastPlaybackAt
+        ? { seconds: updated.activeSeconds, startedAt: +updated.lastPlaybackAt, deadline } : undefined;
+      publish(activity, state, subject, timer);
+      return state;
+    }
+
+    async function drain() {
+      if (running) return;
+      running = true;
+      try {
+        while (!disposed && queued.size) {
+          const [key, { activity, subject }] = queued.entries().next().value!;
+          queued.delete(key);
+          const previous = processed.get(key);
+          if (previous && previous.activity.updatedAt >= activity.updatedAt && previous.state !== "error" && previous.state !== "conflict" && !activity.manualSince) continue;
+          try {
+            const run = async () => {
+              if (!disposed && !queued.has(key)) {
+                const state = await sync(activity, subject);
+                processed.set(key, { activity, state });
+              }
+            };
+            if (navigator.locks) await navigator.locks.request("study-extension:" + subject, { ifAvailable: true }, lock => lock ? run() : undefined);
+            else await run();
+          } catch {
+            processed.set(key, { activity, state: "error" });
+            publish(activity, "error", subject);
+          }
+        }
+      } finally {
+        running = false;
+      }
+    }
+
+    function enqueue(activity: Activity, subject: VideoSubject) {
+      const previous = queued.get(activity.url);
+      if (!previous || previous.activity.updatedAt <= activity.updatedAt) queued.set(activity.url, { activity, subject });
+      void drain();
+    }
+    choose.current = (activity, subject) => {
+      choices.set(platformHost(activity.url), subject);
+      setAmbiguous(undefined);
+      enqueue(activity, subject);
+    };
+
+    function receive(event: MessageEvent) {
+      if (event.source !== window || event.origin !== origin || event.data?.id !== id ||
+          event.data.type !== "seif-study-extension:activities" || !Array.isArray(event.data.data)) return;
+      const activeSubjects = new Set<VideoSubject>();
+      for (const activity of event.data.data as Activity[]) {
+        if (typeof activity?.url !== "string" || activity.url.length > 2000 || !Number.isFinite(activity.updatedAt)
+            || (!activity.lastAutoAt && !activity.manualChangedAt)) continue;
+        const host = platformHost(activity.url);
+        if (!host) continue;
+        const matching = saved.filter(source => host === source.host || host.endsWith("." + source.host));
+        const specificity = Math.max(0, ...matching.map(source => source.host.length));
+        const options = Array.from(new Map(matching.filter(source => source.host.length === specificity)
+          .map(source => [source.subject, source])).values());
+        const subject = choices.get(host) ?? (options.length === 1 ? options[0].subject
+          : options.length === 0 && (host === "sherbeniacademy.com" || host.endsWith(".sherbeniacademy.com")) ? "history" : undefined);
+        if (subject) {
+          if (activeSubjects.has(subject)) continue;
+          activeSubjects.add(subject);
+          enqueue(activity, subject);
+        } else if (options.length > 1 && (activity.playing || activity.manualSince)) {
+          setAmbiguous({ activity, choices: options });
+          publish(activity, "choose");
+        } else if (!options.length) publish(activity, "unknown");
+      }
+    }
+
+    function subscribe() {
+      window.postMessage({ type: "seif-study-extension:subscribe", id }, origin);
     }
     window.addEventListener("message", receive);
-    window.addEventListener("focus", refresh);
-    refresh();
-    const timer = window.setInterval(refresh, 6000);
-    return () => { window.removeEventListener("message", receive); window.removeEventListener("focus", refresh); window.clearInterval(timer); };
-  }, [sources.data]);
-  return <><div className="surface fixed bottom-3 left-3 z-40 max-w-sm rounded-lg border p-2 text-xs" role="status">
-    <p>{connection}</p>
-    {detected && <Button size="sm" variant="outline" onClick={() => void start(detected.activity, detected.subject)}>اربط جلسة {detected.subject}</Button>}
-  </div>{ambiguous ? <div className="surface fixed bottom-24 left-4 z-40 max-w-sm space-y-2 p-3" role="status">
+    window.addEventListener("focus", subscribe);
+    subscribe();
+    const retry = window.setInterval(subscribe, 5000);
+    return () => {
+      disposed = true;
+      window.removeEventListener("message", receive);
+      window.removeEventListener("focus", subscribe);
+      window.clearInterval(retry);
+      window.postMessage({ type: "seif-study-extension:unsubscribe", id }, origin);
+    };
+  }, [sources.data, utils]);
+
+  if (ambiguous) return <div className="surface fixed bottom-4 left-4 z-40 max-w-sm space-y-2 p-3">
     <p className="text-sm font-semibold">المنصة دي لأكتر من مادة. بتذاكر إيه؟</p>
     <div className="flex flex-wrap gap-2">{ambiguous.choices.map(choice =>
-      <Button key={choice.subject} size="sm" onClick={() => { void start(ambiguous.activity, choice.subject); setAmbiguous(undefined); }}>{choice.subject}</Button>)}</div>
-    <Link href="/study-video" className="text-sm text-primary underline">افتح فيديو المذاكرة</Link>
-  </div> : null}</>;
+      <Button key={choice.subject} size="sm" onClick={() => choose.current(ambiguous.activity, choice.subject)}>
+        {videoSubjectNames[choice.subject]} · {choice.teacherName}
+      </Button>)}</div>
+  </div>;
+
+  return notice?.state === "conflict" ? <div className="surface fixed bottom-4 left-4 z-40 max-w-sm space-y-2 p-3 text-sm" role="status">
+    <p>فيه درس تاني مفتوح في {videoSubjectNames[notice.subject]}. انهي جلسته قبل ربط الفيديو الجديد.</p>
+    <Link href={"/study-video?subject=" + notice.subject} className="text-primary underline">افتح الجلسة الحالية</Link>
+  </div> : null;
 }
