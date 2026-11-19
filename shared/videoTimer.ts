@@ -1,5 +1,10 @@
 export const videoBlockSeconds = 45 * 60;
 
+export function videoRemainderReward(activeSeconds: number, completedBlocks: number, blockReward: number) {
+  const remainder = Math.max(0, activeSeconds - completedBlocks * videoBlockSeconds);
+  return Math.round(blockReward * Math.min(remainder, videoBlockSeconds) / videoBlockSeconds);
+}
+
 type ExternalTimer = {
   activeSeconds: number;
   completedBlocks: number;

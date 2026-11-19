@@ -4,6 +4,12 @@ export const money = new Intl.NumberFormat("ar-EG");
 export const arabicDate = new Intl.DateTimeFormat("ar-EG", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 export const shortDate = new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "short" });
 
+export function studyDurationLabel(minutes: number) {
+  if (minutes >= 60) return minutesLabel(minutes);
+  if (minutes > 0 && minutes < 1) return "أقل من دقيقة";
+  return money.format(Math.floor(Math.max(0, minutes))) + " دقيقة";
+}
+
 export function minutesLabel(minutes: number) { return `${money.format(Math.round(minutes / 60 * 10) / 10)} ساعة`; }
 export function inputDate(value?: Date | string | null) { if (!value) return ""; return new Date(value).toISOString().slice(0, 10); }
 export function errorText(error: unknown) { return error instanceof Error ? error.message : "تعذر إتمام العملية. حاول مرة أخرى."; }

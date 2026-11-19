@@ -13,7 +13,7 @@ import { Link } from "wouter";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/PageHeader";
-import { errorText, minutesLabel, money } from "@/lib/study";
+import { errorText, studyDurationLabel, money } from "@/lib/study";
 import { safeStudyUrl } from "@/lib/videoSources";
 import { trpc } from "@/lib/trpc";
 
@@ -160,7 +160,7 @@ export default function Dashboard() {
     </section>,
     progress: <section aria-label="تقدم المذاكرة" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {[
-        { label: "وقت المذاكرة", value: minutesLabel(metrics.studyMinutes), Icon: Clock3, href: "/analytics" },
+        { label: "وقت المذاكرة", value: studyDurationLabel(metrics.studyMinutes), Icon: Clock3, href: "/analytics" },
         { label: "الدروس المكتملة", value: money.format(metrics.lessonsCompleted), Icon: BookOpen, href: "/study-plan" },
         { label: "سلسلة المذاكرة", value: money.format(metrics.currentStreak) + " يوم", Icon: Flame, href: "/analytics" },
         { label: "رصيد Coins", value: money.format(coins.balance), Icon: CircleDollarSign, href: "/coins" },

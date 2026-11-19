@@ -1,6 +1,7 @@
-import { studyOverlapByDay, totalStudyMinutes } from "../shared/studyTime.js";
+import { transitionStudyClock, videoHeartbeatTimeout, type StudySpan } from "../shared/studyClock.js";
+import { splitStudyTimeAtMidnight, studyOverlapByDay, studyTimeWithSessions, totalStudyMinutes } from "../shared/studyTime.js";
 import { addBreakTime } from "../shared/studyBreak.js";
-import { externalVideoDeadline, externalVideoElapsed, videoBlockSeconds } from "../shared/videoTimer.js";
+import { externalVideoDeadline, externalVideoElapsed, videoBlockSeconds, videoRemainderReward } from "../shared/videoTimer.js";
 import { studyEfforts, type StudyEffort, type StudyItem, type WeeklyStudy } from "../shared/weeklyStudy.js";
 import { sleepDuration, sleepTargetMinutes, type SleepLog } from "../shared/sleep.js";
 import { cairoPlannerTime, examClock, examLocalDate, examOccurrences, type ExamScheduleOptions } from "../shared/examSchedule.js";
@@ -205,10 +206,23 @@ async function recordStudyEvent(params: { userId: number; cycleId: number; subje
 
 type StudyReader = Pick<Awaited<ReturnType<typeof database>>, "select">;
 
-function studyTimeRows(db: StudyReader, userId: number) {
-  return db.select({ id: studyEvents.id, at: studyEvents.occurredAt, reference: studyEvents.referenceId,
-    kind: studyEvents.eventType, minutes: studyEvents.durationMinutes }).from(studyEvents)
-    .where(and(eq(studyEvents.userId, userId), sql`${studyEvents.durationMinutes} > 0`));
+async function studyTimeRows(db: StudyReader, userId: number) {
+  const now = new Date();
+  const [events, videos, focus, planner] = await Promise.all([
+    db.select({ id: studyEvents.id, at: studyEvents.occurredAt, reference: studyEvents.referenceId,
+      kind: studyEvents.eventType, minutes: studyEvents.durationMinutes }).from(studyEvents)
+      .where(and(eq(studyEvents.userId, userId), gte(studyEvents.durationMinutes, 1))),
+    db.select({ id: studyVideoSessions.id, createdAt: studyVideoSessions.createdAt, updatedAt: studyVideoSessions.updatedAt,
+      activeSeconds: studyVideoSessions.activeSeconds, lastPlaybackAt: studyVideoSessions.lastPlaybackAt,
+      completedBlocks: studyVideoSessions.completedBlocks, timerRunning: studyVideoSessions.timerRunning,
+    }).from(studyVideoSessions).where(eq(studyVideoSessions.userId, userId)),
+    db.select({ id: pomodoroSessions.id, startedAt: pomodoroSessions.startedAt, pausedAt: pomodoroSessions.pausedAt,
+      pausedSeconds: pomodoroSessions.pausedSeconds, plannedMinutes: pomodoroSessions.plannedMinutes, state: pomodoroSessions.state }).from(pomodoroSessions)
+      .where(and(eq(pomodoroSessions.userId, userId), inArray(pomodoroSessions.state, ["running", "paused", "cancelled"]))),
+    getPlanner(userId),
+  ]);
+  return splitStudyTimeAtMidnight(studyTimeWithSessions(events, videos, focus, now, planner.studyClocks),
+    plannerToday, day => +cairoPlannerTime(shiftPlannerDay(day, 1), "00:00"));
 }
 
 export function setStudyTotalBaseline(userId: number, minutes: number) {
@@ -216,14 +230,21 @@ export function setStudyTotalBaseline(userId: number, minutes: number) {
     if (planner.studyTotalBaseline) return planner.studyTotalBaseline;
     const [last] = await tx.select({ id: studyEvents.id }).from(studyEvents)
       .where(eq(studyEvents.userId, userId)).orderBy(desc(studyEvents.id)).limit(1);
-    planner.studyTotalBaseline = { minutes, throughEventId: last?.id ?? 0 };
+    planner.studyTotalBaseline = { minutes, throughEventId: last?.id ?? 0, recordedAt: Date.now() };
     return planner.studyTotalBaseline;
   });
 }
 
 async function metricSnapshot(db: StudyReader, userId: number, timeRows?: Awaited<ReturnType<typeof studyTimeRows>>) {
   const [planner, timed] = await Promise.all([getPlanner(userId), timeRows ?? studyTimeRows(db, userId)]);
-  const studyMinutes = totalStudyMinutes(timed, dateKey, planner.studyTotalBaseline);
+  const baseline = planner.studyTotalBaseline;
+  let recordedAt = baseline?.recordedAt;
+  if (recordedAt === undefined && baseline?.throughEventId) {
+    const [boundary] = await db.select({ at: studyEvents.occurredAt }).from(studyEvents)
+      .where(and(eq(studyEvents.userId, userId), lte(studyEvents.id, baseline.throughEventId))).orderBy(desc(studyEvents.id)).limit(1);
+    recordedAt = boundary ? +boundary.at : undefined;
+  }
+  const studyMinutes = totalStudyMinutes(timed, plannerToday, baseline && { ...baseline, recordedAt });
   const [events] = await db.select({
     lessonsCompleted: sql<number>`coalesce(sum(case when ${studyEvents.eventType} = 'lesson_complete' then 1 else 0 end), 0)`,
     reviews: sql<number>`coalesce(sum(case when ${studyEvents.eventType} = 'lesson_review' then 1 else 0 end), 0)`,
@@ -673,6 +694,7 @@ export async function startPomodoro(userId: number, input: { plannedMinutes: num
       ...(input.elapsedMinutes ? { startedAt: new Date(Date.now() - input.elapsedMinutes * 60_000) } : {}) });
     const [created] = await tx.select().from(pomodoroSessions)
       .where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.id, result.insertId)));
+    await writeStudyClock(tx, userId, "focus:" + created.id, +created.startedAt, +created.startedAt);
     return created;
   });
 }
@@ -694,6 +716,8 @@ export async function completePomodoro(userId: number, sessionId: number, finish
     if (!finishEarly && minutes < session.plannedMinutes) {
       throw new Error("المكافأة بتنزل بعد اكتمال وقت التركيز.");
     }
+    const focusEnd = focusStopTime(session, stopTime);
+    await writeStudyClock(tx, userId, "focus:" + sessionId, focusEnd, undefined, focusLegacySpan(session, focusEnd));
     if (minutes === 0) {
       await tx.update(pomodoroSessions).set({ state: "cancelled", pausedAt: null }).where(eq(pomodoroSessions.id, sessionId));
       return { alreadyCompleted: false, awarded: false, amount: 0, cycleId: session.cycleId };
@@ -730,10 +754,14 @@ export async function pausePomodoro(userId: number, sessionId: number, paused: b
     if (!session || !["running", "paused"].includes(session.state)) throw new Error("لا يمكن تعديل هذه الجلسة.");
     const now = new Date();
     if (paused && session.state === "running") {
+      const end = focusStopTime(session, +now);
+      await writeStudyClock(tx, userId, "focus:" + sessionId, end, undefined, focusLegacySpan(session, end));
       return tx.update(pomodoroSessions).set({ state: "paused", pausedAt: now }).where(owned);
     }
     if (!paused && session.state === "paused") {
       await changeStudyBreak(tx, userId, now);
+      const end = focusStopTime(session, +(session.pausedAt ?? now));
+      await writeStudyClock(tx, userId, "focus:" + sessionId, end, +now, focusLegacySpan(session, end));
       const pausedSeconds = session.pausedAt ? Math.max(0, Math.floor((+now - +session.pausedAt) / 1000)) : 0;
       return tx.update(pomodoroSessions).set({ state: "running", pausedAt: null, pausedSeconds: session.pausedSeconds + pausedSeconds }).where(owned);
     }
@@ -753,6 +781,7 @@ export async function startVideoSession(userId: number, input: { videoUrl: strin
       subject: input.subject, sourceMode, manualProgress: "started", timerRunning: false, phase: "watching",
     });
     const [session] = await tx.select().from(studyVideoSessions).where(eq(studyVideoSessions.id, created.insertId));
+    await writeStudyClock(tx, userId, "video:" + created.insertId, +session.createdAt);
     return session!;
   });
 }
@@ -799,7 +828,7 @@ export async function scheduleVideoReview(userId: number, sessionId: number, not
 
 export async function endVideoSession(userId: number, sessionId: number, extension?: { position?: number }) {
   const result = await updateExternalVideo(userId, sessionId, "end", 0, extension);
-  return { ended: true, activeSeconds: result.session.activeSeconds };
+  return { ended: true, activeSeconds: result.session.activeSeconds, coinsAwarded: result.coinsAwarded ?? 0 };
 }
 
 export async function openVideoSessions(userId: number, subject?: typeof studyVideoSessions.$inferSelect.subject) {
@@ -835,6 +864,13 @@ export async function trackVideoPlayback(userId: number, sessionId: number, inpu
     const completedBlocks = Math.floor(activeSeconds / 2700);
     const blockCompleted = completedBlocks > item.completedBlocks;
     const phase = blockCompleted ? "break" as const : "watching" as const;
+    const previousBeat = item.lastPlaybackAt ? +item.lastPlaybackAt : undefined;
+    const stale = previousBeat !== undefined && +now - previousBeat > videoHeartbeatTimeout;
+    const watching = input.active && !blockCompleted;
+    if (stale || watching !== (previousBeat !== undefined)) {
+      const end = stale ? previousBeat : +now;
+      await writeStudyClock(tx, userId, "video:" + item.id, end, watching ? +now : undefined, videoLegacySpan(item, end));
+    }
     const changes = {
       activeSeconds, completedBlocks, phase, ...(input.external ? { timerRunning: false } : {}),
       breakEndsAt: blockCompleted ? new Date(+now + 15 * 60_000) : null,
@@ -885,6 +921,20 @@ async function awardVideoBlocks(tx: StudyTransaction, item: typeof studyVideoSes
   }
 }
 
+async function awardVideoRemainder(tx: StudyTransaction, item: typeof studyVideoSessions.$inferSelect, activeSeconds: number, completedBlocks: number) {
+  if (activeSeconds <= completedBlocks * videoBlockSeconds) return 0;
+  const [rate] = await tx.select({ amount: coinRateSettings.amount }).from(coinRateSettings)
+    .where(eq(coinRateSettings.rateKey, "video_block"));
+  const amount = videoRemainderReward(activeSeconds, completedBlocks, rate?.amount ?? 25);
+  if (amount <= 0) return 0;
+  const reference = "video:" + item.id + ":remainder";
+  await tx.insert(coinTransactions).values({
+    userId: item.userId, cycleId: item.cycleId, type: "earn", amount, referenceKey: reference,
+    reason: "فيديو مذاكرة — باقي وقت الجلسة",
+  }).onDuplicateKeyUpdate({ set: { referenceKey: reference } });
+  return amount;
+}
+
 async function updateExternalVideo(userId: number, sessionId: number, action: "start" | "pause" | "tick" | "end", elapsedMinutes = 0, extension?: { position?: number }) {
   const db = await database();
   const result = await db.transaction(async tx => {
@@ -898,9 +948,12 @@ async function updateExternalVideo(userId: number, sessionId: number, action: "s
     if (item.sourceMode !== "external") {
       if (action !== "end") throw new Error("هذا المؤقت مخصص للدروس الخارجية فقط.");
       if (item.phase === "break") await changeStudyBreak(tx, userId, now);
+      const end = videoStopTime(item, +now);
+      await writeStudyClock(tx, userId, "video:" + item.id, end, undefined, videoLegacySpan(item, end));
+      const coinsAwarded = await awardVideoRemainder(tx, item, item.activeSeconds, item.completedBlocks);
       const changes = { phase: "completed" as const, lastPlaybackAt: null, timerRunning: false, breakEndsAt: null };
       await tx.update(studyVideoSessions).set(changes).where(owned);
-      return { session: { ...item, ...changes }, blockCompleted: false };
+      return { session: { ...item, ...changes }, blockCompleted: false, coinsAwarded };
     }
 
     const deadline = externalVideoDeadline(item);
@@ -915,6 +968,8 @@ async function updateExternalVideo(userId: number, sessionId: number, action: "s
       const changes = { phase: "watching" as const, timerRunning: true, breakEndsAt: null,
         lastPlaybackAt: new Date(+now - elapsedMinutes * 60_000) };
       await changeStudyBreak(tx, userId, now);
+      const start = +changes.lastPlaybackAt;
+      await writeStudyClock(tx, userId, "video:" + item.id, +now, start, videoLegacySpan(item, Math.min(+now, start)));
       await tx.update(studyVideoSessions).set(changes).where(owned);
       return { session: { ...item, ...changes }, blockCompleted: false };
     }
@@ -929,11 +984,14 @@ async function updateExternalVideo(userId: number, sessionId: number, action: "s
     const changes = { activeSeconds, completedBlocks, phase, timerRunning: false, lastPlaybackAt: null,
       ...(position !== undefined ? { lastPlaybackPosition: position } : {}),
       breakEndsAt: phase === "break" ? new Date(+now + 15 * 60_000) : null };
+    const end = videoStopTime(item, +now);
+    await writeStudyClock(tx, userId, "video:" + item.id, end, undefined, videoLegacySpan(item, end));
     await awardVideoBlocks(tx, item, completedBlocks);
     await tx.update(studyVideoSessions).set(changes).where(owned);
     if (phase === "break") await changeStudyBreak(tx, userId, now, 15);
     if (item.phase === "break" && action === "end") await changeStudyBreak(tx, userId, now);
-    return { session: { ...item, ...changes }, blockCompleted };
+    const coinsAwarded = action === "end" ? await awardVideoRemainder(tx, item, activeSeconds, completedBlocks) : 0;
+    return { session: { ...item, ...changes }, blockCompleted, coinsAwarded };
   });
   if (result.blockCompleted) await evaluateAchievements(userId, result.session.cycleId).catch(() => []);
   return result;
@@ -1376,7 +1434,7 @@ export async function welcomeAchievements(userId: number, day: string) {
   const end = plannerWeekday(day) === 5 ? day : shiftPlannerDay(day, 1);
   const db = await database();
   const rows = await db.select({
-    occurredAt: studyEvents.occurredAt, minutes: studyEvents.durationMinutes, kind: studyEvents.eventType,
+    occurredAt: studyEvents.occurredAt, kind: studyEvents.eventType,
   }).from(studyEvents).where(and(eq(studyEvents.userId, userId),
     gte(studyEvents.occurredAt, cairoPlannerTime(start, "00:00")),
     lt(studyEvents.occurredAt, cairoPlannerTime(end, "00:00"))));
@@ -1384,12 +1442,18 @@ export async function welcomeAchievements(userId: number, day: string) {
   for (const row of rows) {
     const date = plannerToday(row.occurredAt);
     const current = totals[date] ??= { minutes: 0, lessons: 0, tasks: 0, sessions: 0 };
-    current.minutes += Number(row.minutes);
     if (row.kind === "lesson_complete") current.lessons++;
     if (row.kind === "task_complete") current.tasks++;
     if (row.kind === "pomodoro_complete") current.sessions++;
   }
-  const overlap = studyOverlapByDay(await studyTimeRows(db, userId), plannerToday);
+  const timed = await studyTimeRows(db, userId);
+  for (const row of timed) {
+    const day = plannerToday(row.at);
+    if (day < start || day >= end) continue;
+    const current = totals[day] ??= { minutes: 0, lessons: 0, tasks: 0, sessions: 0 };
+    current.minutes += Number(row.minutes);
+  }
+  const overlap = studyOverlapByDay(timed, plannerToday);
   for (const [day, total] of Object.entries(totals)) {
     total.minutes = Math.max(0, total.minutes - (overlap.get(day) ?? 0));
   }
@@ -1417,17 +1481,12 @@ function examAnalyticsSubject(linked: Set<number> | undefined, directSubject: nu
 export async function analytics(userId: number) {
   const db = await database();
   const timeRows = await studyTimeRows(db, userId);
-  const overlap = studyOverlapByDay(timeRows, dateKey);
+  const overlap = studyOverlapByDay(timeRows, plannerToday);
   const cycle = await getActiveCycle(userId); const metrics = await metricSnapshot(db, userId, timeRows); const coins = await getCoinSummary(db, userId);
-  const eventDay = sql<string>`date(\`studyEvents\`.\`occurredAt\`)`;
   const subjectName = sql<string>`coalesce(${subjects.title}, 'بدون مادة')`;
   const [dailyRows, bySubject, completion, comprehension, purchases, planner, examSubjects, linkedSubjects] = await Promise.all([
-    db.select({ day: eventDay, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)`, events: count(),
-      videoMinutes: sql<number>`coalesce(sum(case when ${studyEvents.eventType} = 'video_block' then ${studyEvents.durationMinutes} else 0 end), 0)`,
-      lessons: sql<number>`sum(case when ${studyEvents.eventType} = 'lesson_complete' then 1 else 0 end)`,
-      tasks: sql<number>`sum(case when ${studyEvents.eventType} = 'task_complete' then 1 else 0 end)`,
-      exams: sql<number>`sum(case when ${studyEvents.eventType} = 'exam_complete' then 1 else 0 end)`,
-    }).from(studyEvents).where(eq(studyEvents.userId, userId)).groupBy(eventDay).orderBy(eventDay),
+    db.select({ at: studyEvents.occurredAt, kind: studyEvents.eventType })
+      .from(studyEvents).where(eq(studyEvents.userId, userId)),
     db.select({ subject: subjectName, minutes: sql<number>`coalesce(sum(${studyEvents.durationMinutes}), 0)` }).from(studyEvents).leftJoin(subjects, eq(studyEvents.subjectId, subjects.id)).where(eq(studyEvents.userId, userId)).groupBy(studyEvents.subjectId, subjectName),
     db.select({ open: sql<number>`coalesce(sum(case when ${tasks.status} = 'open' then 1 else 0 end), 0)`, completed: sql<number>`coalesce(sum(case when ${tasks.status} = 'completed' then 1 else 0 end), 0)` }).from(tasks).where(eq(tasks.userId, userId)),
     db.select({ examId: examAttempts.examId, subjectId: exams.subjectId, takenOn: examAttempts.takenOn, recordedAt: examAttempts.createdAt, scheduledAt: exams.scheduledAt, score: examAttempts.score, comprehension: examAttempts.comprehensionScore })
@@ -1438,18 +1497,33 @@ export async function analytics(userId: number) {
     db.select({ id: subjects.id, title: subjects.title }).from(subjects).where(eq(subjects.userId, userId)).orderBy(subjects.title),
     examSubjectMap(db, userId),
   ]);
-  const sessionsByDay = new Map<string, { id: number; at: Date; kind: string; minutes: number }[]>();
-  for (const { id, at, kind, minutes } of timeRows) {
-    const day = dateKey(at);
-    const sessions = sessionsByDay.get(day) ?? [];
-    sessions.push({ id, at, kind, minutes: Number(minutes) });
-    sessionsByDay.set(day, sessions);
+  const days = new Map<string, {
+    day: string; minutes: number; events: number; lessons: number; tasks: number; exams: number;
+    sessions: { id: number; at: Date; kind: string; minutes: number }[];
+  }>();
+  function dayEntry(at: Date) {
+    const day = plannerToday(at);
+    const row = days.get(day) ?? { day, minutes: 0, events: 0, lessons: 0, tasks: 0, exams: 0, sessions: [] };
+    days.set(day, row);
+    return row;
   }
-  const daily = dailyRows.map(row => ({
+  for (const { at, kind } of dailyRows) {
+    const row = dayEntry(at);
+    row.events++;
+    if (kind === "lesson_complete") row.lessons++;
+    if (kind === "task_complete") row.tasks++;
+    if (kind === "exam_complete") row.exams++;
+  }
+  for (const { id, at, kind, minutes } of timeRows) {
+    const row = dayEntry(at);
+    row.minutes += Number(minutes);
+    row.sessions.push({ id, at, kind, minutes: Number(minutes) });
+  }
+  const daily = Array.from(days.values()).sort((a, b) => a.day.localeCompare(b.day)).map(row => ({
     ...row,
-    overlapMinutes: overlap.get(String(row.day).slice(0, 10)) ?? 0,
-    sessions: (sessionsByDay.get(String(row.day).slice(0, 10)) ?? []).sort((a, b) => +a.at - +b.at),
-    minutes: Math.max(0, Number(row.minutes) - (overlap.get(String(row.day).slice(0, 10)) ?? 0)),
+    overlapMinutes: overlap.get(row.day) ?? 0,
+    sessions: row.sessions.sort((a, b) => +a.at - +b.at),
+    minutes: Math.max(0, row.minutes - (overlap.get(row.day) ?? 0)),
   }));
   return { cycle, metrics, coins, daily, sleepLogs: planner.sleepLogs ?? {}, breakMilliseconds: planner.breakMilliseconds ?? {}, bySubject, completion: completion[0] ?? { open: 0, completed: 0 }, examSubjects, comprehension: comprehension.map(attempt => ({ date: examPerformanceDay(attempt), score: attempt.score, comprehension: attempt.comprehension,
     subjectId: examAnalyticsSubject(linkedSubjects.get(attempt.examId), attempt.subjectId) })), rewardsPurchased: Number(purchases[0]?.value ?? 0) };
@@ -1836,6 +1910,11 @@ export async function correctFocusMinutes(userId: number, eventId: number, minut
     if (sessionIds.length) await tx.update(pomodoroSessions).set({ completedMinutes: minutes }).where(and(
       eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "completed"), inArray(pomodoroSessions.id, sessionIds)));
     await tx.update(studyEvents).set({ durationMinutes: minutes }).where(owned);
+    const planner = await lockedPlanner(tx, userId);
+    if (planner.studyClocks) {
+      for (const sessionId of sessionIds) delete planner.studyClocks["focus:" + sessionId];
+      await tx.update(studyPlanner).set({ state: planner }).where(eq(studyPlanner.id, userId));
+    }
   });
 }
 
@@ -2124,16 +2203,48 @@ async function lockedPlanner(tx: StudyTransaction, userId: number) {
   return row.state;
 }
 
+function focusStopTime(session: typeof pomodoroSessions.$inferSelect, now: number) {
+  return Math.min(now, +session.startedAt + (session.pausedSeconds + session.plannedMinutes * 60) * 1000);
+}
+
+function focusLegacySpan(session: typeof pomodoroSessions.$inferSelect, end: number): StudySpan {
+  return { start: +session.startedAt + session.pausedSeconds * 1000, end };
+}
+
+function videoStopTime(session: typeof studyVideoSessions.$inferSelect, now: number) {
+  if (session.timerRunning) return Math.min(now, externalVideoDeadline(session) ?? now);
+  const previousBeat = session.lastPlaybackAt ? +session.lastPlaybackAt : +session.updatedAt;
+  return now - previousBeat > videoHeartbeatTimeout ? previousBeat : now;
+}
+
+function videoLegacySpan(session: typeof studyVideoSessions.$inferSelect, end: number): StudySpan {
+  return { start: Math.max(+session.createdAt, end - session.activeSeconds * 1000), end };
+}
+
+async function writeStudyClock(tx: StudyTransaction, userId: number, key: string, end: number, start?: number, legacy?: StudySpan) {
+  const planner = await lockedPlanner(tx, userId);
+  transitionStudyClock(planner.studyClocks ??= {}, key, end, start, legacy);
+  await tx.update(studyPlanner).set({ state: planner }).where(eq(studyPlanner.id, userId));
+}
+
 async function changeStudyBreak(tx: StudyTransaction, userId: number, now: Date, minutes?: number) {
   const planner = await lockedPlanner(tx, userId);
   const active = planner.activeBreak;
   if (minutes !== undefined) {
     if (active) return;
+    const focus = await tx.select().from(pomodoroSessions)
+      .where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "running")));
+    for (const session of focus) {
+      const end = focusStopTime(session, +now);
+      transitionStudyClock(planner.studyClocks ??= {}, "focus:" + session.id, end, undefined, focusLegacySpan(session, end));
+    }
     await tx.update(pomodoroSessions).set({ state: "paused", pausedAt: now })
       .where(and(eq(pomodoroSessions.userId, userId), eq(pomodoroSessions.state, "running")));
     const videos = await tx.select().from(studyVideoSessions)
       .where(and(eq(studyVideoSessions.userId, userId), eq(studyVideoSessions.phase, "watching"))).for("update");
     for (const item of videos) {
+      const end = videoStopTime(item, +now);
+      transitionStudyClock(planner.studyClocks ??= {}, "video:" + item.id, end, undefined, videoLegacySpan(item, end));
       const activeSeconds = item.sourceMode === "external" ? externalVideoElapsed(item, +now) : item.activeSeconds;
       const completedBlocks = Math.max(item.completedBlocks, Math.floor(activeSeconds / videoBlockSeconds));
       await awardVideoBlocks(tx, item, completedBlocks);

@@ -7,7 +7,7 @@ import { ArrowLeft, BookOpen, CalendarDays, CheckSquare, Coffee, Moon, Sparkles,
 import { Link } from "wouter";
 import { plannerToday, plannerWeekday, shiftPlannerDay } from "@shared/studyPlanner";
 import { Button } from "@/components/ui/button";
-import { minutesLabel, money } from "@/lib/study";
+import { studyDurationLabel, money } from "@/lib/study";
 import { trpc } from "@/lib/trpc";
 
 const timeZone = "Africa/Cairo";
@@ -75,7 +75,7 @@ export default function Welcome() {
         : <>
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
             {[
-              { label: "وقت المذاكرة", value: minutesLabel(totals.minutes), Icon: Timer },
+              { label: "وقت المذاكرة", value: studyDurationLabel(totals.minutes), Icon: Timer },
               { label: "دروس مكتملة", value: money.format(totals.lessons), Icon: BookOpen },
               { label: "مهام مكتملة", value: money.format(totals.tasks), Icon: CheckSquare },
               { label: "جلسات بومودورو", value: money.format(totals.sessions), Icon: Coffee },
@@ -88,7 +88,7 @@ export default function Welcome() {
             {days.map(day => <li key={day.day} className="grid gap-2 py-3 sm:grid-cols-[11rem_1fr_10rem] sm:items-center">
               <time dateTime={day.day} className="text-sm font-medium">{recapDate.format(dateAtNoon(day.day))}</time>
               <progress className="h-2 w-full accent-primary" value={day.minutes} max={max} aria-label="وقت المذاكرة" />
-              <span className="text-sm text-muted-foreground">{minutesLabel(day.minutes)} · {money.format(day.lessons)} درس · {money.format(day.tasks)} مهمة</span>
+              <span className="text-sm text-muted-foreground">{studyDurationLabel(day.minutes)} · {money.format(day.lessons)} درس · {money.format(day.tasks)} مهمة</span>
             </li>)}
           </ul>}
         </>}
@@ -106,7 +106,7 @@ export default function Welcome() {
         ? `اشتغلت في ${money.format(activeDays)} من ٧ أيام الأسبوع ده. خد راحتك النهارده وابدأ السبت بخطوة تقدر تكمّلها.`
         : "السبت بداية جديدة. اختار درس واحد أو مهمة صغيرة تبدأ بيها."}</p>
       {bestDay.minutes > 0 && <p className="rounded-xl border bg-background/60 p-3 text-sm">
-        أكتر يوم ذاكرت فيه كان <strong>{recapDate.format(dateAtNoon(bestDay.day))}</strong> · {minutesLabel(bestDay.minutes)}. لو كان الوقت ده مناسب لك، جرّب تحجز وقت شبهه الأسبوع الجاي.
+        أكتر يوم ذاكرت فيه كان <strong>{recapDate.format(dateAtNoon(bestDay.day))}</strong> · {studyDurationLabel(bestDay.minutes)}. لو كان الوقت ده مناسب لك، جرّب تحجز وقت شبهه الأسبوع الجاي.
       </p>}
       <p className="text-sm">ابدأ يوم {recapDate.format(dateAtNoon(nextWeekStart))} بجلسة تركيز ٢٥ دقيقة أو بمهمة واحدة من جدولك.</p>
       <div className="flex flex-wrap gap-2">

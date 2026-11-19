@@ -190,7 +190,7 @@ export default function ExtensionStudySync() {
         grants.delete(sessionId);
         void Promise.all([
           utils.video.invalidate(), utils.planner.studyBreak.invalidate(),
-          utils.analytics.overview.invalidate(), utils.dashboard.summary.invalidate(), utils.coins.ledger.invalidate(),
+          utils.analytics.overview.invalidate(), utils.dashboard.summary.invalidate(), utils.dashboard.welcome.invalidate(), utils.coins.ledger.invalidate(),
         ]);
         return;
       }

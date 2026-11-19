@@ -5,7 +5,7 @@ import { useState } from "react";
 import { PageHeader, EmptyState } from "@/components/PageHeader";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { money, minutesLabel, errorText } from "@/lib/study";
+import { money, minutesLabel, studyDurationLabel, errorText } from "@/lib/study";
 import { trpc } from "@/lib/trpc";
 import { Award, BarChart3, BookOpen, BrainCircuit, CheckSquare, CircleDollarSign, Timer } from "lucide-react";
 const scoreFormat = new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 1 });
@@ -96,7 +96,7 @@ function Overview() {
         <Icon className="size-5 shrink-0 text-primary" /><div>
           <p className="text-xs text-muted-foreground">{label}</p>
           <p className="text-lg font-bold">{key === "studyMinutes"
-            ? minutesLabel(Number(data.metrics[key] ?? 0)) : key === "averageExamScore"
+            ? studyDurationLabel(Number(data.metrics[key] ?? 0)) : key === "averageExamScore"
               ? data.comprehension.length ? percent(Number(data.metrics.averageExamScore)) : "—"
               : money.format(Number(data.metrics[key] ?? 0))}</p>
         </div>
@@ -110,7 +110,7 @@ function Overview() {
       {daily.slice(0, limit).map(day => <article key={String(day.day)} className="space-y-2 rounded-xl border p-3">
         <div className="flex flex-wrap justify-between gap-2">
           <time className="font-bold">{new Intl.DateTimeFormat("ar-EG", { dateStyle: "full" }).format(new Date(String(day.day).slice(0, 10) + "T12:00:00"))}</time>
-          <span className="font-bold text-primary">{minutesLabel(Number(day.minutes))}</span>
+          <span className="font-bold text-primary">{studyDurationLabel(Number(day.minutes))}</span>
         </div>
         <progress className="h-2 w-full accent-primary" aria-label="وقت المذاكرة" value={Number(day.minutes)} max={max} />
         <DailyStudySessions sessions={day.sessions ?? []} overlap={day.overlapMinutes ?? 0} total={Number(day.minutes)} />
@@ -138,13 +138,13 @@ function DailyStudySessions({ sessions, overlap, total }: {
     <div className="mt-3 space-y-2">
       <p>الإجمالي {money.format(Math.round(total))} دقيقة · التداخل المخصوم {money.format(Math.round(overlap))} دقيقة</p>
       {sessions.map(session => <div key={session.id} className="flex flex-wrap items-center justify-between gap-2 border-t pt-2">
-        <span>{session.kind === "video_block" ? "فيديو مذاكرة" : session.kind === "pomodoro_complete" ? "بومودورو" : "مذاكرة"} · {clock.format(new Date(session.at))} · {money.format(session.minutes)} دقيقة</span>
+        <span>{session.kind === "video_block" ? "فيديو مذاكرة" : session.kind === "pomodoro_complete" || session.kind === "pomodoro_running" ? "بومودورو" : "مذاكرة"} · {clock.format(new Date(session.at))} · {studyDurationLabel(session.minutes)}</span>
         {session.kind === "pomodoro_complete" && <form key={session.minutes} className="flex items-center gap-2" onSubmit={event => {
           event.preventDefault();
           const minutes = Number(new FormData(event.currentTarget).get("minutes"));
           correction.mutate({ eventId: session.id, minutes });
         }}>
-          <input name="minutes" type="number" min={1} max={720} required defaultValue={session.minutes} aria-label="مدة جلسة البومودورو بالدقائق" className="w-20 rounded-md border bg-background p-1" />
+          <input name="minutes" type="number" min={1} max={720} required defaultValue={Math.max(1, Math.round(session.minutes))} aria-label="مدة جلسة البومودورو بالدقائق" className="w-20 rounded-md border bg-background p-1" />
           <Button size="sm" variant="outline" disabled={correction.isPending}>عدّل</Button>
         </form>}
       </div>)}

@@ -50,7 +50,8 @@ export type PlannerState = {
   studySessions?: PlannedStudy[];
   studyHistory?: { at: number; changes: { id: string; before: PlannedStudy | null; after: PlannedStudy | null }[]; reverted?: boolean }[];
   completedYearReviews?: string[];
-  studyTotalBaseline?: { minutes: number; throughEventId: number };
+  studyTotalBaseline?: { minutes: number; throughEventId: number; recordedAt?: number };
+  studyClocks?: Record<string, import("./studyClock.js").StudyClock>;
   activeBreak?: { startedAt: number; targetAt: number };
   breakMilliseconds?: Record<string, number>;
   sleepLogs?: Record<string, import("./sleep.js").SleepLog>;
