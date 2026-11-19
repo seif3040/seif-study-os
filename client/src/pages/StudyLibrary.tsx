@@ -1,3 +1,6 @@
+import MistakeExam from "@/components/MistakeExam";
+import { printBooklet, readBooklets, type Booklet } from "@/lib/mistakeBooklet";
+import { useAuth } from "@/_core/hooks/useAuth";
 import MistakeQuestionForm from "@/components/MistakeQuestionForm";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import type { StudyResources } from "@shared/studyResources";
@@ -5,7 +8,7 @@ import { PlatformLink } from "@/components/PlatformWorkspace";
 import { safeStudyUrl } from "@/lib/videoSources";
 import ActionDialog from "@/components/ActionDialog";
 import { useState } from "react";
-import { BookOpen, ClipboardList, CalendarDays, Pencil, Trash2 } from "lucide-react";
+import { BookOpen, ClipboardList, CalendarDays, Pencil, Trash2, Printer, FileCheck, GraduationCap } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,8 +73,9 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
   const [backlogMode, setBacklogMode] = useState<BookBacklogMode>("automatic");
   const [branchThrough, setBranchThrough] = useState<Record<string, number>>({});
   const [manualBacklog, setManualBacklog] = useState<number[]>([]);
-  const [response, setResponse] = useState("");
-  const [show, setShow] = useState(false);
+  const [examMode, setExamMode] = useState<"online" | "paper">();
+  const { user } = useAuth();
+  const bookletKey = "seif-mistake-booklets-" + user?.id;
   const change = trpc.planner.saveStudyResource.useMutation({
     onSuccess: async (_, entry) => {
       await Promise.all([utils.planner.list.invalidate(), utils.tasks.list.invalidate(), utils.dashboard.summary.invalidate(), utils.calendar.list.invalidate(), utils.coins.ledger.invalidate()]);
@@ -79,7 +83,7 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
       if (entry.type === "homework") closeHomework();
       if (entry.type === "mistake") setMistakeForm(undefined);
       if (entry.type === "deleteMistake") setDeleteQuestion(undefined);
-      setShow(false); setResponse(""); toast.success(entry.type === "deleteMistake" ? "السؤال اتمسح." : "اتحفظ.");
+      toast.success(entry.type === "deleteMistake" ? "السؤال اتمسح." : "اتحفظ.");
     },
     onError: error => toast.error(errorText(error)),
   });
@@ -97,7 +101,22 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
   const branches = Array.from(new Map(items.flatMap(row => row.chapter ? [[row.chapter.id, row.chapter] as const] : [])).values());
   const visibleLessons = new Set(items.map(row => row.lesson?.id));
   const questions = resources?.mistakes ?? [];
-  const due = questions.find(item => item.answer && item.due <= plannerToday());
+  function exportMistakes() {
+    const booklet: Booklet = {
+      code: crypto.randomUUID().slice(0, 8).toUpperCase(),
+      date: plannerToday(),
+      questions: questions.map(({ id, subjectId, lessonId, question, kind, options, answer }) =>
+        ({ id, subjectId, lessonId, question, kind, options, answer })),
+    };
+    try {
+      localStorage.setItem(bookletKey, JSON.stringify([booklet, ...readBooklets(bookletKey)]));
+    } catch {
+      toast.error("مساحة المتصفح مش كفاية لحفظ نسخة الملزمة للتصحيح.");
+      return;
+    }
+    toast.info("اختار حفظ كـ PDF من نافذة الطباعة.");
+    printBooklet(booklet);
+  }
   const attendanceRows = attendanceLessons ? rows.filter(row => row.lesson && attendanceLessons.includes(row.lesson.id)) : [];
   const homeworkSubjectId = homeworkKind === "book" ? homeworkBook?.subjectId
     : attendanceRows[0]?.subject.id ?? homeworkSubject;
@@ -175,7 +194,13 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
     {!attendanceLessons && <PageHeader title={section === "الكتب" ? "كتبي" : section} description={sectionDescriptions[section]}
       action={section === "الكتب" ? { label: "كتاب جديد", onClick: () => openBook() }
         : section === "الواجبات" ? { label: "سجّل واجب درس", onClick: () => setHomeworkFormOpen(true) }
-        : section === "كشكول الأخطاء" ? { label: "ضيف سؤال", onClick: () => setMistakeForm({}) } : undefined} />}
+        : section === "كشكول الأخطاء" ? { label: "ضيف سؤال", onClick: () => setMistakeForm({}) } : undefined}>
+      {section === "كشكول الأخطاء" && <>
+        <Button variant="outline" disabled={!questions.length} onClick={() => setExamMode("online")}><GraduationCap /> ابدأ امتحان</Button>
+        <Button variant="outline" disabled={!questions.length} onClick={exportMistakes}><Printer /> صدّر ملزمة PDF</Button>
+        <Button variant="outline" onClick={() => setExamMode("paper")}><FileCheck /> صحّح ملزمة</Button>
+      </>}
+    </PageHeader>}
     {attendanceLessons && <p className="text-sm">سجّل كل واجب لوحده. اختار كتاب وصفحات، أو اكتب اسم الموقع ولينك الواجب، وبعد الحفظ ضيف الواجب اللي بعده.</p>}
     {attendanceLessons && <div className="flex flex-wrap gap-2">
       {(["الكتب", "الواجبات"] as const).map(item => <Button key={item} variant={item === tab ? "default" : "outline"} aria-pressed={item === tab} onClick={() => setAttendanceTab(item)}>{item}</Button>)}
@@ -300,25 +325,9 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
       </article>)}
       </section></div>
     </div>}
-    {tab === "كشكول الأخطاء" && <div className="grid items-start gap-4 xl:grid-cols-2">
-      <section className="surface space-y-3 p-5">
-      <h2 className="font-bold">المراجعة</h2>
-      {due ? <article className="space-y-2 rounded-lg border p-3">
-        <div className="flex items-start justify-between gap-2">
-          <h2 className="font-bold">سؤال للمراجعة</h2>
-          <Button size="icon" variant="ghost" className="text-destructive" aria-label="حذف سؤال المراجعة"
-            onClick={() => setDeleteQuestion(due)}><Trash2 /></Button>
-        </div>
-        <p className="whitespace-pre-wrap">{due.question}</p>
-        {due.kind === "choice" ? <select className={select} value={response} onChange={e => setResponse(e.target.value)} disabled={show}>
-          <option value="">اختار إجابتك</option>{due.options.map(option => <option key={option}>{option}</option>)}
-        </select> : <Textarea aria-label="إجابتك" value={response} onChange={event => setResponse(event.target.value)} disabled={show} />}
-        {show ? <><p className="whitespace-pre-wrap">الإجابة الصحيحة · {due.answer}</p>
-          {(due.kind === "essay" ? [true, false] : [response === due.answer]).map(correct => <Button key={String(correct)} size="sm" variant="outline"
-            disabled={change.isPending} onClick={() => change.mutate({ type: "check", id: due.id, correct })}>{correct ? "صح، سجّل المراجعة" : "غلط، اسألني تاني"}</Button>)}
-        </> : <Button disabled={!response.trim()} onClick={() => setShow(true)}>اعرض الإجابة</Button>}
-      </article> : <p>مفيش أسئلة مستحقة دلوقتي.</p>}
-      </section>
+    {tab === "كشكول الأخطاء" && <div>
+      {examMode && <MistakeExam questions={questions}
+        booklets={examMode === "paper" ? readBooklets(bookletKey) : undefined} onClose={() => setExamMode(undefined)} />}
       <section className="surface space-y-3 p-5">
         <h2 className="font-bold">الأسئلة المحفوظة</h2>
         {questions.length ? <ul className="max-h-[60dvh] divide-y overflow-y-auto">

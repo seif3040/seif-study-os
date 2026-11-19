@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Activity, BarChart3, BookOpen, CalendarDays, ClipboardList, Coins, FolderOpen, Gift, GraduationCap, Inbox, LibraryBig, ListTodo, NotebookPen, Plus, Settings, Sparkles, Timer, Video } from "lucide-react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -10,8 +11,8 @@ const icons = {
   "/study-library": LibraryBig, "/homework": ClipboardList, "/mistakes": NotebookPen, "/year-review": CalendarDays,
 } as const;
 
-export function PageHeader({ eyebrow, title, description, action }: {
-  eyebrow?: string; title: string; description: string; action?: { label: string; onClick: () => void };
+export function PageHeader({ eyebrow, title, description, action, children }: {
+  children?: ReactNode; eyebrow?: string; title: string; description: string; action?: { label: string; onClick: () => void };
 }) {
   const [location] = useLocation();
   const Icon = icons[location as keyof typeof icons] ?? Sparkles;
@@ -24,7 +25,10 @@ export function PageHeader({ eyebrow, title, description, action }: {
         {description && <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">{description}</p>}
       </div>
     </div>
-    {action && <Button onClick={action.onClick} className="study-interactive gap-2 self-start shadow-sm sm:self-auto"><Plus className="size-4" />{action.label}</Button>}
+    {(action || children) && <div className="flex flex-wrap gap-2">
+      {action && <Button onClick={action.onClick} className="study-interactive gap-2 self-start shadow-sm sm:self-auto"><Plus className="size-4" />{action.label}</Button>}
+      {children}
+    </div>}
   </header>;
 }
 

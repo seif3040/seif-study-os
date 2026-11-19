@@ -1,6 +1,7 @@
 import { createWorker, OEM, PSM, type Worker as OCRWorker } from "tesseract.js";
 import workerPath from "tesseract.js/dist/worker.min.js?url";
 import corePath from "tesseract.js-core/tesseract-core-lstm.wasm.js?url";
+import { cropQuestionLine, questionCardRegions } from "./questionCardRegions";
 import { questionFromText } from "@shared/questionPhoto";
 
 async function imageCanvas(source: string) {
@@ -21,7 +22,7 @@ async function imageCanvas(source: string) {
   return canvas;
 }
 
-export async function readQuestionPhoto(source: string, onProgress: (progress: number) => void) {
+export async function readQuestionPhoto(source: string, onProgress: (progress: number) => void, latinSubject = false) {
   const abort = new AbortController();
   let worker: OCRWorker | undefined;
   let timeout = 0;
@@ -33,7 +34,8 @@ export async function readQuestionPhoto(source: string, onProgress: (progress: n
 
   try {
     const image = await Promise.race([imageCanvas(source), failure]);
-    const setup = createWorker("ara+eng", OEM.LSTM_ONLY, {
+    const card = questionCardRegions(image);
+    const setup = createWorker(card && !latinSubject ? "ara" : "ara+eng", OEM.LSTM_ONLY, {
       langPath: new URL("/assets/question-ocr", window.location.origin).href,
       workerPath: new URL(workerPath, window.location.href).href,
       corePath: new URL(corePath, window.location.href).href,
@@ -49,6 +51,20 @@ export async function readQuestionPhoto(source: string, onProgress: (progress: n
       return created;
     });
     const recognizer = await Promise.race([setup, failure]);
+    if (card) {
+      await Promise.race([recognizer.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE }), failure]);
+      const read = async (region: { start: number; end: number }) => {
+        const { data } = await Promise.race([recognizer.recognize(cropQuestionLine(image, region)), failure]);
+        return data.text.replace(/\s+/g, " ").trim();
+      };
+      const question = await read(card.header);
+      const options: string[] = [];
+      for (const row of card.options) options.push(await read(row));
+      if (question && options.every(Boolean)) {
+        return { question: question.slice(0, 1500), options: options.map(option => option.slice(0, 250)),
+          answer: options[card.answer].slice(0, 250) };
+      }
+    }
     await Promise.race([recognizer.setParameters({ tessedit_pageseg_mode: PSM.AUTO }), failure]);
     const { data } = await Promise.race([recognizer.recognize(image), failure]);
     return questionFromText(data.text);

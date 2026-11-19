@@ -64,7 +64,9 @@ export default function MistakeQuestionForm({ lessons, subjects, existing, savin
     setReading(true);
     try {
       const { readQuestionPhoto } = await import("@/lib/readQuestionPhoto");
-      const result = await readQuestionPhoto(url, setReadingProgress);
+      const subjectName = subjects.find(([id]) => id === subjectId)?.[1] ?? "";
+      const latinSubject = /english|german|french|إنجليزي|انجليزي|الماني|ألماني|فرنساوي|فرنسي/i.test(subjectName);
+      const result = await readQuestionPhoto(url, setReadingProgress, latinSubject);
       if (!result.question) throw new Error("النص مش واضح في الصورة. جرّب صورة أوضح أو اكتب السؤال يدويًا.");
       setQuestion(result.question);
       setKind(result.options.length > 1 ? "choice" : "essay");
@@ -145,7 +147,15 @@ export default function MistakeQuestionForm({ lessons, subjects, existing, savin
           <Textarea required maxLength={1500} value={question} onChange={event => setQuestion(event.target.value)} />
         </label>
         {kind === "choice" && <label className="grid gap-1 text-sm">الاختيارات
-          <Textarea required maxLength={1505} placeholder="كل اختيار في سطر" value={choices} onChange={event => setChoices(event.target.value)} />
+          <Textarea required maxLength={1505} placeholder="كل اختيار في سطر" value={choices} onChange={event => {
+            const previous = choices.split("\n").map(choice => choice.trim()).filter(Boolean);
+            const next = event.target.value.split("\n").map(choice => choice.trim()).filter(Boolean);
+            setChoices(event.target.value);
+            if (answer && !next.includes(answer)) {
+              const index = previous.indexOf(answer);
+              setAnswer(index >= 0 && next.length === previous.length ? next[index] : "");
+            }
+          }} />
         </label>}
         <label className="grid gap-1 text-sm">الإجابة الصحيحة (اختياري)
           {kind === "choice" ? <select value={answer} onChange={event => setAnswer(event.target.value)} className={select}>
