@@ -1,3 +1,4 @@
+import { trpc } from "@/lib/trpc";
 import { useEffect, useRef, useState } from "react";
 import { Camera, ImagePlus, ScanText } from "lucide-react";
 import ActionDialog from "@/components/ActionDialog";
@@ -22,6 +23,7 @@ export default function MistakeQuestionForm({ lessons, subjects, existing, savin
   onSave(draft: Draft): void;
   onClose(): void;
 }) {
+  const photoReader = trpc.exams.readQuestionImage.useMutation();
   const [lessonId, setLessonId] = useState(existing?.lessonId ?? 0);
   const [subjectId, setSubjectId] = useState(existing?.subjectId ?? 0);
   const [withoutLesson, setWithoutLesson] = useState(!!existing && !existing.lessonId);
@@ -63,10 +65,19 @@ export default function MistakeQuestionForm({ lessons, subjects, existing, savin
     setReadingProgress(0);
     setReading(true);
     try {
-      const { readQuestionPhoto } = await import("@/lib/readQuestionPhoto");
-      const subjectName = subjects.find(([id]) => id === subjectId)?.[1] ?? "";
-      const latinSubject = /english|german|french|إنجليزي|انجليزي|الماني|ألماني|فرنساوي|فرنسي/i.test(subjectName);
-      const result = await readQuestionPhoto(url, setReadingProgress, latinSubject);
+      const image = new Image();
+      image.src = url;
+      await image.decode();
+      const scale = Math.min(1, 2000 / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("تعذّر تجهيز الصورة.");
+      context.fillStyle = "white";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const result = await photoReader.mutateAsync({ image: canvas.toDataURL("image/jpeg", 0.88) });
       if (!result.question) throw new Error("النص مش واضح في الصورة. جرّب صورة أوضح أو اكتب السؤال يدويًا.");
       setQuestion(result.question);
       setKind(result.options.length > 1 ? "choice" : "essay");
@@ -116,7 +127,7 @@ export default function MistakeQuestionForm({ lessons, subjects, existing, savin
         }} />
         {preview && <img src={preview} alt="صورة السؤال المختارة" className="max-h-48 w-full rounded-lg object-contain" />}
         {reading && <p role="status" className="flex items-center gap-2 text-sm"><ScanText className="size-4" />بنقرأ الصورة… {readingProgress > 0 ? readingProgress + "٪" : ""}</p>}
-        <p className="text-xs text-muted-foreground">قراءة الصورة بتتم على جهازك. راجع النص قبل الحفظ.</p>
+        <p className="text-xs text-muted-foreground">الصورة بتتبعت إلى OpenRouter لقراءتها باستخدام Gemma. راجع النص والاختيارات قبل الحفظ.</p>
       </div>
       <fieldset disabled={busy} className="space-y-3">
         {!withoutLesson && <label className="grid gap-1 text-sm">المادة<select className={select} required value={subjectId} onChange={event => { setSubjectId(Number(event.target.value)); setLessonId(0); setLookup(""); }}><option value={0}>اختار المادة</option>{subjects.map(([id, title]) => <option key={id} value={id}>{title}</option>)}</select></label>}

@@ -315,7 +315,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   const routerKey = openRouterKey();
   if (!routerKey) throw new Error("OpenRouter is not configured");
   const endpoint = "https://openrouter.ai/api/v1/chat/completions";
-  payload.model = "openrouter/free";
+  payload.model = params.model ?? "openrouter/free";
   payload.provider = { data_collection: "deny", require_parameters: true };
   const request = () => fetch(endpoint, {
     method: "POST",
