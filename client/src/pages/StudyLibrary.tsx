@@ -73,7 +73,8 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
   const [backlogMode, setBacklogMode] = useState<BookBacklogMode>("automatic");
   const [branchThrough, setBranchThrough] = useState<Record<string, number>>({});
   const [manualBacklog, setManualBacklog] = useState<number[]>([]);
-  const [examMode, setExamMode] = useState<"online" | "paper">();
+  const [examMode, setExamMode] = useState<"setup" | "online" | "paper">();
+  const [examSubject, setExamSubject] = useState("");
   const { user } = useAuth();
   const bookletKey = "seif-mistake-booklets-" + user?.id;
   const change = trpc.planner.saveStudyResource.useMutation({
@@ -101,6 +102,12 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
   const branches = Array.from(new Map(items.flatMap(row => row.chapter ? [[row.chapter.id, row.chapter] as const] : [])).values());
   const visibleLessons = new Set(items.map(row => row.lesson?.id));
   const questions = resources?.mistakes ?? [];
+  const examSubjectCounts = new Map<number, number>();
+  for (const question of questions) {
+    examSubjectCounts.set(question.subjectId, (examSubjectCounts.get(question.subjectId) ?? 0) + 1);
+  }
+  const examQuestions = examSubject === "all" ? questions
+    : questions.filter(question => String(question.subjectId) === examSubject);
   function exportMistakes() {
     const booklet: Booklet = {
       code: crypto.randomUUID().slice(0, 8).toUpperCase(),
@@ -196,7 +203,7 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
         : section === "الواجبات" ? { label: "سجّل واجب درس", onClick: () => setHomeworkFormOpen(true) }
         : section === "كشكول الأخطاء" ? { label: "ضيف سؤال", onClick: () => setMistakeForm({}) } : undefined}>
       {section === "كشكول الأخطاء" && <>
-        <Button variant="outline" disabled={!questions.length} onClick={() => setExamMode("online")}><GraduationCap /> ابدأ امتحان</Button>
+        <Button variant="outline" disabled={!questions.length} onClick={() => { setExamSubject(""); setExamMode("setup"); }}><GraduationCap /> ابدأ امتحان</Button>
         <Button variant="outline" disabled={!questions.length} onClick={exportMistakes}><Printer /> صدّر ملزمة PDF</Button>
         <Button variant="outline" onClick={() => setExamMode("paper")}><FileCheck /> صحّح ملزمة</Button>
       </>}
@@ -326,7 +333,24 @@ export default function StudyLibrary({ attendanceLessons, attendanceSourceId, se
       </section></div>
     </div>}
     {tab === "كشكول الأخطاء" && <div>
-      {examMode && <MistakeExam questions={questions}
+      {examMode === "setup" && <ActionDialog title="اختار مادة الامتحان" onClose={() => setExamMode(undefined)}>
+        <form className="space-y-4" onSubmit={event => {
+          event.preventDefault();
+          if (examQuestions.length) setExamMode("online");
+        }}>
+          <label className="block space-y-1 text-sm">
+            <span>المادة</span>
+            <select className={select} value={examSubject} onChange={event => setExamSubject(event.target.value)}>
+              <option value="" disabled>اختار المادة</option>
+              {subjects.filter(([id]) => examSubjectCounts.has(id)).map(([id, title]) =>
+                <option key={id} value={id}>{title} · {examSubjectCounts.get(id)} سؤال</option>)}
+              <option value="all">كل المواد · {questions.length} سؤال</option>
+            </select>
+          </label>
+          <Button type="submit" disabled={!examQuestions.length}>ابدأ الامتحان</Button>
+        </form>
+      </ActionDialog>}
+      {(examMode === "online" || examMode === "paper") && <MistakeExam questions={examQuestions}
         booklets={examMode === "paper" ? readBooklets(bookletKey) : undefined} onClose={() => setExamMode(undefined)} />}
       <section className="surface space-y-3 p-5">
         <h2 className="font-bold">الأسئلة المحفوظة</h2>
